@@ -1,0 +1,19 @@
+{
+  "name": "employee-app-server",
+  "version": "1.0.0",
+  "description": "Backend API for Employee Management System",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node test-health.js",
+    "test:db": "node test-db.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  }
+}
