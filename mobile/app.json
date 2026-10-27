@@ -4,7 +4,17 @@
     "slug": "ems-employee",
     "version": "1.0.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
+    "androidNavigationBar": {
+      "visible": "always",
+      "barStyle": "dark-content",
+      "backgroundColor": "#FFFFFF"
+    },
+    "androidStatusBar": {
+      "barStyle": "dark-content",
+      "backgroundColor": "transparent",
+      "translucent": true
+    },
     "android": {
       "package": "com.company.ems",
       "adaptiveIcon": {
@@ -34,7 +44,8 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to access your location to verify attendance."
         }
-      ]
+      ],
+      "expo-sharing"
     ]
   }
 }

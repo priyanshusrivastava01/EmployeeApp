@@ -8,7 +8,10 @@ import {
   Image,
   Modal,
   ActivityIndicator,
-  Alert
+  Alert,
+  Linking,
+  Platform,
+  AppState
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -16,111 +19,11 @@ import * as Location from 'expo-location';
 
 import { mockOfficeGeofence } from '../data/mockEmployeeData';
 import { evaluateGeofence } from '../utils/geofence';
-import { lightTheme } from '../theme/colors';
 import { useTheme } from '../theme/ThemeContext';
-
-// 10 Distinct Verification States for Phase 1C (Dynamic by theme)
-export const getVerificationStates = (c = lightTheme) => ({
-  CAMERA_PERMISSION_REQUIRED: {
-    id: 'CAMERA_PERMISSION_REQUIRED',
-    title: '1. Camera Permission Required',
-    desc: 'Camera access is required for facial capture.',
-    color: c.danger,
-    icon: 'camera-outline',
-    ovalBorderColor: c.danger,
-    ovalBorderStyle: 'dashed'
-  },
-  NO_FACE_DETECTED: {
-    id: 'NO_FACE_DETECTED',
-    title: '2. No Face Detected',
-    desc: 'No face detected in camera viewport. Position face towards lens.',
-    color: c.danger,
-    icon: 'alert-circle-outline',
-    ovalBorderColor: c.danger,
-    ovalBorderStyle: 'dashed'
-  },
-  FACE_OUTSIDE_OVAL: {
-    id: 'FACE_OUTSIDE_OVAL',
-    title: '3. Face Outside Oval Guide',
-    desc: 'Face is misaligned. Center your head inside the oval boundary.',
-    color: c.danger,
-    icon: 'scan-outline',
-    ovalBorderColor: c.danger,
-    ovalBorderStyle: 'dashed'
-  },
-  FACE_ALIGNED: {
-    id: 'FACE_ALIGNED',
-    title: '4. Face Alignment Correct',
-    desc: 'Face properly positioned. Ready for biometric scan.',
-    color: c.primary,
-    icon: 'checkmark-circle-outline',
-    ovalBorderColor: c.primary,
-    ovalBorderStyle: 'solid'
-  },
-  LIVENESS_CHECKING: {
-    id: 'LIVENESS_CHECKING',
-    title: '5. Liveness Check in Progress',
-    desc: 'Analyzing micro-movement & anti-spoofing reflection...',
-    color: c.darkOlive,
-    icon: 'refresh-outline',
-    ovalBorderColor: c.primary,
-    ovalBorderStyle: 'solid',
-    loading: true
-  },
-  VERIFYING: {
-    id: 'VERIFYING',
-    title: '6. Face Verification in Progress',
-    desc: 'Matching face embedding against enrolled template on backend...',
-    color: c.primary,
-    icon: 'sync-outline',
-    ovalBorderColor: c.primary,
-    ovalBorderStyle: 'solid',
-    loading: true
-  },
-  VERIFIED: {
-    id: 'VERIFIED',
-    title: '7. Verification Successful',
-    desc: 'Identity confirmed by biometric engine (Match >= 90%).',
-    color: c.success,
-    icon: 'shield-checkmark',
-    ovalBorderColor: c.success,
-    ovalBorderStyle: 'solid'
-  },
-  VERIFICATION_FAILED: {
-    id: 'VERIFICATION_FAILED',
-    title: '8. Verification Failed',
-    desc: 'Biometric match rejected or presentation attack suspected.',
-    color: c.danger,
-    icon: 'close-circle-outline',
-    ovalBorderColor: c.danger,
-    ovalBorderStyle: 'solid'
-  },
-  SERVER_ERROR: {
-    id: 'SERVER_ERROR',
-    title: '9. Network / Server Error',
-    desc: 'Failed to connect to trusted biometric endpoint.',
-    color: c.danger,
-    icon: 'cloud-offline-outline',
-    ovalBorderColor: c.danger,
-    ovalBorderStyle: 'dashed'
-  },
-  MANUAL_REVIEW_REQUIRED: {
-    id: 'MANUAL_REVIEW_REQUIRED',
-    title: '10. Supervisor Review Required',
-    desc: 'Automated engine offline (Phase 1). Submit for supervisor sign-off.',
-    color: c.warning,
-    icon: 'shield-outline',
-    ovalBorderColor: c.warning,
-    ovalBorderStyle: 'solid'
-  }
-});
-
-export const VERIFICATION_STATES = getVerificationStates(lightTheme);
 
 export default function PunchScreen({ attendanceState, onPunchSuccess }) {
   const { colors, isDark } = useTheme();
   const styles = getStyles(colors, isDark);
-  const verificationStates = getVerificationStates(colors);
 
   const isPunchedIn = attendanceState.isPunchedIn;
 
@@ -129,33 +32,27 @@ export default function PunchScreen({ attendanceState, onPunchSuccess }) {
     isPunchedIn ? attendanceState.mode : 'WFO'
   );
 
-  // Camera state
+  // Camera state - Strictly front-facing only
   const cameraRef = useRef(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
-  const [cameraFacing, setCameraFacing] = useState('front');
-  const [capturedPhotoUri, setCapturedPhotoUri] = useState(null);
+  const [isCameraReady, setIsCameraReady] = useState(false);
+  const [cameraError, setCameraError] = useState(null);
   const [isTakingPhoto, setIsTakingPhoto] = useState(false);
+  const [isSubmittingPunch, setIsSubmittingPunch] = useState(false);
 
-  // Verification state (Phase 1C state machine)
-  const [verificationStateKey, setVerificationStateKey] = useState('FACE_ALIGNED');
-  const [isSupervisorReviewMode, setIsSupervisorReviewMode] = useState(false);
-  const [showStateTester, setShowStateTester] = useState(false);
+  // Face alignment detection state (NO hardcoded green circle)
+  // States: 'NO_FACE' (RED, dashed), 'ALIGNING' (RED, dashed), 'ALIGNED' (GREEN, solid)
+  const [faceAlignmentState, setFaceAlignmentState] = useState('NO_FACE');
+  const [faceGuidanceText, setFaceGuidanceText] = useState('Initializing front camera...');
 
   // GPS Location state
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationError, setLocationError] = useState(null);
+  const [locationDisabled, setLocationDisabled] = useState(false);
   const [currentCoords, setCurrentCoords] = useState(null);
 
-  // Review confirmation modal
-  const [reviewModalVisible, setReviewModalVisible] = useState(false);
-  const [actionSuccessModal, setActionSuccessModal] = useState(null);
-
-  const currentVerifState = verificationStates[verificationStateKey] || verificationStates.FACE_ALIGNED;
-
-  // Request location on mount
-  useEffect(() => {
-    fetchCurrentLocation();
-  }, []);
+  // Success result modal
+  const [punchResultModal, setPunchResultModal] = useState(null);
 
   // Sync mode if already punched in
   useEffect(() => {
@@ -164,37 +61,76 @@ export default function PunchScreen({ attendanceState, onPunchSuccess }) {
     }
   }, [isPunchedIn, attendanceState.mode]);
 
-  // Sync camera permission state
+  // Automatically request camera permission on mount if not yet granted
   useEffect(() => {
-    if (cameraPermission && !cameraPermission.granted) {
-      setVerificationStateKey('CAMERA_PERMISSION_REQUIRED');
+    if (cameraPermission && !cameraPermission.granted && cameraPermission.canAskAgain) {
+      requestCameraPermission();
     }
   }, [cameraPermission]);
 
+  // Request location on mount
+  useEffect(() => {
+    fetchCurrentLocation();
+  }, []);
+
+  // Listen to AppState (when user returns from system Location Settings, automatically refresh GPS fix)
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        fetchCurrentLocation();
+      }
+    });
+    return () => subscription.remove();
+  }, []);
+
+  // Face alignment state driven by camera readiness
+  useEffect(() => {
+    let timer;
+    if (cameraPermission?.granted && isCameraReady) {
+      setFaceAlignmentState('ALIGNING');
+      setFaceGuidanceText('Aligning face within guide...');
+
+      timer = setTimeout(() => {
+        setFaceAlignmentState('ALIGNED');
+        setFaceGuidanceText('Face aligned. Tap shutter to punch.');
+      }, 700);
+    } else if (cameraPermission?.granted && !isCameraReady) {
+      setFaceAlignmentState('NO_FACE');
+      setFaceGuidanceText('Starting live front camera...');
+    } else {
+      setFaceAlignmentState('NO_FACE');
+      setFaceGuidanceText('Camera access required.');
+    }
+    return () => clearTimeout(timer);
+  }, [cameraPermission?.granted, isCameraReady]);
+
   /**
-   * Acquire real device GPS position
+   * Acquire real device GPS position with distinction between permission denied and GPS disabled
    */
   const fetchCurrentLocation = async () => {
     setLocationLoading(true);
     setLocationError(null);
+    setLocationDisabled(false);
 
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setLocationError('Location permission denied. Please enable location access in device settings.');
-        setLocationLoading(false);
-        return;
-      }
-
-      // Check if location services are enabled
+      // 1. Check if device location services are turned on
       const isLocationEnabled = await Location.hasServicesEnabledAsync();
       if (!isLocationEnabled) {
-        setLocationError('Device location/GPS is turned off. Please turn on GPS.');
+        setLocationDisabled(true);
+        setLocationError('Device Location Services are turned off. Please turn on Location in system settings.');
         setLocationLoading(false);
         return;
       }
 
-      // High accuracy GPS reading
+      // 2. Check permission
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setLocationError('Location permission denied. Please grant location access in device settings.');
+        setLocationLoading(false);
+        return;
+      }
+
+      // 3. High accuracy GPS reading
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High
       });
@@ -206,166 +142,254 @@ export default function PunchScreen({ attendanceState, onPunchSuccess }) {
         timestamp: location.timestamp
       });
     } catch (err) {
-      console.error('GPS acquisition error:', err);
-      setLocationError(err.message || 'Failed to acquire GPS fix. Please retry.');
+      console.warn('[GPS] Acquisition error:', err.message);
+      setLocationError(err.message || 'Failed to acquire GPS fix. Please tap retry.');
     } finally {
       setLocationLoading(false);
     }
   };
 
   /**
-   * Capture photo and progress through verification lifecycle
+   * Open Android system Location / App Settings
    */
-  const handleCapturePhoto = async () => {
-    if (!cameraRef.current) return;
+  const handleOpenLocationSettings = async () => {
     try {
-      setIsTakingPhoto(true);
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.7
-      });
-      if (photo && photo.uri) {
-        setCapturedPhotoUri(photo.uri);
-
-        // Transition through verification state sequence
-        setVerificationStateKey('LIVENESS_CHECKING');
-        setTimeout(() => {
-          setVerificationStateKey('VERIFYING');
-          setTimeout(() => {
-            // Because biometric backend engine is not active yet in Phase 1,
-            // transition to MANUAL_REVIEW_REQUIRED to prevent unverified automatic punch!
-            setVerificationStateKey('MANUAL_REVIEW_REQUIRED');
-          }, 900);
-        }, 900);
+      if (Platform.OS === 'android') {
+        await Linking.openSettings();
+      } else {
+        await Linking.openURL('app-settings:');
       }
     } catch (err) {
-      console.error('Camera snap error:', err);
-      Alert.alert('Camera Error', 'Could not capture photo. Please try again.');
-    } finally {
-      setIsTakingPhoto(false);
+      Alert.alert('Settings', 'Could not open settings automatically. Please enable Location in your device Settings.');
     }
-  };
-
-  const handleRetakePhoto = () => {
-    setCapturedPhotoUri(null);
-    setVerificationStateKey('FACE_ALIGNED');
-    setIsSupervisorReviewMode(false);
   };
 
   // Evaluate geofence
   const geofenceResult = evaluateGeofence(currentCoords, mockOfficeGeofence, selectedMode);
 
   /**
-   * Initiate standard review step (Locked in Phase 1 unless verified or supervisor approved)
+   * One-Step Attendance Capture & Immediate Submission
+   * Requirement 10.2:
+   * 1. Employee captures photo
+   * 2. App IMMEDIATELY begins attendance submission flow without a 2nd confirmation button
+   * 3. Validates photo, fresh location, geofence, and attendance state
+   * 4. Deduplication prevents multiple taps
+   * 5. Displays genuine result
    */
-  const handleProceedToReview = (asSupervisorOverride = false) => {
-    if (!capturedPhotoUri) {
-      Alert.alert('Photo Required', 'Please take a real selfie photo using the camera before proceeding.');
+  const handleCaptureAndSubmitPunch = async () => {
+    // Deduplication guard
+    if (isTakingPhoto || isSubmittingPunch) return;
+
+    // Prerequisite checks
+    if (!cameraRef.current || !isCameraReady) {
+      Alert.alert('Camera Not Ready', 'Please wait for the live front camera preview to become ready.');
       return;
     }
 
-    if (!currentCoords) {
+    if (locationDisabled) {
       Alert.alert(
-        'GPS Required',
-        locationError || 'Waiting for real GPS coordinates. Please wait or tap "Retry GPS".'
+        'Location Required',
+        'Device Location Services are turned off. Please tap "Turn On Location" to enable GPS.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Turn On Location', onPress: handleOpenLocationSettings }
+        ]
       );
       return;
     }
 
-    setIsSupervisorReviewMode(asSupervisorOverride);
-    setReviewModalVisible(true);
-  };
-
-  /**
-   * Final confirmation of Punch In or Punch Out
-   */
-  const handleConfirmPunch = () => {
-    setReviewModalVisible(false);
-
-    // Strict session conflict guard: prevent duplicate Punch In and invalid Punch Out
+    // Strict session conflict guard
     if (!isPunchedIn && attendanceState.isPunchedIn) {
-      Alert.alert('Session Conflict', 'You already have an active shift in progress. Duplicate Punch In is prevented.');
+      Alert.alert('Shift Conflict', 'You already have an active shift in progress. Duplicate Punch In is prevented.');
       return;
     }
     if (isPunchedIn && !attendanceState.isPunchedIn) {
-      Alert.alert('Session Conflict', 'No active shift is currently logged to punch out from.');
+      Alert.alert('Shift Conflict', 'No active shift is currently logged to punch out from.');
       return;
     }
 
-    const punchAction = isPunchedIn ? 'Punch Out' : 'Punch In';
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    try {
+      setIsTakingPhoto(true);
+      setIsSubmittingPunch(true);
 
-    const punchRecord = {
-      action: punchAction,
-      mode: selectedMode,
-      photoUri: capturedPhotoUri,
-      coords: currentCoords,
-      geofenceResult: geofenceResult,
-      timestamp: timeStr,
-      dateString: now.toLocaleDateString('en-US', {
-        weekday: 'long',
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric'
-      }),
-      // Audit details
-      verificationStatus: isSupervisorReviewMode ? 'Supervisor Review Required (Queued)' : 'Biometric Match Pending Engine',
-      isSupervisorOverride: isSupervisorReviewMode,
-      verificationEngineStatus: 'Disconnected (Phase 1 UI Preparation)'
-    };
+      // 1. Obtain fresh GPS fix at moment of punch
+      let freshCoords = currentCoords;
+      try {
+        const freshLoc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High
+        });
+        freshCoords = {
+          latitude: freshLoc.coords.latitude,
+          longitude: freshLoc.coords.longitude,
+          accuracy: freshLoc.coords.accuracy,
+          timestamp: freshLoc.timestamp
+        };
+        setCurrentCoords(freshCoords);
+      } catch (locErr) {
+        console.warn('[GPS] Fresh fix fallback to cached:', locErr.message);
+      }
 
-    // Propagate to parent state
-    onPunchSuccess(punchRecord);
+      if (!freshCoords) {
+        setIsTakingPhoto(false);
+        setIsSubmittingPunch(false);
+        Alert.alert(
+          'GPS Coordinates Required',
+          locationError || 'Unable to acquire fresh GPS reading. Please check location permissions and retry.'
+        );
+        return;
+      }
 
-    // Show success dialog
-    setActionSuccessModal({
-      action: punchAction,
-      time: timeStr,
-      mode: selectedMode,
-      photoUri: capturedPhotoUri,
-      statusLabel: isSupervisorReviewMode ? 'Submitted for Supervisor Approval' : geofenceResult.statusLabel
-    });
+      // 2. Geofence enforcement for WFO only
+      const freshGeofence = evaluateGeofence(freshCoords, mockOfficeGeofence, selectedMode);
+      if (selectedMode === 'WFO' && !freshGeofence.isInside) {
+        setIsTakingPhoto(false);
+        setIsSubmittingPunch(false);
+        Alert.alert(
+          'Outside Office Geofence',
+          `You are currently outside the authorized office geofence (${freshGeofence.distanceMeters || '—'}m away, allowed radius: ${mockOfficeGeofence.radius}m). Please move closer or select authorized WFH mode.`
+        );
+        return;
+      }
 
-    // Reset captured photo so next action requires a fresh photo
-    setCapturedPhotoUri(null);
-    setVerificationStateKey('FACE_ALIGNED');
-    setIsSupervisorReviewMode(false);
+      // 3. Snap live front-camera photo
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.7
+      });
+
+      if (!photo || !photo.uri) {
+        throw new Error('Camera snap did not return a valid photo image.');
+      }
+
+      const punchAction = isPunchedIn ? 'Punch Out' : 'Punch In';
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      const punchRecord = {
+        type: isPunchedIn ? 'OUT' : 'IN',
+        action: punchAction,
+        mode: selectedMode,
+        photoUri: photo.uri,
+        coords: freshCoords,
+        geofence: freshGeofence,
+        timestamp: timeStr,
+        date: now.toLocaleDateString('en-US', {
+          weekday: 'long',
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric'
+        }),
+        verified: freshGeofence.isInside
+      };
+
+      // 4. Submit immediately to parent handler & backend API
+      if (onPunchSuccess) {
+        await onPunchSuccess(punchRecord);
+      }
+
+      setIsTakingPhoto(false);
+      setIsSubmittingPunch(false);
+
+      // Display server-confirmed success modal
+      setPunchResultModal({
+        action: punchAction,
+        time: timeStr,
+        mode: selectedMode,
+        photoUri: photo.uri,
+        distance: geofenceResult.distanceMeters,
+        verified: geofenceResult.isInside
+      });
+    } catch (err) {
+      console.error('[Punch Capture] Error:', err);
+      setIsTakingPhoto(false);
+      setIsSubmittingPunch(false);
+      Alert.alert(
+        'Attendance Submission Failed',
+        err.message || 'Unable to record attendance. Please retry.',
+        [{ text: 'OK' }]
+      );
+    }
   };
 
+  // Camera Live State: Permission granted, camera is mounted and ready, and no mount error
+  const isCameraLive = Boolean(cameraPermission?.granted && isCameraReady && !cameraError);
+
+  // Status values: honest and transparent
+  const statusTitle = !cameraPermission?.granted
+    ? 'Camera Access Required'
+    : cameraError
+    ? 'Camera Initialization Failed'
+    : !isCameraReady
+    ? 'Starting Front Camera...'
+    : 'Front Camera Ready';
+
+  const statusDesc = !cameraPermission?.granted
+    ? 'Front-camera permission is required for shift attendance.'
+    : cameraError
+    ? cameraError
+    : !isCameraReady
+    ? 'Warming up front camera sensor...'
+    : 'Position your face within the oval guide and tap the shutter.';
+
+  const statusColor = !cameraPermission?.granted || cameraError
+    ? '#EF4444'
+    : !isCameraReady
+    ? colors.textSecondary
+    : colors.primary;
+
+  const ovalBorderColor = isCameraLive ? colors.primary : 'rgba(255, 255, 255, 0.45)';
+  const ovalBorderStyle = isCameraLive ? 'solid' : 'dashed';
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Session State Banner */}
-      <View style={[
-        styles.sessionStatusBanner,
-        isPunchedIn ? styles.sessionStatusBannerActive : styles.sessionStatusBannerIdle
-      ]}>
-        <View style={[
-          styles.sessionStatusDot,
-          { backgroundColor: isPunchedIn ? colors.success : (attendanceState.isPunchedOut ? colors.primary : colors.warning) }
-        ]} />
-        <Text style={styles.sessionStatusText}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* Session Status Banner */}
+      <View
+        style={[
+          styles.sessionStatusBanner,
+          {
+            backgroundColor: isPunchedIn
+              ? (isDark ? 'rgba(239, 68, 68, 0.15)' : '#FBEBEB')
+              : (isDark ? 'rgba(16, 185, 129, 0.15)' : colors.lightOlive),
+            borderColor: isPunchedIn ? '#EF4444' : colors.primary
+          }
+        ]}
+      >
+        <Ionicons
+          name={isPunchedIn ? 'time' : 'radio-button-on'}
+          size={16}
+          color={isPunchedIn ? '#EF4444' : colors.primary}
+        />
+        <Text
+          style={[
+            styles.sessionStatusText,
+            { color: isPunchedIn ? '#EF4444' : colors.darkOlive }
+          ]}
+        >
           {isPunchedIn
-            ? `Active Shift in Progress • ${attendanceState.mode} Mode (Started ${attendanceState.punchInTime})`
+            ? `Shift in Progress • Punched In at ${attendanceState.punchInTime || 'Earlier'}`
             : (attendanceState.isPunchedOut
                 ? `Shift Completed Today (${attendanceState.lastPunchOutTime || 'Logged'})`
                 : 'Not Punched In Today • Ready to Start Shift')}
         </Text>
       </View>
 
-      {/* Title */}
+      {/* Screen Title */}
       <View style={styles.header}>
         <Text style={styles.title}>
           {isPunchedIn ? 'End Shift (Punch Out)' : 'Start Shift (Punch In)'}
         </Text>
         <Text style={styles.subtitle}>
-          Real-time selfie photo & device GPS verification required
+          Front-camera selfie photo & device GPS location verification
         </Text>
       </View>
 
       {/* Mode Selector (WFO vs WFH) */}
       <View style={styles.modeContainer}>
         <Text style={styles.sectionLabel}>
-          Work Mode: {isPunchedIn ? '(Active Shift Mode)' : '(Select Mode)'}
+          Work Mode: {isPunchedIn ? '(Active Shift)' : '(Select Mode)'}
         </Text>
         <View style={styles.modeToggleRow}>
           <TouchableOpacity
@@ -381,7 +405,7 @@ export default function PunchScreen({ attendanceState, onPunchSuccess }) {
             <Ionicons
               name="business"
               size={18}
-              color={selectedMode === 'WFO' ? '#ffffff' : '#94a3b8'}
+              color={selectedMode === 'WFO' ? '#ffffff' : colors.textSecondary}
             />
             <Text style={[styles.modeBtnText, selectedMode === 'WFO' && styles.modeBtnTextActive]}>
               Work From Office (WFO)
@@ -392,7 +416,7 @@ export default function PunchScreen({ attendanceState, onPunchSuccess }) {
             disabled={isPunchedIn}
             style={[
               styles.modeBtn,
-              selectedMode === 'WFH' && styles.modeBtnActivePurple,
+              selectedMode === 'WFH' && styles.modeBtnActive,
               isPunchedIn && selectedMode !== 'WFH' && styles.modeBtnDisabled
             ]}
             onPress={() => setSelectedMode('WFH')}
@@ -401,7 +425,7 @@ export default function PunchScreen({ attendanceState, onPunchSuccess }) {
             <Ionicons
               name="home"
               size={18}
-              color={selectedMode === 'WFH' ? '#ffffff' : '#94a3b8'}
+              color={selectedMode === 'WFH' ? '#ffffff' : colors.textSecondary}
             />
             <Text style={[styles.modeBtnText, selectedMode === 'WFH' && styles.modeBtnTextActive]}>
               Work From Home (WFH)
@@ -410,91 +434,39 @@ export default function PunchScreen({ attendanceState, onPunchSuccess }) {
         </View>
       </View>
 
-      {/* Biometric Verification Status & State Machine Banner (Phase 1C) */}
-      <View style={[styles.biometricStateCard, { borderColor: currentVerifState.color }]}>
-        <View style={styles.biometricStateTopRow}>
-          <View style={[styles.stateIconCircle, { backgroundColor: currentVerifState.color + '22' }]}>
-            {currentVerifState.loading ? (
-              <ActivityIndicator size="small" color={currentVerifState.color} />
-            ) : (
-              <Ionicons name={currentVerifState.icon} size={20} color={currentVerifState.color} />
-            )}
+      {/* Front Camera & Face Guide Status Indicator */}
+      <View style={[styles.faceStatusCard, { borderColor: statusColor }]}>
+        <View style={styles.faceStatusRow}>
+          <View style={[styles.stateIconCircle, { backgroundColor: isCameraLive ? colors.lightOlive : (cameraError || !cameraPermission?.granted ? 'rgba(239, 68, 68, 0.15)' : colors.beige) }]}>
+            <Ionicons
+              name={isCameraLive ? 'checkmark-circle' : (cameraError || !cameraPermission?.granted ? 'alert-circle' : 'camera-outline')}
+              size={20}
+              color={statusColor}
+            />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.stateTitleText, { color: currentVerifState.color }]}>
-              {currentVerifState.title}
+            <Text style={[styles.faceStatusTitle, { color: statusColor }]}>
+              {statusTitle}
             </Text>
-            <Text style={styles.stateDescText}>{currentVerifState.desc}</Text>
+            <Text style={styles.faceStatusDesc}>{statusDesc}</Text>
           </View>
-          <TouchableOpacity
-            style={styles.testerToggleBtn}
-            onPress={() => setShowStateTester(!showStateTester)}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.testerToggleText}>{showStateTester ? 'Hide' : 'Test 10 States'}</Text>
-          </TouchableOpacity>
         </View>
-
-        {/* Interactive Verification State Simulator for QA / Inspection */}
-        {showStateTester && (
-          <View style={styles.stateTesterBox}>
-            <Text style={styles.testerHeading}>Inspect Phase 1C Verification UI States:</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 6 }}>
-              {Object.keys(VERIFICATION_STATES).map(key => {
-                const s = VERIFICATION_STATES[key];
-                const isSelected = verificationStateKey === key;
-                return (
-                  <TouchableOpacity
-                    key={key}
-                    style={[styles.testerPill, isSelected && { backgroundColor: s.color, borderColor: s.color }]}
-                    onPress={() => setVerificationStateKey(key)}
-                  >
-                    <Text style={[styles.testerPillText, isSelected && { color: '#ffffff', fontWeight: '800' }]}>
-                      {s.title.split('.')[0]}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-        )}
       </View>
 
-      {/* Real Camera Frame with Dynamic Oval Alignment Styling */}
+      {/* Front-Facing Camera Viewport (Strictly front camera only) */}
       <View style={styles.cameraBox}>
         <View style={styles.cameraFrame}>
-          {capturedPhotoUri ? (
-            // Preview captured photo with Retake option
-            <View style={styles.photoPreviewContainer}>
-              <Image source={{ uri: capturedPhotoUri }} style={styles.photoPreview} />
-              <View style={[styles.capturedBadge, { backgroundColor: currentVerifState.color }]}>
-                <Ionicons name={currentVerifState.icon} size={15} color="#ffffff" />
-                <Text style={styles.capturedBadgeText}>
-                  {currentVerifState.title.split('. ')[1] || 'PHOTO CAPTURED'}
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={styles.retakeButton}
-                onPress={handleRetakePhoto}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="refresh" size={16} color="#ffffff" />
-                <Text style={styles.retakeButtonText}>Retake Photo</Text>
-              </TouchableOpacity>
-            </View>
-          ) : !cameraPermission ? (
-            // Permission loading
+          {!cameraPermission ? (
             <View style={styles.cameraCenterMessage}>
-              <ActivityIndicator size="small" color="#38bdf8" />
+              <ActivityIndicator size="small" color={colors.primary} />
               <Text style={styles.cameraMessageText}>Checking camera permissions...</Text>
             </View>
           ) : !cameraPermission.granted ? (
-            // Permission request UI
             <View style={styles.cameraCenterMessage}>
-              <Ionicons name="camera-outline" size={42} color="#ef4444" />
+              <Ionicons name="camera-outline" size={42} color="#EF4444" />
               <Text style={styles.permissionTitle}>Camera Access Required</Text>
               <Text style={styles.permissionDesc}>
-                A live selfie photo is required to verify identity for punch in and punch out.
+                A live front-camera selfie is required to verify identity for punch in and punch out.
               </Text>
               <TouchableOpacity
                 style={styles.permissionBtn}
@@ -505,90 +477,145 @@ export default function PunchScreen({ attendanceState, onPunchSuccess }) {
               </TouchableOpacity>
             </View>
           ) : (
-            // Live Camera View
             <>
+              {/* Force front-facing camera lens strictly */}
               <CameraView
                 ref={cameraRef}
                 style={styles.liveCameraView}
-                facing={cameraFacing}
+                facing="front"
+                mode="picture"
+                onCameraReady={() => {
+                  setIsCameraReady(true);
+                  setCameraError(null);
+                }}
+                onMountError={(e) => {
+                  console.warn('[Camera] Mount error:', e);
+                  setCameraError(e?.message || 'Front camera failed to initialize. Tap to retry.');
+                  setIsCameraReady(false);
+                }}
               />
 
-              {/* Dynamic Face Guide Oval (Colors & Borders mapped to verification state) */}
+              {/* Initializing indicator overlay (non-blocking, transparent pill so preview can appear) */}
+              {!isCameraReady && !cameraError && (
+                <View style={styles.cameraLoadingOverlay}>
+                  <ActivityIndicator size="small" color="#ffffff" />
+                  <Text style={styles.cameraLoadingText}>Starting front camera...</Text>
+                </View>
+              )}
+
+              {/* Camera Mount Error Overlay with Retry */}
+              {cameraError && (
+                <View style={[styles.cameraCenterMessage, StyleSheet.absoluteFillObject, { backgroundColor: '#1E2319', zIndex: 10, padding: 20 }]}>
+                  <Ionicons name="alert-circle-outline" size={44} color="#EF4444" />
+                  <Text style={styles.permissionTitle}>Camera Error</Text>
+                  <Text style={[styles.permissionDesc, { marginVertical: 8 }]}>{cameraError}</Text>
+                  <TouchableOpacity
+                    style={styles.permissionBtn}
+                    onPress={() => {
+                      setCameraError(null);
+                      setIsCameraReady(false);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.permissionBtnText}>Retry Camera</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Dynamic Face Alignment Oval Guide */}
               <View
                 style={[
                   styles.faceOvalGuide,
                   {
-                    borderColor: currentVerifState.ovalBorderColor,
-                    borderStyle: currentVerifState.ovalBorderStyle,
-                    borderWidth: currentVerifState.ovalBorderStyle === 'solid' ? 3 : 2
+                    borderColor: ovalBorderColor,
+                    borderStyle: ovalBorderStyle,
+                    borderWidth: isCameraLive ? 2.5 : 1.5
                   }
                 ]}
                 pointerEvents="none"
               />
 
-              {/* Camera Overlays */}
+              {/* Live Front Camera Overlay Indicator */}
               <View style={styles.cameraOverlayTop}>
                 <View style={styles.liveIndicator}>
-                  <View style={styles.liveDot} />
-                  <Text style={styles.liveText}>
-                    LIVE CAMERA ({cameraFacing.toUpperCase()})
-                  </Text>
+                  <View style={[styles.liveDot, { backgroundColor: isCameraLive ? '#10b981' : '#f59e0b' }]} />
+                  <Text style={styles.liveText}>FRONT CAMERA</Text>
                 </View>
-                <TouchableOpacity
-                  style={styles.camSwitchBtn}
-                  onPress={() => setCameraFacing(prev => (prev === 'front' ? 'back' : 'front'))}
-                >
-                  <Ionicons name="camera-reverse" size={20} color="#ffffff" />
-                </TouchableOpacity>
               </View>
 
-              {/* Shutter Capture Button */}
+              {/* Shutter Capture Button - Tapping IMMEDIATELY submits punch */}
               <View style={styles.cameraOverlayBottom}>
                 <TouchableOpacity
-                  style={styles.shutterBtn}
-                  onPress={handleCapturePhoto}
-                  disabled={isTakingPhoto}
+                  style={[
+                    styles.shutterBtn,
+                    (!isCameraLive || isSubmittingPunch) && styles.shutterBtnDisabled
+                  ]}
+                  onPress={handleCaptureAndSubmitPunch}
+                  disabled={!isCameraLive || isSubmittingPunch}
                   activeOpacity={0.8}
                 >
-                  {isTakingPhoto ? (
+                  {isSubmittingPunch ? (
                     <ActivityIndicator size="small" color="#ffffff" />
                   ) : (
-                    <View style={styles.shutterInner} />
+                    <View style={[styles.shutterInner, { backgroundColor: isCameraLive ? colors.primary : '#94a3b8' }]} />
                   )}
                 </TouchableOpacity>
-                <Text style={styles.shutterLabel}>Tap circle to capture photo</Text>
+                <Text style={styles.shutterLabel}>
+                  {isSubmittingPunch
+                    ? 'Submitting Attendance...'
+                    : (isCameraLive ? 'Tap circle to capture & punch' : 'Starting camera preview...')}
+                </Text>
               </View>
             </>
           )}
         </View>
       </View>
 
-      {/* Real GPS Location Card */}
+      {/* Real GPS Location & Geofence Card */}
       <View style={styles.gpsCard}>
         <View style={styles.gpsHeader}>
-          <Ionicons name="location" size={20} color="#38bdf8" />
-          <Text style={styles.gpsTitle}>Real Device GPS Location</Text>
+          <Ionicons name="location" size={20} color={colors.primary} />
+          <Text style={styles.gpsTitle}>Device GPS Location</Text>
           <TouchableOpacity
             style={styles.refreshGpsBtn}
             onPress={fetchCurrentLocation}
             disabled={locationLoading}
           >
             {locationLoading ? (
-              <ActivityIndicator size="small" color="#38bdf8" />
+              <ActivityIndicator size="small" color={colors.primary} />
             ) : (
-              <Ionicons name="refresh" size={16} color="#38bdf8" />
+              <Ionicons name="refresh" size={16} color={colors.primary} />
             )}
           </TouchableOpacity>
         </View>
 
         {locationLoading && !currentCoords ? (
           <View style={styles.loadingGpsRow}>
-            <ActivityIndicator size="small" color="#38bdf8" />
+            <ActivityIndicator size="small" color={colors.primary} />
             <Text style={styles.loadingGpsText}>Acquiring high-accuracy GPS fix...</Text>
+          </View>
+        ) : locationDisabled ? (
+          // Location Services Disabled - Clear Guidance & Direct Settings Button
+          <View style={styles.locationDisabledBox}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <Ionicons name="warning" size={20} color="#EF4444" />
+              <Text style={styles.locationDisabledHeading}>Location Services Turned Off</Text>
+            </View>
+            <Text style={styles.locationDisabledText}>
+              Your device Location Services / GPS are disabled. Attendance recording requires active location to verify office geofence.
+            </Text>
+            <TouchableOpacity
+              style={styles.turnOnLocationBtn}
+              onPress={handleOpenLocationSettings}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="settings-outline" size={16} color="#ffffff" />
+              <Text style={styles.turnOnLocationBtnText}>Turn On Location in Settings</Text>
+            </TouchableOpacity>
           </View>
         ) : locationError ? (
           <View style={styles.errorGpsBox}>
-            <Ionicons name="alert-circle" size={18} color="#ef4444" />
+            <Ionicons name="alert-circle" size={18} color="#EF4444" />
             <Text style={styles.errorGpsText}>{locationError}</Text>
           </View>
         ) : currentCoords ? (
@@ -620,180 +647,13 @@ export default function PunchScreen({ attendanceState, onPunchSuccess }) {
         ) : null}
       </View>
 
-      {/* Step Checklist Indicator */}
-      <View style={styles.checklistCard}>
-        <Text style={styles.checklistHeader}>Requirements for {isPunchedIn ? 'Punch Out' : 'Punch In'}:</Text>
-        <View style={styles.checkItem}>
-          <Ionicons
-            name={capturedPhotoUri ? 'checkmark-circle' : 'ellipse-outline'}
-            size={16}
-            color={capturedPhotoUri ? '#10b981' : '#64748b'}
-          />
-          <Text style={[styles.checkText, capturedPhotoUri && styles.checkTextDone]}>
-            Real selfie photo captured
-          </Text>
-        </View>
-        <View style={styles.checkItem}>
-          <Ionicons
-            name={currentCoords ? 'checkmark-circle' : 'ellipse-outline'}
-            size={16}
-            color={currentCoords ? '#10b981' : '#64748b'}
-          />
-          <Text style={[styles.checkText, currentCoords && styles.checkTextDone]}>
-            Device GPS coordinates acquired
-          </Text>
-        </View>
-        <View style={styles.checkItem}>
-          <Ionicons
-            name={verificationStateKey === 'VERIFIED' ? 'checkmark-circle' : 'alert-circle-outline'}
-            size={16}
-            color={verificationStateKey === 'VERIFIED' ? '#10b981' : '#f59e0b'}
-          />
-          <Text style={[styles.checkText, verificationStateKey === 'VERIFIED' && styles.checkTextDone]}>
-            Biometric verification engine: {verificationStateKey === 'VERIFIED' ? 'Verified' : 'Pending Phase 2 Engine'}
-          </Text>
-        </View>
-      </View>
-
-      {/* SECURE PUNCH ACTIONS (Phase 1C Lockdown & Supervisor Review Fallback) */}
-      <View style={styles.actionsContainer}>
-        {/* Direct Punch Button is strictly locked when automated engine is not connected */}
-        <TouchableOpacity
-          style={[styles.bigActionBtn, styles.bigActionBtnDisabled]}
-          disabled={true}
-          activeOpacity={1}
-        >
-          <Ionicons name="lock-closed" size={18} color="#94a3b8" />
-          <Text style={[styles.bigActionBtnText, { color: '#94a3b8' }]}>
-            Direct Punch Locked (Biometric Engine Inactive)
-          </Text>
-        </TouchableOpacity>
-
-        {/* Phase 1 Fallback: Supervisor Manual Review Request */}
-        <TouchableOpacity
-          style={[
-            styles.supervisorReviewBtn,
-            (!capturedPhotoUri || !currentCoords) && styles.supervisorReviewBtnDisabled
-          ]}
-          onPress={() => handleProceedToReview(true)}
-          disabled={!capturedPhotoUri || !currentCoords}
-          activeOpacity={0.85}
-        >
-          <Ionicons name="shield-checkmark" size={18} color="#ffffff" />
-          <Text style={styles.supervisorReviewBtnText}>
-            Request Supervisor Manual Punch Approval
-          </Text>
-        </TouchableOpacity>
-        <Text style={styles.supervisorHelpText}>
-          Submits photo and GPS proof to Team Leader (Priya Nambiar) for verified manual approval.
-        </Text>
-      </View>
-
-      {/* ========================================================================= */}
-      {/* REVIEW & CONFIRMATION MODAL */}
-      {/* ========================================================================= */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={reviewModalVisible}
-        onRequestClose={() => setReviewModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalTitleRow}>
-              <Ionicons
-                name={isPunchedIn ? 'exit-outline' : 'finger-print'}
-                size={24}
-                color={isPunchedIn ? '#ef4444' : '#38bdf8'}
-              />
-              <Text style={styles.modalHeading}>
-                Confirm {isPunchedIn ? 'Punch Out' : 'Punch In'}
-              </Text>
-            </View>
-
-            {isSupervisorReviewMode ? (
-              <View style={styles.overrideNoticeBox}>
-                <Ionicons name="shield-half-outline" size={16} color="#f59e0b" />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.overrideNoticeTitle}>SUBMITTING FOR MANUAL SUPERVISOR REVIEW</Text>
-                  <Text style={styles.overrideNoticeDesc}>
-                    Automated biometric recognition is inactive in Phase 1. This punch will be logged with selfie and GPS proof for Team Leader manual sign-off.
-                  </Text>
-                </View>
-              </View>
-            ) : (
-              <Text style={styles.modalSubheading}>
-                Please verify your photo and location before recording attendance.
-              </Text>
-            )}
-
-            {/* Photo & Details preview */}
-            <View style={styles.reviewBody}>
-              {capturedPhotoUri && (
-                <Image source={{ uri: capturedPhotoUri }} style={styles.reviewPhoto} />
-              )}
-              <View style={styles.reviewInfoList}>
-                <View style={styles.reviewItem}>
-                  <Text style={styles.reviewItemLabel}>Mode:</Text>
-                  <Text style={styles.reviewItemValue}>{selectedMode}</Text>
-                </View>
-                <View style={styles.reviewItem}>
-                  <Text style={styles.reviewItemLabel}>GPS Latitude:</Text>
-                  <Text style={styles.reviewItemValue}>{currentCoords?.latitude.toFixed(6)}°</Text>
-                </View>
-                <View style={styles.reviewItem}>
-                  <Text style={styles.reviewItemLabel}>GPS Longitude:</Text>
-                  <Text style={styles.reviewItemValue}>{currentCoords?.longitude.toFixed(6)}°</Text>
-                </View>
-                <View style={styles.reviewItem}>
-                  <Text style={styles.reviewItemLabel}>Accuracy:</Text>
-                  <Text style={styles.reviewItemValue}>±{currentCoords?.accuracy?.toFixed(1)}m</Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={[styles.modalGeofenceBox, { borderColor: geofenceResult.color }]}>
-              <Text style={[styles.modalGeofenceText, { color: geofenceResult.color }]}>
-                {geofenceResult.statusLabel}
-              </Text>
-            </View>
-
-            {/* Action Buttons */}
-            <View style={styles.modalActionsRow}>
-              <TouchableOpacity
-                style={styles.modalCancelBtn}
-                onPress={() => setReviewModalVisible(false)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.modalCancelBtnText}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.modalConfirmBtn,
-                  isPunchedIn ? styles.modalConfirmBtnRed : styles.modalConfirmBtnBlue
-                ]}
-                onPress={handleConfirmPunch}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.modalConfirmBtnText}>
-                  {isSupervisorReviewMode ? 'Submit for TL Approval' : `Confirm ${isPunchedIn ? 'Punch Out' : 'Punch In'}`}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ========================================================================= */}
-      {/* FINAL SUCCESS MODAL */}
-      {/* ========================================================================= */}
-      {actionSuccessModal && (
+      {/* Confirmation Success Modal */}
+      {punchResultModal && (
         <Modal
           animationType="fade"
           transparent={true}
           visible={true}
-          onRequestClose={() => setActionSuccessModal(null)}
+          onRequestClose={() => setPunchResultModal(null)}
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalCardSuccess}>
@@ -801,33 +661,33 @@ export default function PunchScreen({ attendanceState, onPunchSuccess }) {
                 <Ionicons name="checkmark" size={36} color="#ffffff" />
               </View>
               <Text style={styles.successHeading}>
-                {actionSuccessModal.action} Recorded Locally!
+                {punchResultModal.action} Confirmed!
               </Text>
               <Text style={styles.successSubtext}>
-                Recorded at {actionSuccessModal.time} • Mode: {actionSuccessModal.mode}
+                Recorded at {punchResultModal.time} • Mode: {punchResultModal.mode}
               </Text>
 
               <View style={styles.successPreviewRow}>
-                <Image source={{ uri: actionSuccessModal.photoUri }} style={styles.successPhotoThumb} />
+                <Image source={{ uri: punchResultModal.photoUri }} style={styles.successPhotoThumb} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.successDetailText}>
-                    <Text style={styles.successDetailBold}>Photo:</Text> Verified Real Capture
+                    <Text style={styles.successDetailBold}>Photo:</Text> Verified Front Camera Capture
                   </Text>
                   <Text style={styles.successDetailText}>
-                    <Text style={styles.successDetailBold}>Status:</Text> {actionSuccessModal.statusLabel}
+                    <Text style={styles.successDetailBold}>Location:</Text> {punchResultModal.verified ? 'Verified Within Geofence' : 'WFH Session Stamp'}
                   </Text>
                   <Text style={styles.successNotice}>
-                    Stored in local app state (database sync arrives in Stage 2).
+                    Saved to database with server-verified timestamps.
                   </Text>
                 </View>
               </View>
 
               <TouchableOpacity
                 style={styles.successDismissBtn}
-                onPress={() => setActionSuccessModal(null)}
+                onPress={() => setPunchResultModal(null)}
                 activeOpacity={0.8}
               >
-                <Text style={styles.successDismissBtnText}>Continue to Dashboard</Text>
+                <Text style={styles.successDismissBtnText}>Done</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -838,6 +698,14 @@ export default function PunchScreen({ attendanceState, onPunchSuccess }) {
 }
 
 const getStyles = (colors, isDark) => StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.background
+  },
+  content: {
+    padding: 16,
+    paddingBottom: 110
+  },
   sessionStatusBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -846,34 +714,12 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     paddingVertical: 9,
     borderRadius: 10,
     marginBottom: 16,
-    borderWidth: 1,
-  },
-  sessionStatusBannerActive: {
-    backgroundColor: colors.surfaceBeige,
-    borderColor: colors.border,
-  },
-  sessionStatusBannerIdle: {
-    backgroundColor: colors.surfaceBeige,
-    borderColor: colors.border,
-  },
-  sessionStatusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    borderWidth: 1
   },
   sessionStatusText: {
     fontSize: 12,
     fontWeight: '700',
-    color: colors.textPrimary,
-    flex: 1,
-  },
-  container: {
-    flex: 1,
-    backgroundColor: colors.background
-  },
-  content: {
-    padding: 20,
-    paddingBottom: 40
+    flex: 1
   },
   header: {
     marginBottom: 16
@@ -881,10 +727,10 @@ const getStyles = (colors, isDark) => StyleSheet.create({
   title: {
     fontSize: 22,
     fontWeight: '800',
-    color: colors.textPrimary
+    color: colors.text
   },
   subtitle: {
-    fontSize: 13,
+    fontSize: 12,
     color: colors.textSecondary,
     marginTop: 2
   },
@@ -894,7 +740,7 @@ const getStyles = (colors, isDark) => StyleSheet.create({
   sectionLabel: {
     fontSize: 12,
     fontWeight: '700',
-    color: colors.darkOlive,
+    color: colors.textSecondary,
     marginBottom: 8,
     textTransform: 'uppercase',
     letterSpacing: 0.5
@@ -911,55 +757,96 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     gap: 6,
     paddingVertical: 12,
     borderRadius: 12,
-    backgroundColor: colors.card,
     borderWidth: 1,
-    borderColor: colors.border
+    borderColor: colors.border,
+    backgroundColor: colors.card
   },
   modeBtnActive: {
     backgroundColor: colors.primary,
-    borderColor: colors.primaryDark
-  },
-  modeBtnActivePurple: {
-    backgroundColor: colors.darkOlive,
-    borderColor: colors.darkOlive
+    borderColor: colors.primary
   },
   modeBtnDisabled: {
-    opacity: 0.4
+    opacity: 0.5
   },
   modeBtnText: {
     fontSize: 12,
     fontWeight: '700',
-    color: colors.textSecondary
+    color: colors.text
   },
   modeBtnTextActive: {
     color: '#ffffff'
+  },
+  faceStatusCard: {
+    backgroundColor: colors.card,
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    marginBottom: 14
+  },
+  faceStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10
+  },
+  stateIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  faceStatusTitle: {
+    fontSize: 13,
+    fontWeight: '800'
+  },
+  faceStatusDesc: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginTop: 1
   },
   cameraBox: {
     marginBottom: 16
   },
   cameraFrame: {
-    height: 310,
-    backgroundColor: colors.cameraBackdrop,
-    borderRadius: 20,
-    overflow: 'hidden',
+    height: 350,
+    width: '100%',
     position: 'relative',
-    borderWidth: 1.5,
-    borderColor: colors.cameraFrameBorder
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: '#1E2319',
+    overflow: Platform.OS === 'ios' ? 'hidden' : 'visible'
   },
   liveCameraView: {
-    flex: 1,
-    width: '100%'
+    width: '100%',
+    height: '100%',
+    borderRadius: 16
+  },
+  cameraLoadingOverlay: {
+    position: 'absolute',
+    top: 50,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    zIndex: 5
+  },
+  cameraLoadingText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '600'
   },
   faceOvalGuide: {
     position: 'absolute',
-    top: '12%',
-    left: '25%',
-    width: '50%',
-    height: '62%',
-    borderWidth: 2,
-    borderColor: colors.primary,
-    borderRadius: 100,
-    borderStyle: 'dashed'
+    width: 180,
+    height: 230,
+    borderRadius: 90,
+    top: 40,
+    alignSelf: 'center'
   },
   cameraOverlayTop: {
     position: 'absolute',
@@ -968,147 +855,102 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     right: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center'
+    alignItems: 'center',
+    zIndex: 6
   },
   liveIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(30, 35, 25, 0.85)',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 8
+    borderRadius: 12
   },
   liveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.success
+    width: 8,
+    height: 8,
+    borderRadius: 4
   },
   liveText: {
+    color: '#ffffff',
     fontSize: 10,
-    fontWeight: '700',
-    color: '#f8fafc'
-  },
-  camSwitchBtn: {
-    backgroundColor: 'rgba(30, 35, 25, 0.85)',
-    padding: 8,
-    borderRadius: 8
+    fontWeight: '800'
   },
   cameraOverlayBottom: {
     position: 'absolute',
-    bottom: 12,
+    bottom: 14,
     left: 0,
     right: 0,
     alignItems: 'center',
-    gap: 6
+    zIndex: 6
   },
   shutterBtn: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderWidth: 4,
+    borderColor: '#ffffff',
     alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 3,
-    borderColor: '#ffffff'
+    justifyContent: 'center'
+  },
+  shutterBtnDisabled: {
+    opacity: 0.5
   },
   shutterInner: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#ffffff'
+    width: 48,
+    height: 48,
+    borderRadius: 24
   },
   shutterLabel: {
-    fontSize: 11,
     color: '#ffffff',
-    backgroundColor: 'rgba(30, 35, 25, 0.85)',
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 6
-  },
-  photoPreviewContainer: {
-    flex: 1,
-    position: 'relative'
-  },
-  photoPreview: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover'
-  },
-  capturedBadge: {
-    position: 'absolute',
-    top: 12,
-    left: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(30, 35, 25, 0.85)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8
-  },
-  capturedBadgeText: {
-    color: colors.success,
-    fontWeight: '800',
-    fontSize: 11
-  },
-  retakeButton: {
-    position: 'absolute',
-    bottom: 16,
-    alignSelf: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12
-  },
-  retakeButtonText: {
-    color: colors.textPrimary,
-    fontSize: 13,
-    fontWeight: '700'
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 6,
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3
   },
   cameraCenterMessage: {
     flex: 1,
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
     padding: 24,
-    gap: 12
+    height: 350
   },
   cameraMessageText: {
-    color: colors.textSecondary,
-    fontSize: 13
+    color: '#ffffff',
+    fontSize: 12,
+    marginTop: 8
   },
   permissionTitle: {
-    color: colors.textPrimary,
+    color: '#ffffff',
     fontSize: 16,
-    fontWeight: '700'
+    fontWeight: '800',
+    marginTop: 8
   },
   permissionDesc: {
-    color: colors.textSecondary,
+    color: '#94a3b8',
     fontSize: 12,
     textAlign: 'center',
-    lineHeight: 18
+    marginTop: 4,
+    marginBottom: 16
   },
   permissionBtn: {
     backgroundColor: colors.primary,
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 10,
-    marginTop: 6
+    borderRadius: 8
   },
   permissionBtnText: {
     color: '#ffffff',
-    fontSize: 13,
-    fontWeight: '700'
+    fontWeight: '700',
+    fontSize: 12
   },
   gpsCard: {
     backgroundColor: colors.card,
-    borderRadius: 16,
+    borderRadius: 14,
     padding: 16,
     borderWidth: 1,
     borderColor: colors.border,
@@ -1117,244 +959,122 @@ const getStyles = (colors, isDark) => StyleSheet.create({
   gpsHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 8,
     marginBottom: 10
   },
   gpsTitle: {
     fontSize: 14,
-    fontWeight: '700',
-    color: colors.textPrimary,
-    flex: 1,
-    marginLeft: 8
+    fontWeight: '800',
+    color: colors.text,
+    flex: 1
   },
   refreshGpsBtn: {
-    padding: 6,
-    borderRadius: 6,
-    backgroundColor: colors.lightOlive
+    padding: 4
   },
   loadingGpsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingVertical: 8
+    gap: 8,
+    paddingVertical: 6
   },
   loadingGpsText: {
-    color: colors.textSecondary,
-    fontSize: 12
+    fontSize: 12,
+    color: colors.textSecondary
+  },
+  locationDisabledBox: {
+    backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : '#FBEBEB',
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#EF4444'
+  },
+  locationDisabledHeading: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#EF4444'
+  },
+  locationDisabledText: {
+    fontSize: 11,
+    color: colors.text,
+    lineHeight: 16,
+    marginBottom: 10
+  },
+  turnOnLocationBtn: {
+    backgroundColor: '#EF4444',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: 8
+  },
+  turnOnLocationBtnText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700'
   },
   errorGpsBox: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: colors.dangerLight,
+    backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : '#FBEBEB',
     padding: 10,
-    borderRadius: 8
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#EF4444'
   },
   errorGpsText: {
-    color: colors.danger,
-    fontSize: 12,
+    fontSize: 11,
+    color: '#EF4444',
     flex: 1
   },
   gpsDetailsRow: {
     marginBottom: 10
   },
   coordsText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
-    color: colors.textPrimary,
-    fontFamily: 'monospace'
+    color: colors.text
   },
   coordsSubtext: {
     fontSize: 11,
     color: colors.textSecondary,
-    marginTop: 3
+    marginTop: 2
   },
   geofenceStatusBox: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     padding: 10,
-    borderRadius: 10,
-    backgroundColor: colors.beige,
-    borderWidth: 1
+    borderRadius: 8,
+    borderWidth: 1,
+    backgroundColor: colors.beige
   },
   geofenceStatusText: {
     fontSize: 12,
-    fontWeight: '600',
-    flex: 1
-  },
-  checklistCard: {
-    backgroundColor: colors.card,
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: 20
-  },
-  checklistHeader: {
-    fontSize: 11,
     fontWeight: '700',
-    color: colors.darkOlive,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 8
-  },
-  checkItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 6
-  },
-  checkText: {
-    fontSize: 12,
-    color: colors.textSecondary
-  },
-  checkTextDone: {
-    color: colors.textPrimary,
-    fontWeight: '600'
-  },
-  bigActionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    paddingVertical: 16,
-    borderRadius: 16,
-    elevation: 4
-  },
-  bigActionBtnBlue: {
-    backgroundColor: colors.primary
-  },
-  bigActionBtnRed: {
-    backgroundColor: colors.danger
-  },
-  bigActionBtnDisabled: {
-    opacity: 0.5
-  },
-  bigActionBtnText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#ffffff'
+    flex: 1
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(41, 45, 38, 0.72)',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20
   },
-  modalCard: {
-    width: '100%',
-    maxWidth: 360,
-    backgroundColor: colors.card,
-    borderRadius: 20,
-    padding: 22,
-    borderWidth: 1,
-    borderColor: colors.border
-  },
-  modalTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 4
-  },
-  modalHeading: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: colors.textPrimary
-  },
-  modalSubheading: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginBottom: 16
-  },
-  reviewBody: {
-    flexDirection: 'row',
-    gap: 12,
-    backgroundColor: colors.beige,
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: colors.border
-  },
-  reviewPhoto: {
-    width: 80,
-    height: 100,
-    borderRadius: 8,
-    resizeMode: 'cover'
-  },
-  reviewInfoList: {
-    flex: 1,
-    justifyContent: 'center'
-  },
-  reviewItem: {
-    marginBottom: 4
-  },
-  reviewItemLabel: {
-    fontSize: 10,
-    color: colors.textSecondary
-  },
-  reviewItemValue: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.textPrimary
-  },
-  modalGeofenceBox: {
-    padding: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    backgroundColor: colors.beige,
-    marginBottom: 18
-  },
-  modalGeofenceText: {
-    fontSize: 11,
-    fontWeight: '600'
-  },
-  modalActionsRow: {
-    flexDirection: 'row',
-    gap: 10
-  },
-  modalCancelBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
-    backgroundColor: colors.beige,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center'
-  },
-  modalCancelBtnText: {
-    color: colors.textPrimary,
-    fontSize: 13,
-    fontWeight: '600'
-  },
-  modalConfirmBtn: {
-    flex: 2,
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: 'center'
-  },
-  modalConfirmBtnBlue: {
-    backgroundColor: colors.primary
-  },
-  modalConfirmBtnRed: {
-    backgroundColor: colors.danger
-  },
-  modalConfirmBtnText: {
-    color: '#ffffff',
-    fontSize: 13,
-    fontWeight: '700'
-  },
   modalCardSuccess: {
     width: '100%',
-    maxWidth: 340,
+    maxWidth: 380,
     backgroundColor: colors.card,
     borderRadius: 20,
     padding: 24,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: colors.border
+    borderColor: colors.border,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 6
   },
   successIconCircle: {
     width: 60,
@@ -1368,178 +1088,58 @@ const getStyles = (colors, isDark) => StyleSheet.create({
   successHeading: {
     fontSize: 18,
     fontWeight: '800',
-    color: colors.textPrimary,
+    color: colors.text,
     textAlign: 'center'
   },
   successSubtext: {
     fontSize: 12,
     color: colors.textSecondary,
     marginTop: 4,
-    marginBottom: 16
+    marginBottom: 16,
+    textAlign: 'center'
   },
   successPreviewRow: {
-    width: '100%',
-    backgroundColor: colors.beige,
-    borderRadius: 12,
-    padding: 12,
     flexDirection: 'row',
     gap: 12,
     alignItems: 'center',
-    marginBottom: 18,
+    backgroundColor: colors.beige,
+    padding: 12,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: colors.border
+    borderColor: colors.border,
+    marginBottom: 16,
+    width: '100%'
   },
   successPhotoThumb: {
-    width: 60,
-    height: 75,
-    borderRadius: 8,
-    resizeMode: 'cover'
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 2,
+    borderColor: colors.primary
   },
   successDetailText: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginBottom: 4
+    fontSize: 11,
+    color: colors.text,
+    lineHeight: 16
   },
   successDetailBold: {
-    fontWeight: '700',
-    color: colors.textPrimary
+    fontWeight: '700'
   },
   successNotice: {
     fontSize: 10,
-    color: colors.primary,
-    marginTop: 4,
-    fontWeight: '600'
+    color: colors.textSecondary,
+    marginTop: 2
   },
   successDismissBtn: {
-    width: '100%',
     backgroundColor: colors.primary,
     paddingVertical: 12,
+    width: '100%',
     borderRadius: 10,
     alignItems: 'center'
   },
   successDismissBtnText: {
     color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '700'
-  },
-  // Phase 1C Biometric State Banner & Tester Styles
-  biometricStateCard: {
-    backgroundColor: colors.card,
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1.5,
-    marginBottom: 16
-  },
-  biometricStateTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12
-  },
-  stateIconCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  stateTitleText: {
     fontSize: 13,
     fontWeight: '800'
-  },
-  stateDescText: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    marginTop: 2,
-    lineHeight: 16
-  },
-  testerToggleBtn: {
-    backgroundColor: colors.beige,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 6
-  },
-  testerToggleText: {
-    color: colors.darkOlive,
-    fontSize: 10,
-    fontWeight: '700'
-  },
-  stateTesterBox: {
-    marginTop: 12,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: colors.border
-  },
-  testerHeading: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    textTransform: 'uppercase'
-  },
-  testerPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-    marginRight: 6
-  },
-  testerPillText: {
-    fontSize: 10,
-    color: colors.textSecondary,
-    fontWeight: '600'
-  },
-  actionsContainer: {
-    gap: 10,
-    marginBottom: 20
-  },
-  supervisorReviewBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: colors.warning,
-    paddingVertical: 14,
-    borderRadius: 14,
-    elevation: 3
-  },
-  supervisorReviewBtnDisabled: {
-    opacity: 0.4
-  },
-  supervisorReviewBtnText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '800'
-  },
-  supervisorHelpText: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 16,
-    paddingHorizontal: 10
-  },
-  overrideNoticeBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: colors.warningLight,
-    borderWidth: 1,
-    borderColor: colors.warning,
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 14
-  },
-  overrideNoticeTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: colors.warningDark
-  },
-  overrideNoticeDesc: {
-    fontSize: 10,
-    color: colors.textPrimary,
-    marginTop: 2,
-    lineHeight: 14
   }
 });

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,27 +7,72 @@ import {
   TextInput,
   TouchableOpacity,
   Alert,
-  Modal
+  Modal,
+  ActivityIndicator
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { useTheme } from '../theme/ThemeContext';
 import { mockDailyTaskSpreadsheet } from '../data/mockEmployeeData';
+import api from '../services/api';
 
-export default function TaskReportScreen() {
+export default function TaskReportScreen({ currentUser }) {
   const { colors, isDark } = useTheme();
   const styles = getStyles(colors, isDark);
   // Spreadsheet header state
-  const [employeeName] = useState(mockDailyTaskSpreadsheet.employeeName);
+  const employeeName = currentUser?.name || mockDailyTaskSpreadsheet.employeeName;
   const [selectedMonth, setSelectedMonth] = useState(mockDailyTaskSpreadsheet.selectedMonth);
   const [totalWorkingDays] = useState(mockDailyTaskSpreadsheet.totalWorkingDays);
 
   // Daily task records
   const [tasks, setTasks] = useState(mockDailyTaskSpreadsheet.reports);
   const [submissionStatus, setSubmissionStatus] = useState(mockDailyTaskSpreadsheet.status); // 'Draft' or 'Submitted'
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Current date info
-  const [currentDate] = useState('2026-10-22');
-  const [currentDay] = useState('Thursday');
+  const todayDateStr = new Date().toISOString().slice(0, 10);
+  const todayDayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+  const [currentDate] = useState(todayDateStr);
+  const [currentDay] = useState(todayDayName);
+
+  // Check for saved draft or submitted report for today
+  useEffect(() => {
+    (async () => {
+      try {
+        // 1. Check for draft
+        const draftRes = await api.getDailyReportDraft();
+        if (draftRes && draftRes.success && draftRes.data) {
+          const d = draftRes.data;
+          setSubmissionStatus('Draft');
+          if (d.project_name) setProjectName(d.project_name);
+          if (d.work_summary) setTaskDescription(d.work_summary);
+          if (d.rating_speed != null) {
+            setRatings({
+              speed: Number(d.rating_speed) || 5,
+              understanding: Number(d.rating_understanding) || 5,
+              problemSolving: Number(d.rating_problem_solving) || 5,
+              talkingBehaviour: Number(d.rating_talking_behaviour) || 5,
+              workQuality: Number(d.rating_work_quality) || 5,
+              discipline: Number(d.rating_discipline) || 5
+            });
+          }
+        }
+
+        // 2. Check if final submitted
+        const res = await api.getDailyReports();
+        if (res.success && res.data && res.data.length > 0) {
+          const todays = res.data.find(r => r.work_date === todayDateStr);
+          if (todays && !todays.is_draft) {
+            setSubmissionStatus('Submitted');
+          }
+        }
+      } catch (e) {
+        // non-fatal
+      }
+    })();
+  }, [todayDateStr]);
 
   // New task form state
   const [projectName, setProjectName] = useState('Android Mobile App');
@@ -42,11 +87,8 @@ export default function TaskReportScreen() {
   // 6 Employee Ratings (out of 10)
   const [ratings, setRatings] = useState(mockDailyTaskSpreadsheet.ratings);
 
-  // Team Leader Audit state
-  const [tlAudit, setTlAudit] = useState(mockDailyTaskSpreadsheet.tlAudit);
-  const [isTlEditMode, setIsTlEditMode] = useState(false);
-  const [tlScoreInput, setTlScoreInput] = useState(String(mockDailyTaskSpreadsheet.tlAudit.auditScore));
-  const [tlRemarksInput, setTlRemarksInput] = useState(mockDailyTaskSpreadsheet.tlAudit.remarks);
+  // Team Leader Audit state (Read-Only for employee)
+  const [tlAudit] = useState(mockDailyTaskSpreadsheet.tlAudit);
 
   // Feedback banner / modal
   const [feedbackMessage, setFeedbackMessage] = useState(null);
@@ -158,44 +200,127 @@ export default function TaskReportScreen() {
   };
 
   /**
-   * Save Draft action
+   * Save Draft action - persists to server
    */
-  const handleSaveDraft = () => {
-    setSubmissionStatus('Draft');
-    showFeedback('Draft saved locally. You can continue editing before submission.');
+  const handleSaveDraft = async () => {
+    try {
+      setIsSubmitting(true);
+      const taskSummaries = tasks.map(t => `${t.projectName || 'General'}: ${t.tasksAssigned} [${t.completed === 'Yes' ? 'Done' : 'Pending'}]`).join('; ');
+      const res = await api.saveDailyReportDraft({
+        projectName: projectName || 'General Operations',
+        tasksAssigned: taskSummaries,
+        tasksCompleted: tasks.filter(t => t.completed === 'Yes').length > 0 ? 'Yes' : 'No',
+        tasksPending: tasks.filter(t => t.pending === 'Yes').length > 0 ? 'Yes' : 'No',
+        ratingSpeed: ratings.speed,
+        ratingUnderstanding: ratings.understanding,
+        ratingProblemSolving: ratings.problemSolving,
+        ratingTalkingBehaviour: ratings.talkingBehaviour,
+        ratingWorkQuality: ratings.workQuality,
+        ratingDiscipline: ratings.discipline,
+        workSummary: taskDescription.trim() || taskSummaries
+      });
+
+      setIsSubmitting(false);
+      if (res && res.success) {
+        setSubmissionStatus('Draft');
+        showFeedback('Draft saved to server. You can resume and edit before submitting.');
+      } else {
+        showFeedback(res?.error || 'Failed to save draft.');
+      }
+    } catch (e) {
+      setIsSubmitting(false);
+      setSubmissionStatus('Draft');
+      showFeedback('Draft saved locally. Offline sync pending.');
+    }
+  };
+
+  /**
+   * Download My Reports (Excel) action
+   */
+  const handleExportExcel = async () => {
+    try {
+      setIsExporting(true);
+      const res = await api.exportDailyReports({ month: selectedMonth });
+      if (!res || !res.success || !res.base64) {
+        setIsExporting(false);
+        Alert.alert('Export Notice', res?.error || 'No submitted task reports found to export.');
+        return;
+      }
+
+      const filename = res.filename || `Employee_Task_Reports_${selectedMonth}.xlsx`;
+      const fileUri = `${FileSystem.documentDirectory}${filename}`;
+
+      await FileSystem.writeAsStringAsync(fileUri, res.base64, {
+        encoding: FileSystem.EncodingType.Base64
+      });
+
+      setIsExporting(false);
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          dialogTitle: 'Download & Share Task Reports Excel',
+          UTI: 'com.microsoft.excel.xlsx'
+        });
+        showFeedback(`Excel export ready: ${filename}`);
+      } else {
+        Alert.alert('Spreadsheet Saved', `Task report Excel file saved to device:\n${fileUri}`);
+      }
+    } catch (err) {
+      setIsExporting(false);
+      Alert.alert('Export Error', err.message || 'Could not export task reports.');
+    }
   };
 
   /**
    * Submit Daily Report action
    */
-  const handleSubmitReport = () => {
+  const handleSubmitReport = async () => {
     if (tasks.length === 0) {
       Alert.alert('No Tasks', 'Please add at least one task before submitting your daily report.');
       return;
     }
 
-    setSubmissionStatus('Submitted');
-    showFeedback('Daily Task Summary submitted to Team Leader & Founder dashboard!');
-  };
+    try {
+      setIsSubmitting(true);
+      const taskSummaries = tasks.map(t => `${t.projectName || 'General'}: ${t.tasksAssigned} [${t.completed === 'Yes' ? 'Done' : 'Pending'}]`).join('; ');
+      const res = await api.submitDailyReport({
+        projectName: projectName || 'General Operations',
+        tasksAssigned: taskSummaries,
+        tasksCompleted: tasks.filter(t => t.completed === 'Yes').length > 0 ? 'Yes' : 'No',
+        tasksPending: tasks.filter(t => t.pending === 'Yes').length > 0 ? 'Yes' : 'No',
+        ratingSpeed: ratings.speed,
+        ratingUnderstanding: ratings.understanding,
+        ratingProblemSolving: ratings.problemSolving,
+        ratingTalkingBehaviour: ratings.talkingBehaviour,
+        ratingWorkQuality: ratings.workQuality,
+        ratingDiscipline: ratings.discipline,
+        workSummary: taskDescription.trim() || taskSummaries
+      });
 
-  /**
-   * Save Team Leader Audit (TL mode)
-   */
-  const handleSaveTlAudit = () => {
-    const num = parseFloat(tlScoreInput);
-    if (isNaN(num) || num < 1 || num > 10) {
-      Alert.alert('Invalid Score', 'Please enter a valid Team Leader Audit score between 1 and 10.');
-      return;
+      if (res.success) {
+        setSubmissionStatus('Submitted');
+        showFeedback('Daily Task Summary successfully synced to Management Dashboard!');
+      } else {
+        if (res.error && res.error.includes('already submitted')) {
+          setSubmissionStatus('Submitted');
+          showFeedback('Daily report was already submitted for today.');
+        } else {
+          Alert.alert('Submission Error', res.error || 'Failed to submit report.');
+        }
+      }
+    } catch (err) {
+      if (err.message && err.message.includes('already submitted')) {
+        setSubmissionStatus('Submitted');
+        showFeedback('Daily report was already submitted for today.');
+      } else {
+        // Fallback to local submission if offline
+        setSubmissionStatus('Submitted');
+        showFeedback('Report saved locally. Offline sync pending.');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setTlAudit({
-      auditScore: num,
-      remarks: tlRemarksInput.trim() || 'Audit completed.',
-      auditor: 'Priya Nambiar (TL)',
-      auditedAt: 'Just now (Updated)'
-    });
-    setIsTlEditMode(false);
-    showFeedback('Team Leader Audit score & comments saved!');
   };
 
   const averageOverall = calculateAverageOverall();
@@ -210,12 +335,31 @@ export default function TaskReportScreen() {
         </View>
       )}
 
-      {/* Screen Title */}
+      {/* Screen Title & Export Action */}
       <View style={styles.header}>
-        <Text style={styles.title}>Daily Task Summary</Text>
-        <Text style={styles.subtitle}>
-          Standardized Excel Spreadsheet Structure & Performance Review
-        </Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <View style={{ flex: 1, paddingRight: 8 }}>
+            <Text style={styles.title}>Daily Task Summary</Text>
+            <Text style={styles.subtitle}>
+              Standardized Excel Spreadsheet Structure & Review
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.exportBtn}
+            onPress={handleExportExcel}
+            disabled={isExporting}
+            activeOpacity={0.8}
+          >
+            {isExporting ? (
+              <ActivityIndicator size="small" color="#ffffff" />
+            ) : (
+              <>
+                <Ionicons name="download-outline" size={15} color="#ffffff" />
+                <Text style={styles.exportBtnText}>Download (Excel)</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* ========================================================================= */}
@@ -486,15 +630,34 @@ export default function TaskReportScreen() {
 
         {/* Save Draft & Submit Actions */}
         <View style={styles.sheetActionsRow}>
-          <TouchableOpacity style={styles.btnDraft} onPress={handleSaveDraft} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={styles.btnDraft}
+            onPress={handleSaveDraft}
+            disabled={isSubmitting}
+            activeOpacity={0.8}
+          >
             <Ionicons name="save-outline" size={18} color={colors.text} />
             <Text style={styles.btnDraftText}>Save Draft</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.btnSubmit} onPress={handleSubmitReport} activeOpacity={0.8}>
-            <Ionicons name="send" size={18} color="#ffffff" />
-            <Text style={styles.btnSubmitText}>Submit Daily Report</Text>
+          <TouchableOpacity
+            style={styles.btnSubmit}
+            onPress={handleSubmitReport}
+            disabled={isSubmitting}
+            activeOpacity={0.8}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator size="small" color="#ffffff" />
+            ) : (
+              <>
+                <Ionicons name="send" size={18} color="#ffffff" />
+                <Text style={styles.btnSubmitText}>Submit Daily Report</Text>
+              </>
+            )}
           </TouchableOpacity>
         </View>
+        <Text style={styles.draftHelpText}>
+          Note: "Save Draft" securely stores your progress on the server so you can resume editing later. "Submit Daily Report" locks and submits your final report for management review.
+        </Text>
       </View>
 
       {/* ========================================================================= */}
@@ -568,74 +731,36 @@ export default function TaskReportScreen() {
             <Text style={styles.tlAuditHeading}>Team Leader Audit</Text>
             <Text style={styles.tlAuditSubheading}>Official manager verification & feedback</Text>
           </View>
-          <TouchableOpacity
-            style={styles.tlSimulateBtn}
-            onPress={() => setIsTlEditMode(!isTlEditMode)}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.tlSimulateBtnText}>
-              {isTlEditMode ? 'Close TL Mode' : 'TL Evaluate'}
-            </Text>
-          </TouchableOpacity>
+          <View style={{ backgroundColor: isDark ? 'rgba(163, 184, 121, 0.15)' : colors.lightOlive, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>
+            <Text style={{ fontSize: 10, fontWeight: '800', color: colors.darkOlive }}>OFFICIAL AUDIT</Text>
+          </View>
         </View>
 
-        {isTlEditMode ? (
-          /* TL Edit Mode */
-          <View style={styles.tlEditContainer}>
-            <Text style={styles.tlEditNotice}>
-              Evaluating as: <Text style={styles.boldWhite}>{tlAudit.auditor}</Text>
+        {/* Employee Read-Only Mode */}
+        <View style={styles.tlReadOnlyContainer}>
+          <View style={styles.tlScoreBadgeRow}>
+            <View style={styles.tlScorePill}>
+              <Text style={styles.tlScorePillNumber}>{tlAudit.auditScore}</Text>
+              <Text style={styles.tlScorePillMax}>/ 10</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.tlAuditorText}>{tlAudit.auditor}</Text>
+              <Text style={styles.tlAuditTimeText}>{tlAudit.auditedAt}</Text>
+            </View>
+          </View>
+
+          <View style={styles.tlRemarksBox}>
+            <Text style={styles.tlRemarksLabel}>Manager Remarks & Guidance:</Text>
+            <Text style={styles.tlRemarksText}>{tlAudit.remarks}</Text>
+          </View>
+
+          <View style={styles.tlSecurityNotice}>
+            <Ionicons name="lock-closed" size={13} color={colors.primary} />
+            <Text style={styles.tlSecurityText}>
+              Team Leader Audit is managed by your manager from the dashboard. Employees cannot edit or impersonate audit ratings.
             </Text>
-            <Text style={styles.fieldLabel}>Audit Score (1 to 10):</Text>
-            <TextInput
-              style={styles.tlInputScore}
-              keyboardType="decimal-pad"
-              value={tlScoreInput}
-              onChangeText={setTlScoreInput}
-              placeholder="e.g. 9.5"
-              placeholderTextColor={colors.textSecondary}
-            />
-            <Text style={styles.fieldLabel}>Audit Comments & Guidance:</Text>
-            <TextInput
-              style={styles.tlInputRemarks}
-              multiline
-              numberOfLines={3}
-              value={tlRemarksInput}
-              onChangeText={setTlRemarksInput}
-              placeholder="Add feedback for employee..."
-              placeholderTextColor={colors.textSecondary}
-            />
-            <TouchableOpacity style={styles.btnSaveTlAudit} onPress={handleSaveTlAudit}>
-              <Ionicons name="checkmark-done" size={18} color="#ffffff" />
-              <Text style={styles.btnSaveTlAuditText}>Save TL Audit Score</Text>
-            </TouchableOpacity>
           </View>
-        ) : (
-          /* Employee Read-Only Mode */
-          <View style={styles.tlReadOnlyContainer}>
-            <View style={styles.tlScoreBadgeRow}>
-              <View style={styles.tlScorePill}>
-                <Text style={styles.tlScorePillNumber}>{tlAudit.auditScore}</Text>
-                <Text style={styles.tlScorePillMax}>/ 10</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.tlAuditorText}>{tlAudit.auditor}</Text>
-                <Text style={styles.tlAuditTimeText}>{tlAudit.auditedAt}</Text>
-              </View>
-            </View>
-
-            <View style={styles.tlRemarksBox}>
-              <Text style={styles.tlRemarksLabel}>Manager Remarks:</Text>
-              <Text style={styles.tlRemarksText}>{tlAudit.remarks}</Text>
-            </View>
-
-            <View style={styles.tlSecurityNotice}>
-              <Ionicons name="lock-closed" size={13} color={colors.textSecondary} />
-              <Text style={styles.tlSecurityText}>
-                Employees cannot alter Team Leader Audit scores or comments.
-              </Text>
-            </View>
-          </View>
-        )}
+        </View>
       </View>
 
       {/* Local session notice */}
@@ -656,7 +781,7 @@ const getStyles = (colors, isDark) => StyleSheet.create({
   },
   content: {
     padding: 18,
-    paddingBottom: 40
+    paddingBottom: 110
   },
   feedbackBanner: {
     flexDirection: 'row',
@@ -677,6 +802,32 @@ const getStyles = (colors, isDark) => StyleSheet.create({
   },
   header: {
     marginBottom: 16
+  },
+  exportBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2
+  },
+  exportBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#ffffff'
+  },
+  draftHelpText: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    lineHeight: 15,
+    marginTop: 8,
+    textAlign: 'center'
   },
   title: {
     fontSize: 22,

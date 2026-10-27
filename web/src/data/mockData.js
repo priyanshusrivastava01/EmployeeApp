@@ -368,3 +368,79 @@ export const mockGeofence = {
   activeEmployeesInside: 22,
   status: 'Active Perimeter'
 };
+
+export const mockAnnouncements = [
+  {
+    id: 'ann-1',
+    title: 'Quarterly Town Hall & Product Roadmap',
+    message: 'Join us this Friday at 4:30 PM in the Main Conference Room or via the company stream for our Q3 milestones, team recognition awards, and H2 product roadmap presentation.',
+    priority: 'high',
+    audience: 'all',
+    status: 'published',
+    publishedAt: '2026-10-24 16:30',
+    expiresAt: '2026-11-01',
+    author: 'Rohan Deshmukh (Founder)'
+  },
+  {
+    id: 'ann-2',
+    title: 'Geofence Radius Adjustment',
+    message: 'The Gurgaon Innovation Lab geofence radius has been updated to 250m to improve GPS lock reliability for employees punching in near the building entrance.',
+    priority: 'normal',
+    audience: 'all',
+    status: 'published',
+    publishedAt: '2026-10-23 10:00',
+    expiresAt: null,
+    author: 'Founder Admin'
+  },
+  {
+    id: 'ann-3',
+    title: 'Scheduled PostgreSQL Maintenance Notice',
+    message: 'Database optimization scheduled for Sunday 02:00 AM - 04:00 AM IST. Offline punch queues will sync automatically upon reconnection.',
+    priority: 'normal',
+    audience: 'Engineering',
+    status: 'draft',
+    publishedAt: null,
+    expiresAt: null,
+    author: 'Engineering Lead'
+  }
+];
+
+export const mockCompanyRules = [
+  {
+    id: 'rule-1',
+    title: 'Working Hours & Core Overlap Policy',
+    category: 'Attendance & Work',
+    body: 'Standard office hours run from 9:30 AM to 6:30 PM Monday through Friday. Core collaboration window is 11:00 AM to 5:00 PM IST where all team members must be reachable on Slack or Microsoft Teams. Attendance punch is required upon entry.',
+    status: 'published',
+    version: '1.2',
+    updatedAt: '2026-09-01'
+  },
+  {
+    id: 'rule-2',
+    title: 'Remote & WFH Compliance Guidelines',
+    category: 'Attendance & Work',
+    body: 'Employees on approved Work From Home (WFH) mode must maintain stable internet connectivity (min 30 Mbps) and punch in with verified selfie and GPS location. Background location pings may record during the active work shift for compliance.',
+    status: 'published',
+    version: '2.0',
+    updatedAt: '2026-08-15'
+  },
+  {
+    id: 'rule-3',
+    title: 'Paid Leave & Emergency Notice Rules',
+    category: 'Leave Policy',
+    body: 'Planned leaves of 2 or more consecutive days must be applied at least 48 hours in advance via the mobile app. Emergency sick leaves require notification to your reporting Team Leader before 10:00 AM on the day of absence.',
+    status: 'published',
+    version: '1.1',
+    updatedAt: '2026-07-20'
+  },
+  {
+    id: 'rule-4',
+    title: 'Device Security & Data Confidentiality',
+    category: 'Security & Devices',
+    body: 'All development laptops must have disk encryption (BitLocker / FileVault) enabled with strong passwords (min 12 chars). Production database credentials, API keys, or customer PII must never be stored on personal devices or committed to git.',
+    status: 'published',
+    version: '3.1',
+    updatedAt: '2026-10-01'
+  }
+];
+

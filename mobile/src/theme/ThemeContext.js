@@ -1,9 +1,9 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useColorScheme } from 'react-native';
+import { Appearance, useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { lightTheme, darkTheme } from './colors';
 
-const THEME_STORAGE_KEY = '@ems_appearance_preference';
+export const THEME_STORAGE_KEY = '@ems_appearance_preference';
 
 const ThemeContext = createContext({
   preference: 'system', // 'system' | 'light' | 'dark'
@@ -11,12 +11,31 @@ const ThemeContext = createContext({
   isDark: false,
   colors: lightTheme,
   setPreference: async () => {},
+  isReady: false,
 });
 
 export function ThemeProvider({ children }) {
-  const systemColorScheme = useColorScheme(); // 'light' | 'dark' | null
+  const hookColorScheme = useColorScheme(); // React Native hook
+  const [systemScheme, setSystemScheme] = useState(
+    Appearance.getColorScheme() || hookColorScheme || 'light'
+  );
   const [preference, setPreferenceState] = useState('system');
   const [isReady, setIsReady] = useState(false);
+
+  // Subscribe to live OS appearance changes
+  useEffect(() => {
+    const subscription = Appearance.addChangeListener(({ colorScheme }) => {
+      setSystemScheme(colorScheme || 'light');
+    });
+    return () => subscription.remove();
+  }, []);
+
+  // Sync with hook as well
+  useEffect(() => {
+    if (hookColorScheme) {
+      setSystemScheme(hookColorScheme);
+    }
+  }, [hookColorScheme]);
 
   // Load persisted theme preference on app start
   useEffect(() => {
@@ -48,9 +67,12 @@ export function ThemeProvider({ children }) {
     }
   };
 
-  // Determine active theme based on user preference and system setting
+  // Determine active theme:
+  // If preference === 'system', follow systemScheme (or hookColorScheme)
+  // If preference === 'light', force 'light'
+  // If preference === 'dark', force 'dark'
   const activeTheme = preference === 'system'
-    ? (systemColorScheme === 'dark' ? 'dark' : 'light')
+    ? (systemScheme === 'dark' ? 'dark' : 'light')
     : preference;
 
   const isDark = activeTheme === 'dark';
@@ -64,7 +86,8 @@ export function ThemeProvider({ children }) {
         isDark,
         colors,
         setPreference,
-        isReady
+        isReady,
+        systemScheme
       }}
     >
       {children}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Users,
   Clock,
@@ -26,8 +26,17 @@ import {
   FileSpreadsheet,
   Layers,
   Calendar,
-  X
+  X,
+  Megaphone,
+  BookOpen,
+  Edit3,
+  Trash2,
+  LogOut,
+  RefreshCw
 } from 'lucide-react';
+
+import webApi from './services/api';
+import LoginView from './components/LoginView';
 
 import {
   mockStats,
@@ -35,15 +44,27 @@ import {
   mockAttendance,
   mockTaskReports,
   mockAudits,
-  mockGeofence
+  mockGeofence,
+  mockAnnouncements,
+  mockCompanyRules
 } from './data/mockData';
 
 export default function App() {
+  const [currentUser, setCurrentUser] = useState(webApi.user);
+  const [currentOrg, setCurrentOrg] = useState(webApi.org);
   const [activeTab, setActiveTab] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('all');
   const [selectedPhoto, setSelectedPhoto] = useState(null);
+
   const [notification, setNotification] = useState(null);
+
+  // Live Backend States
+  const [stats, setStats] = useState(mockStats);
+  const [employeesList, setEmployeesList] = useState(mockEmployees);
+  const [attendanceRecords, setAttendanceRecords] = useState(mockAttendance);
+  const [taskReportsList, setTaskReportsList] = useState(mockTaskReports);
+  const [geofenceConfig, setGeofenceConfig] = useState(mockGeofence);
 
   // Daily Task Summary Spreadsheet states
   const [reportSearch, setReportSearch] = useState('');
@@ -53,22 +74,269 @@ export default function App() {
   const [reportViewMode, setReportViewMode] = useState('spreadsheet'); // 'spreadsheet' | 'summary'
   const [selectedReportDetail, setSelectedReportDetail] = useState(null);
 
+  // Announcements Management states
+  const [announcements, setAnnouncements] = useState(mockAnnouncements);
+  const [announcementFilter, setAnnouncementFilter] = useState('all');
+  const [announcementModalOpen, setAnnouncementModalOpen] = useState(false);
+  const [editingAnnouncement, setEditingAnnouncement] = useState(null);
+  const [announcementPreview, setAnnouncementPreview] = useState(null);
+  const [announcementForm, setAnnouncementForm] = useState({
+    title: '',
+    message: '',
+    priority: 'normal',
+    audience: 'all',
+    status: 'published'
+  });
+
+  // Notes & Rules Management states
+  const [companyRules, setCompanyRules] = useState(mockCompanyRules);
+  const [ruleCategoryFilter, setRuleCategoryFilter] = useState('all');
+  const [ruleModalOpen, setRuleModalOpen] = useState(false);
+  const [editingRule, setEditingRule] = useState(null);
+  const [ruleForm, setRuleForm] = useState({
+    title: '',
+    category: 'Attendance & Work',
+    body: '',
+    version: '1.0',
+    status: 'published'
+  });
+
+  const loadBackendData = async () => {
+    if (!webApi.token) return;
+    try {
+      const [sRes, uRes, aRes, rRes, annRes, rulesRes, geoRes] = await Promise.all([
+        webApi.getStats().catch(() => ({ success: false })),
+        webApi.getUsers().catch(() => ({ success: false })),
+        webApi.getAttendance().catch(() => ({ success: false })),
+        webApi.getDailyReports().catch(() => ({ success: false })),
+        webApi.getAnnouncements().catch(() => ({ success: false })),
+        webApi.getRules().catch(() => ({ success: false })),
+        webApi.getOrgSettings().catch(() => ({ success: false }))
+      ]);
+
+      if (sRes.success && sRes.data) {
+        setStats({
+          totalEmployees: sRes.data.totalEmployees,
+          presentToday: sRes.data.presentToday,
+          wfoCount: sRes.data.wfoCount,
+          wfhCount: sRes.data.wfhCount,
+          onLeave: sRes.data.pendingLeaves,
+          lateArrivals: sRes.data.lateArrivals,
+          completionRate: '98%'
+        });
+      }
+
+      if (uRes.success && uRes.data && uRes.data.length > 0) {
+        setEmployeesList(uRes.data.map(u => ({
+          id: u.id,
+          name: u.name,
+          role: u.role === 'admin' ? 'Founder & CEO' : u.designation || 'Staff',
+          department: u.department || 'Operations',
+          email: u.email || `${u.name?.toLowerCase().replace(' ', '.')}@company.com`,
+          phone: u.phone || '+91 98000 00000',
+          status: u.isActive !== false ? 'Active' : 'Inactive',
+          joined: u.joinedDate || '2026-01-15',
+          avatar: u.profilePhotoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
+          faceEnrolled: u.faceEnrollmentStatus === 'verified'
+        })));
+      }
+
+      if (annRes.success && annRes.data && annRes.data.length > 0) {
+        setAnnouncements(annRes.data);
+      }
+
+      if (rulesRes.success && rulesRes.data && rulesRes.data.length > 0) {
+        setCompanyRules(rulesRes.data);
+      }
+
+      if (geoRes.success && geoRes.data) {
+        setGeofenceConfig({
+          name: geoRes.data.name || 'Main Office',
+          address: geoRes.data.address || 'Tech Park, Bengaluru',
+          latitude: geoRes.data.office_lat || 12.9716,
+          longitude: geoRes.data.office_lng || 77.5946,
+          radius: geoRes.data.office_radius_meters || 150,
+          wfhAllowed: geoRes.data.wfh_allowed ?? true
+        });
+      }
+    } catch (e) {
+      console.warn('[Web] Backend sync warning:', e);
+    }
+  };
+
+  useEffect(() => {
+    if (currentUser) {
+      loadBackendData();
+    }
+  }, [currentUser]);
+
+  const handleLogout = () => {
+    webApi.logout();
+    setCurrentUser(null);
+    setCurrentOrg(null);
+  };
+
   const showToast = (message) => {
     setNotification(message);
     setTimeout(() => setNotification(null), 3000);
   };
 
+  // Announcement Handlers
+  const handleOpenCreateAnnouncement = () => {
+    setEditingAnnouncement(null);
+    setAnnouncementForm({
+      title: '',
+      message: '',
+      priority: 'normal',
+      audience: 'all',
+      status: 'published'
+    });
+    setAnnouncementModalOpen(true);
+  };
+
+  const handleOpenEditAnnouncement = (ann) => {
+    setEditingAnnouncement(ann);
+    setAnnouncementForm({
+      title: ann.title,
+      message: ann.message,
+      priority: ann.priority || 'normal',
+      audience: ann.audience || 'all',
+      status: ann.status || 'published'
+    });
+    setAnnouncementModalOpen(true);
+  };
+
+  const handleSaveAnnouncement = (e) => {
+    e.preventDefault();
+    if (!announcementForm.title.trim() || !announcementForm.message.trim()) {
+      showToast('Please fill in both title and message.');
+      return;
+    }
+
+    if (editingAnnouncement) {
+      setAnnouncements(prev => prev.map(a => a.id === editingAnnouncement.id ? {
+        ...a,
+        ...announcementForm,
+        publishedAt: announcementForm.status === 'published' ? (a.publishedAt || new Date().toISOString().slice(0, 16).replace('T', ' ')) : a.publishedAt
+      } : a));
+      showToast(`Announcement "${announcementForm.title}" updated successfully.`);
+    } else {
+      const newAnn = {
+        id: `ann-${Date.now()}`,
+        ...announcementForm,
+        publishedAt: announcementForm.status === 'published' ? new Date().toISOString().slice(0, 16).replace('T', ' ') : null,
+        expiresAt: null,
+        author: 'Rohan Deshmukh (Founder)'
+      };
+      setAnnouncements(prev => [newAnn, ...prev]);
+      showToast('New announcement created and published.');
+    }
+    setAnnouncementModalOpen(false);
+  };
+
+  const handleToggleAnnouncementPublish = (id) => {
+    setAnnouncements(prev => prev.map(a => {
+      if (a.id === id) {
+        const nextStatus = a.status === 'published' ? 'draft' : 'published';
+        return {
+          ...a,
+          status: nextStatus,
+          publishedAt: nextStatus === 'published' ? new Date().toISOString().slice(0, 16).replace('T', ' ') : a.publishedAt
+        };
+      }
+      return a;
+    }));
+    showToast('Announcement publication status updated.');
+  };
+
+  const handleDeleteAnnouncement = (id) => {
+    if (window.confirm('Are you sure you want to delete this announcement? This action cannot be undone.')) {
+      setAnnouncements(prev => prev.filter(a => a.id !== id));
+      showToast('Announcement deleted successfully.');
+    }
+  };
+
+  // Rule Handlers
+  const handleOpenCreateRule = () => {
+    setEditingRule(null);
+    setRuleForm({
+      title: '',
+      category: 'Attendance & Work',
+      body: '',
+      version: '1.0',
+      status: 'published'
+    });
+    setRuleModalOpen(true);
+  };
+
+  const handleOpenEditRule = (rule) => {
+    setEditingRule(rule);
+    setRuleForm({
+      title: rule.title,
+      category: rule.category,
+      body: rule.body,
+      version: rule.version || '1.0',
+      status: rule.status || 'published'
+    });
+    setRuleModalOpen(true);
+  };
+
+  const handleSaveRule = (e) => {
+    e.preventDefault();
+    if (!ruleForm.title.trim() || !ruleForm.body.trim()) {
+      showToast('Please provide both policy title and body.');
+      return;
+    }
+
+    if (editingRule) {
+      setCompanyRules(prev => prev.map(r => r.id === editingRule.id ? {
+        ...r,
+        ...ruleForm,
+        updatedAt: new Date().toISOString().slice(0, 10)
+      } : r));
+      showToast(`Rule "${ruleForm.title}" updated.`);
+    } else {
+      const newRule = {
+        id: `rule-${Date.now()}`,
+        ...ruleForm,
+        updatedAt: new Date().toISOString().slice(0, 10)
+      };
+      setCompanyRules(prev => [newRule, ...prev]);
+      showToast('New company policy created.');
+    }
+    setRuleModalOpen(false);
+  };
+
+  const handleToggleRulePublish = (id) => {
+    setCompanyRules(prev => prev.map(r => {
+      if (r.id === id) {
+        const nextStatus = r.status === 'published' ? 'draft' : 'published';
+        return { ...r, status: nextStatus, updatedAt: new Date().toISOString().slice(0, 10) };
+      }
+      return r;
+    }));
+    showToast('Policy status updated.');
+  };
+
+  const handleDeleteRule = (id) => {
+    if (window.confirm('Are you sure you want to delete this company rule?')) {
+      setCompanyRules(prev => prev.filter(r => r.id !== id));
+      showToast('Policy removed.');
+    }
+  };
+
+
   // Filtered employees
-  const filteredEmployees = mockEmployees.filter(emp => {
-    const matchesSearch = emp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          emp.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          emp.designation.toLowerCase().includes(searchQuery.toLowerCase());
+  const filteredEmployees = employeesList.filter(emp => {
+    const matchesSearch = emp.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          emp.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          (emp.designation || emp.role)?.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesDept = departmentFilter === 'all' || emp.department === departmentFilter;
     return matchesSearch && matchesDept;
   });
 
   // Filtered task reports for spreadsheet
-  const filteredTaskReports = mockTaskReports.filter(rep => {
+  const filteredTaskReports = taskReportsList.filter(rep => {
     const matchesSearch = rep.employeeName.toLowerCase().includes(reportSearch.toLowerCase()) ||
                           rep.tasksAssigned.toLowerCase().includes(reportSearch.toLowerCase());
     const matchesMonth = reportMonthFilter === 'all' || rep.month === reportMonthFilter;
@@ -196,6 +464,10 @@ export default function App() {
     document.body.removeChild(link);
     showToast('Spreadsheet CSV generated and downloaded successfully!');
   };
+
+  if (!currentUser) {
+    return <LoginView onLoginSuccess={(u, o) => { setCurrentUser(u); setCurrentOrg(o); }} />;
+  }
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-main)' }}>
@@ -478,6 +750,327 @@ export default function App() {
         </div>
       )}
 
+      {/* Announcement Create / Edit Modal */}
+      {announcementModalOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(41, 45, 38, 0.72)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000,
+          padding: '20px'
+        }} onClick={() => setAnnouncementModalOpen(false)}>
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '16px',
+            padding: '28px',
+            maxWidth: '560px',
+            width: '100%',
+            boxShadow: '0 25px 50px -12px rgba(41, 45, 38, 0.3)',
+            border: '1px solid var(--border)'
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Megaphone size={22} color="#687747" />
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                  {editingAnnouncement ? 'Edit Announcement' : 'Publish Announcement'}
+                </h3>
+              </div>
+              <button
+                onClick={() => setAnnouncementModalOpen(false)}
+                style={{ background: 'var(--bg-beige)', border: 'none', borderRadius: '8px', width: '32px', height: '32px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveAnnouncement} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#414C30', marginBottom: '6px' }}>Announcement Title *</label>
+                <input
+                  type="text"
+                  required
+                  value={announcementForm.title}
+                  onChange={e => setAnnouncementForm({ ...announcementForm, title: e.target.value })}
+                  placeholder="e.g. Q3 All-Hands Meeting & Recognition"
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', outline: 'none', fontSize: '0.9rem' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#414C30', marginBottom: '6px' }}>Target Audience</label>
+                  <select
+                    value={announcementForm.audience}
+                    onChange={e => setAnnouncementForm({ ...announcementForm, audience: e.target.value })}
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: '#fff', fontSize: '0.85rem' }}
+                  >
+                    <option value="all">All Departments (Company-Wide)</option>
+                    <option value="Engineering">Engineering Team</option>
+                    <option value="Operations">Operations Team</option>
+                    <option value="Design">Design Team</option>
+                    <option value="Marketing">Marketing Team</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#414C30', marginBottom: '6px' }}>Priority Level</label>
+                  <select
+                    value={announcementForm.priority}
+                    onChange={e => setAnnouncementForm({ ...announcementForm, priority: e.target.value })}
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: '#fff', fontSize: '0.85rem' }}
+                  >
+                    <option value="normal">Normal Priority</option>
+                    <option value="high">High Priority</option>
+                    <option value="urgent">Urgent Notice</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#414C30', marginBottom: '6px' }}>Publication Status</label>
+                <select
+                  value={announcementForm.status}
+                  onChange={e => setAnnouncementForm({ ...announcementForm, status: e.target.value })}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: '#fff', fontSize: '0.85rem' }}
+                >
+                  <option value="published">Published (Visible to Employees immediately)</option>
+                  <option value="draft">Draft (Saved privately, invisible to employees)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#414C30', marginBottom: '6px' }}>Announcement Message *</label>
+                <textarea
+                  required
+                  rows={4}
+                  value={announcementForm.message}
+                  onChange={e => setAnnouncementForm({ ...announcementForm, message: e.target.value })}
+                  placeholder="Type the message body that will display on employee devices..."
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', outline: 'none', fontSize: '0.88rem', fontFamily: 'inherit', resize: 'vertical' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setAnnouncementModalOpen(false)}
+                  style={{ padding: '10px 16px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-beige)', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  style={{ padding: '10px 20px', borderRadius: '8px', border: 'none', background: '#687747', color: '#fff', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  {editingAnnouncement ? 'Save Changes' : 'Publish Announcement'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Announcement Preview Modal */}
+      {announcementPreview && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(41, 45, 38, 0.72)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000,
+          padding: '20px'
+        }} onClick={() => setAnnouncementPreview(null)}>
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '16px',
+            padding: '28px',
+            maxWidth: '520px',
+            width: '100%',
+            boxShadow: '0 25px 50px -12px rgba(41, 45, 38, 0.3)',
+            border: '1px solid var(--border)'
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--border)' }}>
+              <div>
+                <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '3px 8px', borderRadius: '6px', background: 'var(--bg-light-olive)', color: '#414C30' }}>
+                  EMPLOYEE APP PREVIEW
+                </span>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '6px' }}>{announcementPreview.title}</h3>
+              </div>
+              <button
+                onClick={() => setAnnouncementPreview(null)}
+                style={{ background: 'var(--bg-beige)', border: 'none', borderRadius: '8px', width: '32px', height: '32px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '4px 10px', borderRadius: '12px', background: announcementPreview.priority === 'high' ? '#FAF0EE' : 'var(--bg-light-olive)', color: announcementPreview.priority === 'high' ? '#C0392B' : '#414C30' }}>
+                Priority: {announcementPreview.priority?.toUpperCase()}
+              </span>
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, padding: '4px 10px', borderRadius: '12px', background: 'var(--bg-beige)', color: 'var(--text-secondary)' }}>
+                Audience: {announcementPreview.audience === 'all' ? 'All Staff' : announcementPreview.audience}
+              </span>
+            </div>
+
+            <p style={{ fontSize: '0.92rem', color: 'var(--text-primary)', lineHeight: 1.6, background: 'var(--bg-beige)', padding: '16px', borderRadius: '10px', border: '1px solid var(--border)', marginBottom: '16px' }}>
+              {announcementPreview.message}
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '20px' }}>
+              <span>Published by: <strong>{announcementPreview.author || 'Founder'}</strong></span>
+              <span>{announcementPreview.publishedAt || 'Draft'}</span>
+            </div>
+
+            <button
+              onClick={() => setAnnouncementPreview(null)}
+              style={{ width: '100%', padding: '10px', background: '#414C30', color: '#fff', borderRadius: '8px', border: 'none', fontWeight: 600, cursor: 'pointer' }}
+            >
+              Close Preview
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Company Rule Create / Edit Modal */}
+      {ruleModalOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(41, 45, 38, 0.72)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000,
+          padding: '20px'
+        }} onClick={() => setRuleModalOpen(false)}>
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '16px',
+            padding: '28px',
+            maxWidth: '580px',
+            width: '100%',
+            boxShadow: '0 25px 50px -12px rgba(41, 45, 38, 0.3)',
+            border: '1px solid var(--border)'
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <BookOpen size={22} color="#687747" />
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                  {editingRule ? 'Edit Company Policy / Rule' : 'Create Company Policy / Rule'}
+                </h3>
+              </div>
+              <button
+                onClick={() => setRuleModalOpen(false)}
+                style={{ background: 'var(--bg-beige)', border: 'none', borderRadius: '8px', width: '32px', height: '32px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveRule} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#414C30', marginBottom: '6px' }}>Policy Title *</label>
+                <input
+                  type="text"
+                  required
+                  value={ruleForm.title}
+                  onChange={e => setRuleForm({ ...ruleForm, title: e.target.value })}
+                  placeholder="e.g. Working Hours & Core Collaboration Window"
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', outline: 'none', fontSize: '0.9rem' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#414C30', marginBottom: '6px' }}>Category</label>
+                  <select
+                    value={ruleForm.category}
+                    onChange={e => setRuleForm({ ...ruleForm, category: e.target.value })}
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: '#fff', fontSize: '0.85rem' }}
+                  >
+                    <option value="Attendance & Work">Attendance & Work</option>
+                    <option value="Leave Policy">Leave Policy</option>
+                    <option value="Code of Conduct">Code of Conduct</option>
+                    <option value="Security & Devices">Security & Devices</option>
+                    <option value="Benefits & Perks">Benefits & Perks</option>
+                    <option value="General">General</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#414C30', marginBottom: '6px' }}>Policy Version</label>
+                  <input
+                    type="text"
+                    value={ruleForm.version}
+                    onChange={e => setRuleForm({ ...ruleForm, version: e.target.value })}
+                    placeholder="e.g. 1.2"
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', outline: 'none', fontSize: '0.85rem' }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#414C30', marginBottom: '6px' }}>Publication Status</label>
+                <select
+                  value={ruleForm.status}
+                  onChange={e => setRuleForm({ ...ruleForm, status: e.target.value })}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: '#fff', fontSize: '0.85rem' }}
+                >
+                  <option value="published">Published (Visible to all employees)</option>
+                  <option value="draft">Draft (Private admin review)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#414C30', marginBottom: '6px' }}>Policy Description / Body *</label>
+                <textarea
+                  required
+                  rows={5}
+                  value={ruleForm.body}
+                  onChange={e => setRuleForm({ ...ruleForm, body: e.target.value })}
+                  placeholder="Detail the terms, standards, operational guidelines, or penalties associated with this rule..."
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', outline: 'none', fontSize: '0.88rem', fontFamily: 'inherit', resize: 'vertical' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setRuleModalOpen(false)}
+                  style={{ padding: '10px 16px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-beige)', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  style={{ padding: '10px 20px', borderRadius: '8px', border: 'none', background: '#687747', color: '#fff', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  {editingRule ? 'Save Policy Changes' : 'Publish Policy'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Sidebar Navigation */}
       <aside style={{
         width: '260px',
@@ -510,8 +1103,12 @@ export default function App() {
               E
             </div>
             <div>
-              <h1 style={{ fontSize: '1.05rem', fontWeight: 800, letterSpacing: '-0.02em', color: '#ffffff' }}>EMS Command</h1>
-              <span style={{ fontSize: '0.72rem', color: '#DDE1D3', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Founder Edition</span>
+              <h1 style={{ fontSize: '1.05rem', fontWeight: 800, letterSpacing: '-0.02em', color: '#ffffff' }}>
+                {currentOrg?.name || 'EMS Command'}
+              </h1>
+              <span style={{ fontSize: '0.72rem', color: '#DDE1D3', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                {currentUser?.role === 'admin' ? 'Organization Admin' : 'Staff Portal'}
+              </span>
             </div>
           </div>
         </div>
@@ -524,7 +1121,9 @@ export default function App() {
             { id: 'attendance', label: 'Attendance Logs', icon: Clock, badge: 'Live' },
             { id: 'reports', label: 'Daily Task Reports', icon: FileText },
             { id: 'audits', label: 'Leader Audits & Ratings', icon: Award },
-            { id: 'geofence', label: 'Office Geofencing', icon: MapPin }
+            { id: 'geofence', label: 'Office Geofencing', icon: MapPin },
+            { id: 'announcements', label: 'Announcements', icon: Megaphone, badge: announcements.filter(a => a.status === 'published').length },
+            { id: 'rules', label: 'Notes & Rules', icon: BookOpen, badge: companyRules.length }
           ].map(item => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -620,10 +1219,27 @@ export default function App() {
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              Rohan Deshmukh
+              {currentUser?.name || 'Administrator'}
             </div>
-            <div style={{ fontSize: '0.72rem', color: '#DDE1D3' }}>Founder & Admin</div>
+            <div style={{ fontSize: '0.72rem', color: '#DDE1D3' }}>{currentUser?.email || currentOrg?.slug}</div>
           </div>
+          <button
+            onClick={handleLogout}
+            title="Sign Out"
+            style={{
+              background: 'rgba(239, 68, 68, 0.2)',
+              border: 'none',
+              borderRadius: '8px',
+              padding: '6px',
+              color: '#fca5a5',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+          >
+            <LogOut size={16} />
+          </button>
         </div>
       </aside>
 
@@ -1745,8 +2361,395 @@ export default function App() {
               </div>
             </div>
           )}
+
+          {/* ========================================================================= */}
+          {/* TAB 7: ANNOUNCEMENTS MANAGEMENT (FOUNDER / ADMIN) */}
+          {/* ========================================================================= */}
+          {activeTab === 'announcements' && (
+            <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Header & Action Controls */}
+              <div style={{
+                background: '#ffffff',
+                padding: '20px 24px',
+                borderRadius: '12px',
+                border: '1px solid var(--border)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                boxShadow: 'var(--shadow-sm)'
+              }}>
+                <div>
+                  <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Megaphone size={22} color="#687747" />
+                    Company Announcements & Broadcasts
+                  </h2>
+                  <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    Publish notices, policy updates, and event alerts directly to employee mobile devices.
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <div style={{ display: 'flex', background: 'var(--bg-beige)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                    {['all', 'published', 'draft'].map(st => (
+                      <button
+                        key={st}
+                        onClick={() => setAnnouncementFilter(st)}
+                        style={{
+                          padding: '6px 14px',
+                          borderRadius: '6px',
+                          border: 'none',
+                          background: announcementFilter === st ? '#687747' : 'transparent',
+                          color: announcementFilter === st ? '#ffffff' : 'var(--text-secondary)',
+                          fontWeight: 700,
+                          fontSize: '0.78rem',
+                          textTransform: 'capitalize',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {st}
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    onClick={handleOpenCreateAnnouncement}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      background: '#414C30',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '10px 18px',
+                      fontWeight: 700,
+                      fontSize: '0.85rem',
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 10px rgba(65, 76, 48, 0.2)'
+                    }}
+                  >
+                    <Plus size={16} />
+                    New Announcement
+                  </button>
+                </div>
+              </div>
+
+              {/* Announcements List */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                {announcements
+                  .filter(a => announcementFilter === 'all' || a.status === announcementFilter)
+                  .map(ann => (
+                    <div
+                      key={ann.id}
+                      style={{
+                        background: '#ffffff',
+                        borderRadius: '12px',
+                        border: '1px solid var(--border)',
+                        padding: '20px 24px',
+                        boxShadow: 'var(--shadow-sm)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                            <span style={{
+                              fontSize: '0.72rem',
+                              fontWeight: 800,
+                              textTransform: 'uppercase',
+                              padding: '3px 8px',
+                              borderRadius: '6px',
+                              background: ann.status === 'published' ? 'var(--bg-light-olive)' : 'var(--bg-beige)',
+                              color: ann.status === 'published' ? '#414C30' : 'var(--text-secondary)',
+                              border: '1px solid var(--border)'
+                            }}>
+                              {ann.status}
+                            </span>
+
+                            {ann.priority === 'high' && (
+                              <span style={{ fontSize: '0.72rem', fontWeight: 800, padding: '3px 8px', borderRadius: '6px', background: '#FAF0EE', color: '#C0392B' }}>
+                                HIGH PRIORITY
+                              </span>
+                            )}
+
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                              Audience: {ann.audience === 'all' ? 'All Departments' : ann.audience}
+                            </span>
+                          </div>
+
+                          <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-primary)' }}>{ann.title}</h3>
+                        </div>
+
+                        {/* Action buttons */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <button
+                            onClick={() => handleToggleAnnouncementPublish(ann.id)}
+                            style={{
+                              padding: '6px 12px',
+                              borderRadius: '6px',
+                              border: '1px solid var(--border)',
+                              background: ann.status === 'published' ? 'var(--bg-beige)' : 'var(--bg-light-olive)',
+                              color: ann.status === 'published' ? 'var(--text-primary)' : '#414C30',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {ann.status === 'published' ? 'Unpublish' : 'Publish'}
+                          </button>
+
+                          <button
+                            onClick={() => setAnnouncementPreview(ann)}
+                            style={{
+                              padding: '6px 12px',
+                              borderRadius: '6px',
+                              border: '1px solid var(--border)',
+                              background: '#fff',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <Eye size={13} /> Preview
+                          </button>
+
+                          <button
+                            onClick={() => handleOpenEditAnnouncement(ann)}
+                            style={{
+                              padding: '6px 12px',
+                              borderRadius: '6px',
+                              border: '1px solid var(--border)',
+                              background: '#fff',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <Edit3 size={13} /> Edit
+                          </button>
+
+                          <button
+                            onClick={() => handleDeleteAnnouncement(ann.id)}
+                            style={{
+                              padding: '6px 10px',
+                              borderRadius: '6px',
+                              border: '1px solid #FAF0EE',
+                              background: '#FAF0EE',
+                              color: '#C0392B',
+                              fontSize: '0.75rem',
+                              cursor: 'pointer'
+                            }}
+                            title="Delete Announcement"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <p style={{ fontSize: '0.88rem', color: 'var(--text-primary)', lineHeight: 1.5, margin: 0 }}>
+                        {ann.message}
+                      </p>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)', borderTop: '1px solid var(--border)', paddingTop: '10px' }}>
+                        <span>Published: <strong>{ann.publishedAt || 'Not published (Draft)'}</strong></span>
+                        <span>Author: <strong>{ann.author || 'Founder Admin'}</strong></span>
+                      </div>
+                    </div>
+                  ))}
+
+                {announcements.filter(a => announcementFilter === 'all' || a.status === announcementFilter).length === 0 && (
+                  <div style={{ background: '#ffffff', padding: '48px', borderRadius: '12px', border: '1px solid var(--border)', textAlign: 'center' }}>
+                    <Megaphone size={36} color="var(--text-muted)" style={{ margin: '0 auto 12px auto' }} />
+                    <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>No announcements found</div>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '4px' }}>There are no announcements currently under this status filter.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* TAB 8: COMPANY NOTES & RULES (FOUNDER / ADMIN) */}
+          {/* ========================================================================= */}
+          {activeTab === 'rules' && (
+            <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Header & Controls */}
+              <div style={{
+                background: '#ffffff',
+                padding: '20px 24px',
+                borderRadius: '12px',
+                border: '1px solid var(--border)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                boxShadow: 'var(--shadow-sm)'
+              }}>
+                <div>
+                  <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <BookOpen size={22} color="#687747" />
+                    Company Notes, Policies & Guidelines
+                  </h2>
+                  <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    Maintain official workplace protocols, code of conduct, and operational policies for all staff.
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <select
+                    value={ruleCategoryFilter}
+                    onChange={e => setRuleCategoryFilter(e.target.value)}
+                    style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid var(--border)', background: '#fff', fontSize: '0.85rem', fontWeight: 600 }}
+                  >
+                    <option value="all">All Categories</option>
+                    <option value="Attendance & Work">Attendance & Work</option>
+                    <option value="Leave Policy">Leave Policy</option>
+                    <option value="Code of Conduct">Code of Conduct</option>
+                    <option value="Security & Devices">Security & Devices</option>
+                    <option value="Benefits & Perks">Benefits & Perks</option>
+                    <option value="General">General</option>
+                  </select>
+
+                  <button
+                    onClick={handleOpenCreateRule}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      background: '#414C30',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '10px 18px',
+                      fontWeight: 700,
+                      fontSize: '0.85rem',
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 10px rgba(65, 76, 48, 0.2)'
+                    }}
+                  >
+                    <Plus size={16} />
+                    New Policy Rule
+                  </button>
+                </div>
+              </div>
+
+              {/* Policy Cards Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(440px, 1fr))', gap: '16px' }}>
+                {companyRules
+                  .filter(r => ruleCategoryFilter === 'all' || r.category === ruleCategoryFilter)
+                  .map(rule => (
+                    <div
+                      key={rule.id}
+                      style={{
+                        background: '#ffffff',
+                        borderRadius: '12px',
+                        border: '1px solid var(--border)',
+                        padding: '22px',
+                        boxShadow: 'var(--shadow-sm)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                            <span style={{
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              padding: '2px 8px',
+                              borderRadius: '6px',
+                              background: 'var(--bg-light-olive)',
+                              color: '#414C30'
+                            }}>
+                              {rule.category}
+                            </span>
+                            <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                              v{rule.version || '1.0'}
+                            </span>
+                          </div>
+                          <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)' }}>{rule.title}</h3>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            onClick={() => handleToggleRulePublish(rule.id)}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: '6px',
+                              border: '1px solid var(--border)',
+                              background: rule.status === 'published' ? 'var(--bg-beige)' : 'var(--bg-light-olive)',
+                              fontSize: '0.72rem',
+                              fontWeight: 600,
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {rule.status === 'published' ? 'Unpublish' : 'Publish'}
+                          </button>
+                          <button
+                            onClick={() => handleOpenEditRule(rule)}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: '6px',
+                              border: '1px solid var(--border)',
+                              background: '#fff',
+                              fontSize: '0.72rem',
+                              cursor: 'pointer'
+                            }}
+                            title="Edit Policy"
+                          >
+                            <Edit3 size={13} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteRule(rule.id)}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: '6px',
+                              border: '1px solid #FAF0EE',
+                              background: '#FAF0EE',
+                              color: '#C0392B',
+                              fontSize: '0.72rem',
+                              cursor: 'pointer'
+                            }}
+                            title="Delete Policy"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <p style={{
+                        fontSize: '0.86rem',
+                        color: 'var(--text-primary)',
+                        lineHeight: 1.55,
+                        background: 'var(--bg-card-subtle)',
+                        padding: '14px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border)',
+                        flex: 1
+                      }}>
+                        {rule.body}
+                      </p>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                        <span>Status: <strong style={{ color: rule.status === 'published' ? '#414C30' : 'var(--text-secondary)' }}>{rule.status?.toUpperCase()}</strong></span>
+                        <span>Last Updated: {rule.updatedAt}</span>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </div>
   );
 }
+

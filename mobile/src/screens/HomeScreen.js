@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,15 +9,32 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
-import { mockProfile, mockOfficeGeofence, mockDailyTaskSpreadsheet } from '../data/mockEmployeeData';
+import { mockProfile, mockOfficeGeofence } from '../data/mockEmployeeData';
+import { getProfilePhoto } from '../services/profilePhotoService';
 
 export default function HomeScreen({
   attendanceState,
   onNavigateToPunch,
-  onNavigate
+  onNavigate,
+  currentUser,
+  currentOrg
 }) {
   const { colors, isDark } = useTheme();
   const styles = getStyles(colors, isDark);
+  const [profileAvatarUri, setProfileAvatarUri] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const photo = await getProfilePhoto();
+        if (photo && photo.uri) {
+          setProfileAvatarUri(photo.uri);
+        }
+      } catch (e) {
+        // non-fatal
+      }
+    })();
+  }, []);
 
   const isPunchedIn = attendanceState.isPunchedIn;
   const isPunchedOut = attendanceState.isPunchedOut;
@@ -31,15 +48,9 @@ export default function HomeScreen({
     }
   };
 
-  // Compact task preview metrics from mock data
-  const totalTasks = mockDailyTaskSpreadsheet.reports.length;
-  const completedTasks = mockDailyTaskSpreadsheet.reports.filter(t => t.completed === 'Yes').length;
-  const pendingTasks = totalTasks - completedTasks;
-  const completionPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-
-  // Calculate self-rating average
-  const r = mockDailyTaskSpreadsheet.ratings;
-  const ratingAvg = ((r.speed + r.understanding + r.problemSolving + r.talkingBehaviour + r.workQuality + r.discipline) / 6).toFixed(1);
+  const displayName = currentUser?.name || mockProfile.name;
+  const displayDesignation = currentUser?.designation || mockProfile.designation;
+  const displayDepartment = currentUser?.department || mockProfile.department;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -53,9 +64,7 @@ export default function HomeScreen({
           <View style={styles.avatarWrapper}>
             <Image
               source={{
-                uri: (isPunchedIn && attendanceState.punchInPhotoUri)
-                  ? attendanceState.punchInPhotoUri
-                  : mockProfile.avatar
+                uri: profileAvatarUri || mockProfile.avatar
               }}
               style={styles.avatar}
             />
@@ -65,9 +74,9 @@ export default function HomeScreen({
             ]} />
           </View>
           <View style={styles.profileTextCol}>
-            <Text style={styles.greetingText}>Welcome back,</Text>
-            <Text style={styles.nameText}>{mockProfile.name}</Text>
-            <Text style={styles.deptText}>{mockProfile.designation} • {mockProfile.department}</Text>
+            <Text style={styles.greetingText} numberOfLines={1}>Welcome back,</Text>
+            <Text style={styles.nameText} numberOfLines={1} ellipsizeMode="tail">{displayName}</Text>
+            <Text style={styles.deptText} numberOfLines={1} ellipsizeMode="tail">{displayDesignation} • {displayDepartment}</Text>
           </View>
         </TouchableOpacity>
 
@@ -168,86 +177,36 @@ export default function HomeScreen({
           </View>
         )}
 
-        {/* Single canonical attendance action navigating to Punch screen */}
-        <TouchableOpacity
-          style={[
-            styles.punchActionBtn,
-            { backgroundColor: isPunchedIn ? colors.danger : (isPunchedOut ? colors.darkOlive : colors.primary) }
-          ]}
-          onPress={() => handleNav('punch')}
-          activeOpacity={0.85}
-        >
-          <Ionicons
-            name={isPunchedIn ? 'exit-outline' : (isPunchedOut ? 'checkmark-done-circle-outline' : 'finger-print')}
-            size={20}
-            color="#ffffff"
-          />
-          <Text style={styles.punchActionBtnText}>
-            {isPunchedIn
-              ? 'Punch Out / End Shift'
-              : (isPunchedOut ? 'Shift Logged • Review Punch Status' : 'Punch In with Camera & GPS')}
+        {/* Compact helper instruction */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+          <Ionicons name="information-circle-outline" size={15} color={colors.primary} />
+          <Text style={{ fontSize: 11, fontWeight: '600', color: colors.textSecondary }}>
+            {isPunchedIn ? 'Tap Punch below to end your shift & punch out.' : 'Tap Punch to record attendance.'}
           </Text>
+        </View>
+
+        {/* Small secondary action navigating to Punch screen */}
+        <TouchableOpacity
+          style={styles.secondaryPunchActionBtn}
+          onPress={() => handleNav('punch')}
+          activeOpacity={0.75}
+          accessibilityRole="button"
+          accessibilityLabel="Open Attendance Screen"
+        >
+          <View style={styles.secondaryPunchActionLeft}>
+            <View style={styles.secondaryPunchIconWrap}>
+              <Ionicons name="camera-outline" size={16} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.secondaryPunchTitle}>
+                {isPunchedIn ? 'Go to Punch (Punch Out)' : 'Go to Punch (Punch In)'}
+              </Text>
+              <Text style={styles.secondaryPunchSubtitle}>Camera selfie & verified location capture</Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.primary} />
         </TouchableOpacity>
       </View>
-
-      {/* 4. COMPACT DAILY TASK SUMMARY PREVIEW (Direct shortcut to Task tab) */}
-      <TouchableOpacity
-        style={styles.taskPreviewCard}
-        onPress={() => handleNav('tasks')}
-        activeOpacity={0.88}
-      >
-        <View style={styles.taskPreviewHeaderRow}>
-          <View style={styles.taskPreviewTitleGroup}>
-            <View style={styles.taskIconCircle}>
-              <Ionicons name="grid-outline" size={16} color={colors.primary} />
-            </View>
-            <View>
-              <Text style={styles.taskPreviewHeading}>Daily Task Summary</Text>
-              <Text style={styles.taskPreviewSubheading}>Today • Oct 22 (Thursday)</Text>
-            </View>
-          </View>
-          <View style={styles.taskStatusBadge}>
-            <Text style={styles.taskStatusBadgeText}>{mockDailyTaskSpreadsheet.status}</Text>
-          </View>
-        </View>
-
-        {/* Task Metric Pills */}
-        <View style={styles.taskMetricsRow}>
-          <View style={styles.taskMetricItem}>
-            <Text style={styles.taskMetricValue}>{totalTasks}</Text>
-            <Text style={styles.taskMetricLabel}>Assigned</Text>
-          </View>
-          <View style={styles.taskMetricDivider} />
-          <View style={styles.taskMetricItem}>
-            <Text style={[styles.taskMetricValue, { color: colors.primary }]}>{completedTasks}</Text>
-            <Text style={styles.taskMetricLabel}>Completed</Text>
-          </View>
-          <View style={styles.taskMetricDivider} />
-          <View style={styles.taskMetricItem}>
-            <Text style={[styles.taskMetricValue, { color: colors.warning }]}>{pendingTasks}</Text>
-            <Text style={styles.taskMetricLabel}>Pending</Text>
-          </View>
-          <View style={styles.taskMetricDivider} />
-          <View style={styles.taskMetricItem}>
-            <View style={styles.ratingValRow}>
-              <Ionicons name="star" size={12} color={colors.primary} />
-              <Text style={styles.taskMetricValue}>{ratingAvg}</Text>
-            </View>
-            <Text style={styles.taskMetricLabel}>Avg Rating</Text>
-          </View>
-        </View>
-
-        {/* Progress Bar */}
-        <View style={styles.progressBarTrack}>
-          <View style={[styles.progressBarFill, { width: `${completionPercent}%` }]} />
-        </View>
-
-        {/* Shortcut Action Banner navigating directly to Task screen */}
-        <View style={styles.taskShortcutBtn}>
-          <Text style={styles.taskShortcutBtnText}>Open Daily Task Sheet ({completionPercent}% Done)</Text>
-          <Ionicons name="arrow-forward" size={15} color={colors.primary} />
-        </View>
-      </TouchableOpacity>
 
       {/* 5. ATTENDANCE & SHIFTS SECTION (Complementary 3-Card Row) */}
       <View style={styles.sectionHeaderRow}>
@@ -279,7 +238,7 @@ export default function HomeScreen({
             <Ionicons name="document-text-outline" size={22} color={colors.primary} />
           </View>
           <Text style={styles.cardTitle}>Daily Tasks</Text>
-          <Text style={styles.cardSubtitle}>{totalTasks} Rows Logged</Text>
+          <Text style={styles.cardSubtitle}>Task Reports & Sheet</Text>
         </TouchableOpacity>
 
         {/* Card 3: View Punch In-Out History */}
@@ -423,9 +382,9 @@ export default function HomeScreen({
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.geofenceTitle}>Registered Work Base</Text>
-          <Text style={styles.geofenceName}>{mockOfficeGeofence.name}</Text>
+          <Text style={styles.geofenceName}>{currentOrg?.name || mockOfficeGeofence.name}</Text>
           <Text style={styles.geofenceMeta}>
-            Radius: {mockOfficeGeofence.radiusMeters}m perimeter • Verified on server
+            {currentOrg?.city ? `${currentOrg.city}, ${currentOrg.country || 'India'} • ` : ''}Radius: {currentOrg?.office_radius_meters || mockOfficeGeofence.radiusMeters}m perimeter • Verified on server
           </Text>
         </View>
       </View>
@@ -440,30 +399,36 @@ const getStyles = (colors, isDark) =>
       backgroundColor: colors.background
     },
     content: {
-      padding: 16,
-      paddingBottom: 40
+      paddingHorizontal: 16,
+      paddingTop: 8,
+      paddingBottom: 110,
     },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: 16
+      marginBottom: 16,
+      minHeight: 52,
     },
     profileMetaRow: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 12,
-      flex: 1
+      flex: 1,
+      minWidth: 0,
+      marginRight: 10,
     },
     avatarWrapper: {
-      position: 'relative'
+      position: 'relative',
+      flexShrink: 0,
     },
     avatar: {
       width: 48,
       height: 48,
       borderRadius: 24,
       borderWidth: 2,
-      borderColor: colors.primary
+      borderColor: colors.primary,
+      backgroundColor: colors.beige,
     },
     onlineIndicator: {
       width: 12,
@@ -473,36 +438,41 @@ const getStyles = (colors, isDark) =>
       bottom: 0,
       right: 0,
       borderWidth: 2,
-      borderColor: colors.card
+      borderColor: colors.card,
     },
     profileTextCol: {
-      flex: 1
+      flex: 1,
+      minWidth: 0,
+      justifyContent: 'center',
     },
     greetingText: {
       fontSize: 11,
       fontWeight: '600',
       color: colors.textSecondary,
       textTransform: 'uppercase',
-      letterSpacing: 0.5
+      letterSpacing: 0.5,
+      marginBottom: 1,
     },
     nameText: {
-      fontSize: 17,
+      fontSize: 16,
       fontWeight: '800',
-      color: colors.text
+      color: colors.textPrimary,
+      letterSpacing: -0.2,
     },
     deptText: {
       fontSize: 12,
       color: colors.textSecondary,
-      marginTop: 1
+      marginTop: 1,
     },
     headerActions: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8
+      gap: 8,
+      flexShrink: 0,
     },
     iconBtn: {
-      width: 40,
-      height: 40,
+      width: 38,
+      height: 38,
       borderRadius: 12,
       backgroundColor: colors.card,
       borderWidth: 1,
@@ -646,138 +616,44 @@ const getStyles = (colors, isDark) =>
       fontWeight: '600',
       flex: 1
     },
-    punchActionBtn: {
+    secondaryPunchActionBtn: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
-      gap: 8,
-      paddingVertical: 14,
-      borderRadius: 12,
-      shadowColor: colors.primary,
-      shadowOpacity: 0.2,
-      shadowRadius: 6,
-      elevation: 3
-    },
-    punchActionBtnText: {
-      color: '#ffffff',
-      fontSize: 14,
-      fontWeight: '800'
-    },
-    // Compact Daily Task Summary Preview
-    taskPreviewCard: {
-      backgroundColor: colors.card,
-      borderRadius: 16,
-      padding: 16,
+      justifyContent: 'space-between',
+      backgroundColor: isDark ? 'rgba(163, 184, 121, 0.08)' : colors.lightOlive,
       borderWidth: 1,
-      borderColor: colors.border,
-      marginBottom: 20,
-      shadowColor: '#000',
-      shadowOpacity: isDark ? 0.2 : 0.03,
-      shadowRadius: 6,
-      elevation: 2
-    },
-    taskPreviewHeaderRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: 12
-    },
-    taskPreviewTitleGroup: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10
-    },
-    taskIconCircle: {
-      width: 34,
-      height: 34,
-      borderRadius: 10,
-      backgroundColor: colors.lightOlive,
-      alignItems: 'center',
-      justifyContent: 'center'
-    },
-    taskPreviewHeading: {
-      fontSize: 14,
-      fontWeight: '800',
-      color: colors.text
-    },
-    taskPreviewSubheading: {
-      fontSize: 11,
-      color: colors.textSecondary,
-      marginTop: 1
-    },
-    taskStatusBadge: {
-      backgroundColor: colors.lightOlive,
-      paddingHorizontal: 8,
-      paddingVertical: 3,
-      borderRadius: 8
-    },
-    taskStatusBadgeText: {
-      fontSize: 10,
-      fontWeight: '800',
-      color: colors.primary
-    },
-    taskMetricsRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      backgroundColor: colors.beige,
-      padding: 10,
+      borderColor: isDark ? colors.borderStrong : colors.border,
       borderRadius: 12,
-      marginBottom: 10,
-      borderWidth: 1,
-      borderColor: colors.border
-    },
-    taskMetricItem: {
-      flex: 1,
-      alignItems: 'center'
-    },
-    taskMetricValue: {
-      fontSize: 15,
-      fontWeight: '800',
-      color: colors.text
-    },
-    ratingValRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 3
-    },
-    taskMetricLabel: {
-      fontSize: 10,
-      color: colors.textSecondary,
-      marginTop: 2
-    },
-    taskMetricDivider: {
-      width: 1,
-      height: 20,
-      backgroundColor: colors.border
-    },
-    progressBarTrack: {
-      height: 5,
-      backgroundColor: colors.beige,
-      borderRadius: 3,
-      overflow: 'hidden',
-      marginBottom: 12
-    },
-    progressBarFill: {
-      height: '100%',
-      backgroundColor: colors.primary,
-      borderRadius: 3
-    },
-    taskShortcutBtn: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      backgroundColor: colors.beige,
       paddingVertical: 10,
       paddingHorizontal: 12,
-      borderRadius: 10,
+      marginTop: 2
+    },
+    secondaryPunchActionLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      flex: 1,
+      marginRight: 8
+    },
+    secondaryPunchIconWrap: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: colors.card,
+      alignItems: 'center',
+      justifyContent: 'center',
       borderWidth: 1,
       borderColor: colors.border
     },
-    taskShortcutBtnText: {
+    secondaryPunchTitle: {
       fontSize: 12,
       fontWeight: '700',
-      color: colors.primary
+      color: colors.textPrimary
+    },
+    secondaryPunchSubtitle: {
+      fontSize: 10,
+      color: colors.textSecondary,
+      marginTop: 1
     },
     sectionHeaderRow: {
       flexDirection: 'row',

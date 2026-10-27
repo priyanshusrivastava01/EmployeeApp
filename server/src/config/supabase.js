@@ -11,9 +11,17 @@ dotenv.config();
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+const isPlaceholder = (val) => {
+  if (!val) return true;
+  const lower = val.toLowerCase();
+  return lower.includes('your-project-id') ||
+    lower.includes('your_project_url') ||
+    lower.includes('your-supabase-service-role') ||
+    lower.includes('example');
+};
 let supabase = null;
 
-if (supabaseUrl && supabaseKey && !supabaseUrl.includes('YOUR_PROJECT_URL')) {
+if (supabaseUrl && supabaseKey && !isPlaceholder(supabaseUrl) && !isPlaceholder(supabaseKey)) {
   supabase = createClient(supabaseUrl, supabaseKey, {
     auth: {
       persistSession: false,

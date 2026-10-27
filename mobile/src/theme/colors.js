@@ -11,6 +11,7 @@ export const lightTheme = {
   lightOlive: '#E8EDDC',     // Light Olive for badges and subtle tint boxes
   
   // Surfaces & Backgrounds
+  surface: '#FFFFFF',        // Fully Opaque White Surface for Navigation & Modals
   background: '#F7F7F0',     // Main Warm Off-White Page Background
   card: '#FFFFFF',           // Crisp White Card / Modal Surfaces
   beige: '#EFEEE4',          // Beige Subtle Surface
@@ -56,6 +57,7 @@ export const darkTheme = {
   lightOlive: '#343D2D',     // Deep sage-olive tint for badges/containers
   
   // Surfaces & Backgrounds
+  surface: '#242920',        // Fully Opaque Dark Olive-Charcoal Surface for Navigation & Modals
   background: '#191C17',     // Low-glare dark page background
   card: '#242920',           // Deep olive-charcoal card surface
   beige: '#2D3327',          // Elevated surface (replaces light beige)
