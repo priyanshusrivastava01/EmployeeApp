@@ -18,6 +18,7 @@ const rateLimit = require('express-rate-limit');
 const xlsx = require('xlsx');
 const { supabase } = require('./config/supabase');
 const { requireAuth, requireRole, generateToken } = require('./middleware/auth');
+const { BUCKETS, isBase64DataUri, parseBase64DataUri, uploadPrivateFile, getSignedDownloadUrl } = require('./services/storage');
 
 dotenv.config();
 
@@ -38,6 +39,22 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TIMEZONE & DATE HELPERS (Asia/Kolkata - IST Standard)
+// ─────────────────────────────────────────────────────────────────────────────
+const getISTDate = (offsetDays = 0) => {
+  const d = new Date(Date.now() + offsetDays * 86400000);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+};
+
+const getISTDayName = (dateStr) => {
+  const d = dateStr ? new Date(`${dateStr}T12:00:00+05:30`) : new Date();
+  return new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', weekday: 'long' }).format(d);
+};
+
+// Standard RFC 4122 v4 UUID generator for all internal database primary & foreign keys
+const generateUUID = () => crypto.randomUUID();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // IN-MEMORY DATA STORE (Development fallback when Supabase not configured)
@@ -338,6 +355,122 @@ const memDb = {
         updated_at: new Date('2026-09-06T14:30:00Z').toISOString()
       }
     ];
+
+    // Seed realistic previous-day daily reports for demo employee (Aarav Sharma)
+    const yesterdayIST = getISTDate(-1);
+    const dayBeforeYesterdayIST = getISTDate(-2);
+
+    this.dailyReports = [
+      {
+        id: 'rpt-demo-hist-002',
+        organization_id: 'org-demo-001',
+        user_id: 'user-emp-001',
+        user_name: 'Aarav Sharma',
+        work_date: dayBeforeYesterdayIST,
+        project_name: 'Android Mobile App',
+        tasks_assigned: 'Setup Expo project configuration and secure environment variables; Configure custom olive green theme design tokens across screens',
+        tasks_completed: 'Yes',
+        tasks_pending: 'No',
+        tasks: [
+          {
+            id: 'task-hist-004',
+            projectName: 'Android Mobile App',
+            tasksAssigned: 'Setup Expo project configuration and secure environment variables',
+            completed: 'Yes',
+            pending: 'No',
+            taskDate: dayBeforeYesterdayIST,
+            isCarriedForward: false,
+            carriedForwardFromDate: null,
+            carriedForwardFromTaskId: null
+          },
+          {
+            id: 'task-hist-005',
+            projectName: 'Android Mobile App',
+            tasksAssigned: 'Configure custom olive green theme design tokens across screens',
+            completed: 'Yes',
+            pending: 'No',
+            taskDate: dayBeforeYesterdayIST,
+            isCarriedForward: false,
+            carriedForwardFromDate: null,
+            carriedForwardFromTaskId: null
+          }
+        ],
+        rating_speed: 9,
+        rating_understanding: 9,
+        rating_problem_solving: 9,
+        rating_talking_behaviour: 9,
+        rating_work_quality: 10,
+        rating_discipline: 10,
+        rating_average_overall: 9.3,
+        work_summary: 'Completed Expo configuration and olive green design token setup.',
+        challenges: 'None',
+        is_draft: false,
+        carried_forward_count: 0,
+        submitted_at: `${dayBeforeYesterdayIST}T18:00:00.000Z`,
+        created_at: `${dayBeforeYesterdayIST}T18:00:00.000Z`,
+        updated_at: `${dayBeforeYesterdayIST}T18:00:00.000Z`
+      },
+      {
+        id: 'rpt-demo-hist-001',
+        organization_id: 'org-demo-001',
+        user_id: 'user-emp-001',
+        user_name: 'Aarav Sharma',
+        work_date: yesterdayIST,
+        project_name: 'Android Mobile App',
+        tasks_assigned: 'Implement CameraView selfie capture; Integrate Haversine geofence; Review Founder spreadsheet data grid',
+        tasks_completed: 'Yes',
+        tasks_pending: 'Yes',
+        tasks: [
+          {
+            id: 'task-hist-001',
+            projectName: 'Android Mobile App',
+            tasksAssigned: 'Implement CameraView selfie capture and real GPS coordinate binding',
+            completed: 'Yes',
+            pending: 'No',
+            taskDate: yesterdayIST,
+            isCarriedForward: false,
+            carriedForwardFromDate: null,
+            carriedForwardFromTaskId: null
+          },
+          {
+            id: 'task-hist-002',
+            projectName: 'Android Mobile App',
+            tasksAssigned: 'Integrate Haversine distance geofence validation for attendance check-in',
+            completed: 'Yes',
+            pending: 'No',
+            taskDate: yesterdayIST,
+            isCarriedForward: false,
+            carriedForwardFromDate: null,
+            carriedForwardFromTaskId: null
+          },
+          {
+            id: 'task-hist-003',
+            projectName: 'EMS Web Dashboard',
+            tasksAssigned: 'Review Founder spreadsheet data grid column headers and export verification',
+            completed: 'No',
+            pending: 'Yes',
+            taskDate: yesterdayIST,
+            isCarriedForward: false,
+            carriedForwardFromDate: null,
+            carriedForwardFromTaskId: null
+          }
+        ],
+        rating_speed: 9,
+        rating_understanding: 9,
+        rating_problem_solving: 8,
+        rating_talking_behaviour: 9,
+        rating_work_quality: 9,
+        rating_discipline: 10,
+        rating_average_overall: 9.0,
+        work_summary: 'Worked on CameraView selfie, Haversine geofence, and Founder spreadsheet verification.',
+        challenges: 'Needed clarification on Founder spreadsheet column formatting.',
+        is_draft: false,
+        carried_forward_count: 0,
+        submitted_at: `${yesterdayIST}T18:15:00.000Z`,
+        created_at: `${yesterdayIST}T18:15:00.000Z`,
+        updated_at: `${yesterdayIST}T18:15:00.000Z`
+      }
+    ];
   }
 };
 
@@ -507,6 +640,8 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     uptimeSeconds: Math.floor(process.uptime()),
     database: supabase ? 'supabase_connected' : 'memory_fallback',
+    persistence: supabase ? 'persistent_postgresql' : 'volatile_in_memory_demo',
+    isPersistentStorage: Boolean(supabase),
     organizations: memDb.organizations.length,
     users: memDb.users.length
   });
@@ -999,9 +1134,9 @@ app.post('/api/auth/register-company', authLimiter, async (req, res) => {
 
     const companyId = validatedCompanyCode || generateCompanyId();
     const founderId = 'FND-0001';
-    const orgId = `org-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
-    const userId = `user-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
-    const branchId = `branch-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+    const orgId = generateUUID();
+    const userId = generateUUID();
+    const branchId = generateUUID();
     const passwordHash = await bcrypt.hash(fPassword, 12);
 
     const newOrg = {
@@ -1272,7 +1407,7 @@ app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
       const resetRecord = {
-        id: `rst-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
+        id: generateUUID(),
         user_id: user.id,
         email: normalizedEmail,
         token_hash: tokenHash,
@@ -1401,7 +1536,7 @@ app.post('/api/invitations', requireAuth, requireRole(['founder', 'admin']), asy
     const tempPassword = crypto.randomBytes(16).toString('hex');
     const passwordHash = await bcrypt.hash(tempPassword, 10);
 
-    const userId = existingActive ? existingActive.id : `user-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+    const userId = existingActive ? existingActive.id : generateUUID();
     const newUser = {
       id: userId,
       organization_id: req.user.organizationId,
@@ -1421,7 +1556,7 @@ app.post('/api/invitations', requireAuth, requireRole(['founder', 'admin']), asy
       updated_at: new Date().toISOString()
     };
 
-    const inviteId = `inv-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+    const inviteId = generateUUID();
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
 
     const newInvite = {
@@ -1565,8 +1700,8 @@ app.post('/api/auth/register-org', authLimiter, async (req, res) => {
     }
 
     const passwordHash = await bcrypt.hash(adminPassword, 12);
-    const orgId = `org-${Date.now()}`;
-    const userId = `user-${Date.now()}`;
+    const orgId = generateUUID();
+    const userId = generateUUID();
 
     const newOrg = {
       id: orgId,
@@ -1666,6 +1801,46 @@ app.get('/api/org/settings', requireAuth, async (req, res) => {
  */
 app.patch('/api/org/settings', requireAuth, requireRole(['admin']), async (req, res) => {
   try {
+    // Normalization & Validation: working_days
+    if (Array.isArray(req.body.working_days)) {
+      req.body.working_days = req.body.working_days.join(',');
+    }
+    if (req.body.working_days !== undefined) {
+      if (typeof req.body.working_days !== 'string' || !req.body.working_days.trim()) {
+        return res.status(400).json({ success: false, error: 'Please select at least one working day.' });
+      }
+      req.body.working_days = req.body.working_days.trim();
+    }
+
+    // Normalization & Validation: work_start_time & work_end_time
+    if (req.body.work_start_time || req.body.work_end_time) {
+      const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+      const startT = req.body.work_start_time;
+      const endT = req.body.work_end_time;
+      if (startT && !timeRegex.test(startT)) {
+        return res.status(400).json({ success: false, error: 'Work start time must be in valid HH:mm format (00:00 - 23:59).' });
+      }
+      if (endT && !timeRegex.test(endT)) {
+        return res.status(400).json({ success: false, error: 'Work end time must be in valid HH:mm format (00:00 - 23:59).' });
+      }
+      if (startT && endT) {
+        const [sH, sM] = startT.split(':').map(Number);
+        const [eH, eM] = endT.split(':').map(Number);
+        if (eH * 60 + eM <= sH * 60 + sM) {
+          return res.status(400).json({ success: false, error: 'Work end time must be later than work start time.' });
+        }
+      }
+    }
+
+    // Normalization & Validation: late_threshold_minutes
+    if (req.body.late_threshold_minutes !== undefined) {
+      const grace = parseInt(req.body.late_threshold_minutes, 10);
+      if (isNaN(grace) || grace < 0 || grace > 180) {
+        return res.status(400).json({ success: false, error: 'Late arrival grace period must be a whole number between 0 and 180 minutes.' });
+      }
+      req.body.late_threshold_minutes = grace;
+    }
+
     const allowed = ['name', 'logo_url', 'contact_email', 'contact_phone', 'address',
       'timezone', 'working_days', 'work_start_time', 'work_end_time',
       'late_threshold_minutes', 'office_lat', 'office_lng', 'office_radius_meters', 'wfh_allowed'];
@@ -1681,7 +1856,11 @@ app.patch('/api/org/settings', requireAuth, requireRole(['admin']), async (req, 
         .eq('id', req.user.organizationId)
         .select()
         .single();
-      if (!error && data) return res.json({ success: true, data, source: 'supabase' });
+      if (error) {
+        console.error('[Org Settings] Supabase update failed:', error.message);
+        return res.status(500).json({ success: false, error: 'Database update failed: ' + error.message });
+      }
+      if (data) return res.json({ success: true, data, source: 'supabase' });
     }
 
     const idx = memDb.organizations.findIndex(o => o.id === req.user.organizationId);
@@ -1705,7 +1884,7 @@ app.get('/api/users', requireAuth, async (req, res) => {
 
     if (supabase) {
       let query = supabase.from('users')
-        .select('id, name, email, role, department, designation, phone, profile_photo_url, face_enrollment_status, is_active, team_leader_id, created_at')
+        .select('id, name, email, role, department, designation, phone, profile_photo_url, face_enrollment_status, is_active, team_leader_id, created_at, employee_id_number')
         .eq('organization_id', req.user.organizationId);
       if (status && status !== 'all') query = query.eq('is_active', status === 'active');
       const { data, error } = await query;
@@ -1727,6 +1906,7 @@ app.get('/api/users', requireAuth, async (req, res) => {
       id: u.id,
       name: u.name,
       email: isManagement ? u.email : undefined,
+      employeeId: u.employee_id_number || u.employeeId || null,
       role: u.role,
       department: u.department,
       designation: u.designation,
@@ -1740,11 +1920,18 @@ app.get('/api/users', requireAuth, async (req, res) => {
 
     // Apply search/filter
     if (search) {
-      const q = search.toLowerCase();
-      users = users.filter(u => u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q) || u.designation?.toLowerCase().includes(q));
+      const q = search.trim().toLowerCase();
+      users = users.filter(u =>
+        u.name?.toLowerCase().includes(q) ||
+        u.email?.toLowerCase().includes(q) ||
+        u.designation?.toLowerCase().includes(q) ||
+        u.employeeId?.toLowerCase().includes(q) ||
+        u.department?.toLowerCase().includes(q)
+      );
     }
     if (department && department !== 'all') {
-      users = users.filter(u => u.department === department);
+      const targetDept = department.trim().toLowerCase();
+      users = users.filter(u => (u.department || '').trim().toLowerCase() === targetDept);
     }
     if (role && role !== 'all') {
       users = users.filter(u => u.role === role);
@@ -1781,7 +1968,8 @@ app.get('/api/users/:id', requireAuth, async (req, res) => {
     }
 
     const isAdminOrSelf = ['founder', 'admin', 'team_leader'].includes(req.user.role) || req.user.id === id;
-    res.json({ success: true, data: safeUserView(user, isAdminOrSelf) });
+    const safeUser = safeUserView(user, isAdminOrSelf);
+    res.json({ success: true, data: safeUser, user: safeUser });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch user.' });
   }
@@ -1814,7 +2002,7 @@ app.post('/api/users', requireAuth, requireRole(['founder', 'admin']), async (re
     const employeeId = generateMemberId(role, req.user.organizationId);
     const passwordHash = await bcrypt.hash(password, 12);
     const newUser = {
-      id: `user-${Date.now()}`,
+      id: generateUUID(),
       organization_id: req.user.organizationId,
       employee_id_number: employeeId,
       email: email.toLowerCase(),
@@ -1834,7 +2022,11 @@ app.post('/api/users', requireAuth, requireRole(['founder', 'admin']), async (re
 
     if (supabase) {
       const { data, error } = await supabase.from('users').insert([newUser]).select().single();
-      if (!error && data) {
+      if (error) {
+        console.error('[Users] Supabase user creation failed:', error.message);
+        return res.status(500).json({ success: false, error: 'Database user creation failed: ' + error.message });
+      }
+      if (data) {
         memDb.users.push(data);
         return res.status(201).json({ success: true, data: safeUserView(data, true), source: 'supabase' });
       }
@@ -1854,18 +2046,18 @@ app.post('/api/users', requireAuth, requireRole(['founder', 'admin']), async (re
 app.patch('/api/users/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const isAdmin = req.user.role === 'admin';
+    const isManagement = req.user.role === 'admin' || req.user.role === 'founder';
     const isSelf = req.user.id === id;
 
-    if (!isAdmin && !isSelf) {
+    if (!isManagement && !isSelf) {
       return res.status(403).json({ success: false, error: 'You can only update your own profile.' });
     }
 
-    // Admin can update: name, role, department, designation, phone, teamLeaderId, isActive
+    // Management can update: name, role, department, designation, phone, teamLeaderId, isActive
     // Employee can update: name, phone, profile_photo_url
     const adminFields = ['name', 'role', 'department', 'designation', 'phone', 'team_leader_id', 'is_active'];
     const employeeFields = ['name', 'phone', 'profile_photo_url'];
-    const allowedFields = isAdmin ? adminFields : employeeFields;
+    const allowedFields = isManagement ? adminFields : employeeFields;
 
     const updates = {};
     allowedFields.forEach(field => {
@@ -1873,6 +2065,14 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
       if (req.body[camelField] !== undefined) updates[field] = req.body[camelField];
     });
+
+    if (updates.role && !['founder', 'admin', 'team_leader', 'employee'].includes(updates.role)) {
+      return res.status(400).json({ success: false, error: 'Invalid role. Must be one of: founder, admin, team_leader, employee.' });
+    }
+    if (updates.role === 'admin' && req.user.role !== 'founder') {
+      return res.status(403).json({ success: false, error: 'Only a Founder can assign the Admin role.' });
+    }
+
     updates.updated_at = new Date().toISOString();
 
     if (supabase) {
@@ -1882,7 +2082,11 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
         .eq('organization_id', req.user.organizationId)
         .select()
         .single();
-      if (!error && data) {
+      if (error) {
+        console.error('[Users] Supabase user update failed:', error.message);
+        return res.status(500).json({ success: false, error: 'Database user update failed: ' + error.message });
+      }
+      if (data) {
         const uIdx = memDb.users.findIndex(u => u.id === id);
         if (uIdx !== -1) memDb.users[uIdx] = { ...memDb.users[uIdx], ...updates };
         return res.json({ success: true, data: safeUserView(data, true), source: 'supabase' });
@@ -2005,18 +2209,17 @@ app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
     }
 
     const punchInIso = new Date().toISOString();
-    const newRecord = {
-      id: `att-${Date.now()}`,
+    const dbRecord = {
+      id: generateUUID(),
       organization_id: req.user.organizationId,
       user_id: req.user.id,
       work_date: today,
       mode,
       punch_in_time: punchInIso,
-      punchInTime: punchInIso,
       punch_in_lat: latitude,
       punch_in_lng: longitude,
       punch_in_accuracy: accuracy || null,
-      punch_in_photo_path: photoPath,
+      punch_in_photo_path: photoPath || null,
       punch_in_verified: isVerified,
       punch_in_distance_meters: distanceMeters,
       punch_out_time: null,
@@ -2026,12 +2229,18 @@ app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
+    const newRecord = { ...dbRecord, punchInTime: punchInIso };
 
     if (supabase) {
-      const { data, error } = await supabase.from('attendance_records').insert([newRecord]).select().single();
-      if (!error && data) {
-        memDb.attendance.push(data);
-        return res.status(201).json({ success: true, data, attendance: data, geofenceVerified: data.punch_in_verified, distanceMeters, source: 'supabase' });
+      const { data, error } = await supabase.from('attendance_records').insert([dbRecord]).select().single();
+      if (error) {
+        console.error('[Punch In] Supabase attendance insert failed:', error.message);
+        return res.status(500).json({ success: false, error: 'Database attendance record failed: ' + error.message });
+      }
+      if (data) {
+        const enriched = { ...data, punchInTime: data.punch_in_time };
+        memDb.attendance.push(enriched);
+        return res.status(201).json({ success: true, data: enriched, attendance: enriched, geofenceVerified: data.punch_in_verified, distanceMeters, source: 'supabase' });
       }
     }
 
@@ -2091,8 +2300,9 @@ app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
       isVerified = distanceMeters <= (org.office_radius_meters || 100);
     }
 
-    const updates = {
-      punch_out_time: punchOutTime.toISOString(),
+    const punchOutIso = punchOutTime.toISOString();
+    const dbUpdates = {
+      punch_out_time: punchOutIso,
       punch_out_lat: latitude,
       punch_out_lng: longitude,
       punch_out_accuracy: accuracy || null,
@@ -2102,21 +2312,23 @@ app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
       total_minutes: totalMinutes,
       updated_at: new Date().toISOString()
     };
-
-    const punchOutIso = new Date().toISOString();
-    updates.punch_out_time = punchOutIso;
-    updates.punchOutTime = punchOutIso;
+    const updates = { ...dbUpdates, punchOutTime: punchOutIso };
 
     if (supabase) {
       const { data, error } = await supabase.from('attendance_records')
-        .update(updates)
+        .update(dbUpdates)
         .eq('id', session.id)
         .eq('organization_id', req.user.organizationId)
         .select()
         .single();
-      if (!error && data) {
-        memDb.attendance[sessionIdx] = data;
-        return res.json({ success: true, data, attendance: data, totalMinutes, source: 'supabase' });
+      if (error) {
+        console.error('[Punch Out Supabase Error]', error);
+        return res.status(500).json({ success: false, error: 'Failed to record punch out: ' + (error.message || 'Database error') });
+      }
+      if (data) {
+        const enriched = { ...data, punchOutTime: data.punch_out_time };
+        memDb.attendance[sessionIdx] = enriched;
+        return res.json({ success: true, data: enriched, attendance: enriched, totalMinutes, source: 'supabase' });
       }
     }
 
@@ -2271,13 +2483,281 @@ app.get('/api/daily-reports', requireAuth, async (req, res) => {
   }
 });
 
+// GET current user's report & task lifecycle state for today (IST Asia/Kolkata)
+app.get('/api/daily-reports/today', requireAuth, async (req, res) => {
+  try {
+    const today = getISTDate(0);
+    const dayName = getISTDayName(today);
+    let existing = null;
+
+    if (supabase) {
+      const { data, error } = await supabase.from('daily_reports')
+        .select('*')
+        .eq('user_id', req.user.id)
+        .eq('organization_id', req.user.organizationId)
+        .eq('work_date', today)
+        .maybeSingle();
+      if (error) {
+        console.error('[Daily Report Today Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
+      }
+      if (data) existing = data;
+    }
+
+    if (!existing) {
+      existing = memDb.dailyReports.find(
+        r => r.user_id === req.user.id && r.work_date === today && r.organization_id === req.user.organizationId
+      );
+    }
+
+    if (existing) {
+      const isSubmitted = !existing.is_draft;
+      const tasks = existing.tasks || [];
+      const carriedForwardCount = tasks.filter(t => t.isCarriedForward).length;
+      return res.json({
+        success: true,
+        today,
+        dayName,
+        isSubmitted,
+        isDraft: existing.is_draft,
+        report: existing,
+        tasks,
+        carriedForwardCount,
+        stats: {
+          total: tasks.length,
+          completed: tasks.filter(t => t.completed === 'Yes').length,
+          pending: tasks.filter(t => t.pending === 'Yes').length
+        }
+      });
+    }
+
+    // Today's report doesn't exist yet: check previous submitted reports for automatic pending carry-forward
+    let prevReport = null;
+    if (supabase) {
+      const { data, error } = await supabase.from('daily_reports')
+        .select('*')
+        .eq('user_id', req.user.id)
+        .eq('organization_id', req.user.organizationId)
+        .lt('work_date', today)
+        .eq('is_draft', false)
+        .order('work_date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) {
+        console.error('[Daily Report Carry Forward Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
+      }
+      if (data) prevReport = data;
+    }
+
+    if (!prevReport) {
+      const previousReports = memDb.dailyReports
+        .filter(r => r.user_id === req.user.id && r.organization_id === req.user.organizationId && r.work_date < today && !r.is_draft)
+        .sort((a, b) => b.work_date.localeCompare(a.work_date));
+      if (previousReports.length > 0) prevReport = previousReports[0];
+    }
+
+    let carriedForwardTasks = [];
+    if (prevReport) {
+      const prevTasks = prevReport.tasks || [];
+      // Only pending tasks are carried forward; completed tasks stay recorded in history
+      const pendingTasks = prevTasks.filter(t => t.pending === 'Yes' || t.completed === 'No');
+
+      carriedForwardTasks = pendingTasks.map((t, idx) => ({
+        id: generateUUID(),
+        projectName: t.projectName || t.project_name || 'General Operations',
+        tasksAssigned: t.tasksAssigned || t.title || t.tasks_assigned || '',
+        completed: 'No',
+        pending: 'Yes',
+        taskDate: today,
+        isCarriedForward: true,
+        carriedForwardFromDate: prevReport.work_date,
+        carriedForwardFromTaskId: t.id
+      }));
+    }
+
+    res.json({
+      success: true,
+      today,
+      dayName,
+      isSubmitted: false,
+      isDraft: false,
+      report: null,
+      tasks: carriedForwardTasks,
+      carriedForwardCount: carriedForwardTasks.length,
+      stats: {
+        total: carriedForwardTasks.length,
+        completed: 0,
+        pending: carriedForwardTasks.length
+      }
+    });
+  } catch (err) {
+    console.error('[Daily Report Today] Error:', err);
+    res.status(500).json({ success: false, error: "Failed to fetch today's report lifecycle state." });
+  }
+});
+
+// GET previous days' finalized task reports in descending order
+app.get('/api/daily-reports/history', requireAuth, async (req, res) => {
+  try {
+    const today = getISTDate(0);
+    const isFounderOrAdmin = ['founder', 'admin'].includes(req.user.role);
+    const isTeamLeader = req.user.role === 'team_leader';
+    const isEmployee = req.user.role === 'employee';
+
+    let targetUserId = isEmployee ? req.user.id : (req.query.user_id || req.user.id);
+    if (isTeamLeader && req.query.user_id) {
+      const team = mem.getUsersForOrg(req.user.organizationId).filter(u => u.team_leader_id === req.user.id || u.id === req.user.id);
+      const allowedTeamIds = new Set(team.map(u => u.id));
+      if (!allowedTeamIds.has(req.query.user_id)) {
+        return res.status(403).json({ success: false, error: 'Access denied.' });
+      }
+      targetUserId = req.query.user_id;
+    }
+
+    let pastReports = [];
+    if (supabase) {
+      const { data, error } = await supabase.from('daily_reports')
+        .select('*')
+        .eq('organization_id', req.user.organizationId)
+        .eq('user_id', targetUserId)
+        .lt('work_date', today)
+        .eq('is_draft', false)
+        .order('work_date', { ascending: false });
+      if (error) {
+        console.error('[Daily Reports History Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
+      }
+      if (data) pastReports = data;
+    }
+
+    if (!pastReports.length) {
+      pastReports = memDb.dailyReports
+        .filter(r => r.organization_id === req.user.organizationId && r.user_id === targetUserId && r.work_date < today && !r.is_draft)
+        .sort((a, b) => b.work_date.localeCompare(a.work_date));
+    }
+
+    const enriched = pastReports.map(r => {
+      const tasks = r.tasks || [];
+      return {
+        id: r.id,
+        work_date: r.work_date,
+        dayName: getISTDayName(r.work_date),
+        projectName: r.project_name,
+        tasksAssigned: r.tasks_assigned,
+        tasksCompleted: r.tasks_completed,
+        tasksPending: r.tasks_pending,
+        tasks,
+        totalTasks: tasks.length,
+        completedCount: tasks.filter(t => t.completed === 'Yes').length,
+        pendingCount: tasks.filter(t => t.pending === 'Yes').length,
+        carriedForwardCount: tasks.filter(t => t.isCarriedForward).length,
+        ratings: {
+          speed: r.rating_speed,
+          understanding: r.rating_understanding,
+          problemSolving: r.rating_problem_solving,
+          talkingBehaviour: r.rating_talking_behaviour,
+          workQuality: r.rating_work_quality,
+          discipline: r.rating_discipline
+        },
+        averageOverall: r.rating_average_overall,
+        submittedAt: r.submitted_at || r.created_at,
+        isReadOnly: true
+      };
+    });
+
+    res.json({
+      success: true,
+      data: enriched,
+      total: enriched.length
+    });
+  } catch (err) {
+    console.error('[Daily Reports History] Error:', err);
+    res.status(500).json({ success: false, error: "Failed to fetch previous days' task history." });
+  }
+});
+
+// GET report for a specific date
+app.get('/api/daily-reports/date/:date', requireAuth, async (req, res) => {
+  try {
+    const today = getISTDate(0);
+    const targetDate = req.params.date;
+    const targetUserId = req.query.user_id || req.user.id;
+    let report = null;
+
+    if (supabase) {
+      const { data, error } = await supabase.from('daily_reports')
+        .select('*')
+        .eq('organization_id', req.user.organizationId)
+        .eq('user_id', targetUserId)
+        .eq('work_date', targetDate)
+        .maybeSingle();
+      if (error) {
+        console.error('[Daily Report By Date Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
+      }
+      if (data) report = data;
+    }
+
+    if (!report) {
+      report = memDb.dailyReports.find(
+        r => r.organization_id === req.user.organizationId && r.user_id === targetUserId && r.work_date === targetDate
+      );
+    }
+
+    if (!report) {
+      return res.json({
+        success: true,
+        data: null,
+        message: `No report found for ${targetDate}`
+      });
+    }
+
+    const tasks = report.tasks || [];
+    res.json({
+      success: true,
+      data: {
+        ...report,
+        dayName: getISTDayName(report.work_date),
+        totalTasks: tasks.length,
+        completedCount: tasks.filter(t => t.completed === 'Yes').length,
+        pendingCount: tasks.filter(t => t.pending === 'Yes').length,
+        carriedForwardCount: tasks.filter(t => t.isCarriedForward).length
+      },
+      isReadOnly: targetDate < today
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to fetch report for specified date.' });
+  }
+});
+
 // GET current user's draft report for today
 app.get('/api/daily-reports/draft', requireAuth, async (req, res) => {
   try {
-    const today = new Date().toISOString().slice(0, 10);
-    const draft = memDb.dailyReports.find(
-      r => r.user_id === req.user.id && r.work_date === today && r.organization_id === req.user.organizationId && r.is_draft === true
-    );
+    const today = getISTDate(0);
+    let draft = null;
+
+    if (supabase) {
+      const { data, error } = await supabase.from('daily_reports')
+        .select('*')
+        .eq('user_id', req.user.id)
+        .eq('organization_id', req.user.organizationId)
+        .eq('work_date', today)
+        .eq('is_draft', true)
+        .maybeSingle();
+      if (error) {
+        console.error('[Daily Report Draft Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
+      }
+      if (data) draft = data;
+    }
+
+    if (!draft) {
+      draft = memDb.dailyReports.find(
+        r => r.user_id === req.user.id && r.work_date === today && r.organization_id === req.user.organizationId && r.is_draft === true
+      );
+    }
+
     if (!draft) return res.json({ success: true, data: null, draft: null });
     const draftPayload = {
       ...draft,
@@ -2298,6 +2778,7 @@ app.get('/api/daily-reports/draft', requireAuth, async (req, res) => {
 // GET export submitted reports to genuine Excel .xlsx
 app.get('/api/daily-reports/export', requireAuth, async (req, res) => {
   try {
+    const today = getISTDate(0);
     const isFounderOrAdmin = ['founder', 'admin'].includes(req.user.role);
     const isTeamLeader = req.user.role === 'team_leader';
     const isEmployee = req.user.role === 'employee';
@@ -2324,31 +2805,60 @@ app.get('/api/daily-reports/export', requireAuth, async (req, res) => {
     const org = mem.findOrgById(req.user.organizationId);
     const user = mem.findUserById(targetUserId || req.user.id);
 
-    // Build genuine Excel spreadsheet rows
-    const excelRows = reports.map(r => {
-      const d = r.work_date ? new Date(r.work_date) : new Date();
-      const dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
+    // Build genuine Excel spreadsheet rows with individual task row explosion
+    const excelRows = [];
+    reports.forEach(r => {
+      const d = r.work_date ? new Date(`${r.work_date}T12:00:00+05:30`) : new Date();
+      const dayName = getISTDayName(r.work_date);
       const monthStr = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
-      return {
-        'Employee Name': r.user_name || user?.name || 'Staff Member',
-        'Employee ID': user?.employee_id_number || 'N/A',
-        'Company Workspace': org?.name || 'Acme Technologies',
-        'Month': monthStr,
-        'Date': r.work_date || 'N/A',
-        'Day': dayName,
-        'Project Name': r.project_name || 'General Operations',
-        'Tasks Assigned / Work Description': r.tasks_assigned || r.work_summary || 'Daily operational tasks',
-        'Completed Status': r.tasks_completed || 'No',
-        'Pending Status': r.tasks_pending || 'No',
-        'Speed Rating (1-10)': r.rating_speed != null ? Number(r.rating_speed) : '',
-        'Understanding Rating (1-10)': r.rating_understanding != null ? Number(r.rating_understanding) : '',
-        'Problem Solving Approach Rating (1-10)': r.rating_problem_solving != null ? Number(r.rating_problem_solving) : '',
-        'Talking Behaviour Rating (1-10)': r.rating_talking_behaviour != null ? Number(r.rating_talking_behaviour) : '',
-        'Work Quality Rating (1-10)': r.rating_work_quality != null ? Number(r.rating_work_quality) : '',
-        'Discipline Rating (1-10)': r.rating_discipline != null ? Number(r.rating_discipline) : '',
-        'Average Overall Rating': r.rating_average_overall != null ? Number(r.rating_average_overall) : ''
-      };
+      if (r.tasks && Array.isArray(r.tasks) && r.tasks.length > 0) {
+        r.tasks.forEach((t, idx) => {
+          excelRows.push({
+            'Employee Name': r.user_name || user?.name || 'Staff Member',
+            'Employee ID': user?.employee_id_number || 'N/A',
+            'Company Workspace': org?.name || 'Acme Technologies',
+            'Month': monthStr,
+            'Date': r.work_date || 'N/A',
+            'Day': dayName,
+            'Task #': idx + 1,
+            'Project Name': t.projectName || r.project_name || 'General Operations',
+            'Tasks Assigned / Work Description': t.tasksAssigned || t.title || r.tasks_assigned || 'Daily task',
+            'Completed Status': t.completed || 'No',
+            'Pending Status': t.pending || 'No',
+            'Carried Forward': t.isCarriedForward ? `Yes (from ${t.carriedForwardFromDate || 'previous day'})` : 'No',
+            'Speed Rating (1-10)': r.rating_speed != null ? Number(r.rating_speed) : '',
+            'Understanding Rating (1-10)': r.rating_understanding != null ? Number(r.rating_understanding) : '',
+            'Problem Solving Approach Rating (1-10)': r.rating_problem_solving != null ? Number(r.rating_problem_solving) : '',
+            'Talking Behaviour Rating (1-10)': r.rating_talking_behaviour != null ? Number(r.rating_talking_behaviour) : '',
+            'Work Quality Rating (1-10)': r.rating_work_quality != null ? Number(r.rating_work_quality) : '',
+            'Discipline Rating (1-10)': r.rating_discipline != null ? Number(r.rating_discipline) : '',
+            'Average Overall Rating': r.rating_average_overall != null ? Number(r.rating_average_overall) : ''
+          });
+        });
+      } else {
+        excelRows.push({
+          'Employee Name': r.user_name || user?.name || 'Staff Member',
+          'Employee ID': user?.employee_id_number || 'N/A',
+          'Company Workspace': org?.name || 'Acme Technologies',
+          'Month': monthStr,
+          'Date': r.work_date || 'N/A',
+          'Day': dayName,
+          'Task #': 1,
+          'Project Name': r.project_name || 'General Operations',
+          'Tasks Assigned / Work Description': r.tasks_assigned || r.work_summary || 'Daily operational tasks',
+          'Completed Status': r.tasks_completed || 'No',
+          'Pending Status': r.tasks_pending || 'No',
+          'Carried Forward': 'No',
+          'Speed Rating (1-10)': r.rating_speed != null ? Number(r.rating_speed) : '',
+          'Understanding Rating (1-10)': r.rating_understanding != null ? Number(r.rating_understanding) : '',
+          'Problem Solving Approach Rating (1-10)': r.rating_problem_solving != null ? Number(r.rating_problem_solving) : '',
+          'Talking Behaviour Rating (1-10)': r.rating_talking_behaviour != null ? Number(r.rating_talking_behaviour) : '',
+          'Work Quality Rating (1-10)': r.rating_work_quality != null ? Number(r.rating_work_quality) : '',
+          'Discipline Rating (1-10)': r.rating_discipline != null ? Number(r.rating_discipline) : '',
+          'Average Overall Rating': r.rating_average_overall != null ? Number(r.rating_average_overall) : ''
+        });
+      }
     });
 
     const wb = xlsx.utils.book_new();
@@ -2362,8 +2872,8 @@ app.get('/api/daily-reports/export', requireAuth, async (req, res) => {
     // Set readable column widths
     const colWidths = [
       { wch: 22 }, { wch: 14 }, { wch: 24 }, { wch: 16 }, { wch: 12 },
-      { wch: 12 }, { wch: 25 }, { wch: 45 }, { wch: 16 }, { wch: 16 },
-      { wch: 18 }, { wch: 22 }, { wch: 30 }, { wch: 22 }, { wch: 20 },
+      { wch: 12 }, { wch: 8 }, { wch: 25 }, { wch: 45 }, { wch: 16 }, { wch: 16 },
+      { wch: 22 }, { wch: 18 }, { wch: 22 }, { wch: 30 }, { wch: 22 }, { wch: 20 },
       { wch: 18 }, { wch: 20 }
     ];
     ws['!cols'] = colWidths;
@@ -2371,7 +2881,7 @@ app.get('/api/daily-reports/export', requireAuth, async (req, res) => {
     xlsx.utils.book_append_sheet(wb, ws, 'Daily Task Summary');
     const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
 
-    const safeMonth = monthFilter || new Date().toISOString().slice(0, 7);
+    const safeMonth = monthFilter || today.slice(0, 7);
     const filename = `Employee_Task_Reports_${safeMonth}.xlsx`;
 
     // If base64 parameter requested (for React Native FileSystem sharing)
@@ -2380,7 +2890,7 @@ app.get('/api/daily-reports/export', requireAuth, async (req, res) => {
         success: true,
         filename,
         base64: buffer.toString('base64'),
-        rowCount: reports.length
+        rowCount: excelRows.length
       });
     }
 
@@ -2399,45 +2909,127 @@ app.post('/api/daily-reports', requireAuth, async (req, res) => {
       projectName, tasksAssigned, tasksCompleted, tasksPending,
       ratingSpeed, ratingUnderstanding, ratingProblemSolving,
       ratingTalkingBehaviour, ratingWorkQuality, ratingDiscipline,
-      workSummary, challenges, isDraft, is_draft
+      workSummary, challenges, isDraft, is_draft, reportDate, work_date
     } = req.body;
 
     const shouldSaveAsDraft = isDraft === true || is_draft === true;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getISTDate(0);
+    const targetDate = work_date || reportDate || today;
 
-    const existingIndex = memDb.dailyReports.findIndex(
-      r => r.user_id === req.user.id && r.work_date === today && r.organization_id === req.user.organizationId
-    );
+    // Strict Date Restriction: Previous-day reports are strictly read-only
+    if (targetDate < today) {
+      return res.status(403).json({
+        success: false,
+        error: "Previous-day reports are read-only. You can edit tasks for today's date only."
+      });
+    }
+
+    // Process tasks array if provided
+    let rawTasks = Array.isArray(req.body.tasks) ? req.body.tasks : [];
+    let normalizedTasks = rawTasks.map((t, idx) => {
+      const isComp = t.completed === 'Yes' || t.status === 'completed';
+      return {
+        id: t.id || `task-${Date.now()}-${idx}`,
+        projectName: t.projectName || t.title || projectName || 'General Operations',
+        tasksAssigned: t.tasksAssigned || t.title || t.description || '',
+        completed: isComp ? 'Yes' : 'No',
+        pending: isComp ? 'No' : 'Yes',
+        taskDate: targetDate,
+        isCarriedForward: Boolean(t.isCarriedForward),
+        carriedForwardFromDate: t.carriedForwardFromDate || null,
+        carriedForwardFromTaskId: t.carriedForwardFromTaskId || null
+      };
+    });
+
+    const compCount = normalizedTasks.filter(t => t.completed === 'Yes').length;
+    const pendCount = normalizedTasks.filter(t => t.pending === 'Yes').length;
+    const computedTasksCompleted = compCount > 0 ? 'Yes' : (tasksCompleted || 'No');
+    const computedTasksPending = pendCount > 0 ? 'Yes' : (tasksPending || 'No');
+    const computedTasksAssigned = normalizedTasks.length > 0
+      ? normalizedTasks.map(t => `${t.projectName}: ${t.tasksAssigned}`).join('; ')
+      : tasksAssigned;
+
+    let existing = null;
+    let existingIndex = -1;
+
+    if (supabase) {
+      const { data, error } = await supabase.from('daily_reports')
+        .select('*')
+        .eq('user_id', req.user.id)
+        .eq('organization_id', req.user.organizationId)
+        .eq('work_date', targetDate)
+        .maybeSingle();
+      if (error) {
+        console.error('[Daily Report Check Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database check failed: ' + error.message });
+      }
+      if (data) existing = data;
+    }
+
+    if (!existing) {
+      existingIndex = memDb.dailyReports.findIndex(
+        r => r.user_id === req.user.id && r.work_date === targetDate && r.organization_id === req.user.organizationId
+      );
+      if (existingIndex !== -1) existing = memDb.dailyReports[existingIndex];
+    }
 
     const ratings = [ratingSpeed, ratingUnderstanding, ratingProblemSolving, ratingTalkingBehaviour, ratingWorkQuality, ratingDiscipline].filter(r => r != null);
     const avg = ratings.length ? (ratings.reduce((a, b) => a + Number(b), 0) / ratings.length).toFixed(1) : null;
 
-    if (existingIndex !== -1) {
-      const existing = memDb.dailyReports[existingIndex];
-      // If report was already submitted final, cannot modify or resubmit
-      if (!existing.is_draft && !shouldSaveAsDraft) {
-        return res.status(409).json({ success: false, error: 'You have already submitted a daily report for today.' });
+    if (existing) {
+      // Disallow editing historical reports
+      if (existing.work_date < today) {
+        return res.status(403).json({
+          success: false,
+          error: "Previous-day reports are read-only. You can edit tasks for today's date only."
+        });
       }
 
-      // If updating an existing draft (or submitting an existing draft final)
-      existing.project_name = projectName || existing.project_name;
-      existing.tasks_assigned = tasksAssigned || existing.tasks_assigned;
-      existing.tasks_completed = tasksCompleted || existing.tasks_completed;
-      existing.tasks_pending = tasksPending || existing.tasks_pending;
-      existing.tasks = req.body.tasks || existing.tasks || [];
-      existing.rating_speed = ratingSpeed !== undefined ? ratingSpeed : existing.rating_speed;
-      existing.rating_understanding = ratingUnderstanding !== undefined ? ratingUnderstanding : existing.rating_understanding;
-      existing.rating_problem_solving = ratingProblemSolving !== undefined ? ratingProblemSolving : existing.rating_problem_solving;
-      existing.rating_talking_behaviour = ratingTalkingBehaviour !== undefined ? ratingTalkingBehaviour : existing.rating_talking_behaviour;
-      existing.rating_work_quality = ratingWorkQuality !== undefined ? ratingWorkQuality : existing.rating_work_quality;
-      existing.rating_discipline = ratingDiscipline !== undefined ? ratingDiscipline : existing.rating_discipline;
-      existing.rating_average_overall = avg || existing.rating_average_overall;
-      existing.work_summary = workSummary || existing.work_summary;
-      existing.challenges = challenges || existing.challenges;
-      existing.is_draft = shouldSaveAsDraft;
-      existing.updated_at = new Date().toISOString();
+      // Allow same-day editing! If updating today's submitted report or draft:
+      const updates = {
+        project_name: projectName || existing.project_name,
+        tasks_assigned: computedTasksAssigned || existing.tasks_assigned,
+        tasks_completed: computedTasksCompleted,
+        tasks_pending: computedTasksPending,
+        tasks: normalizedTasks.length > 0 ? normalizedTasks : (existing.tasks || []),
+        carried_forward_count: (normalizedTasks.length > 0 ? normalizedTasks : (existing.tasks || [])).filter(t => t.isCarriedForward).length,
+        rating_speed: ratingSpeed !== undefined ? ratingSpeed : existing.rating_speed,
+        rating_understanding: ratingUnderstanding !== undefined ? ratingUnderstanding : existing.rating_understanding,
+        rating_problem_solving: ratingProblemSolving !== undefined ? ratingProblemSolving : existing.rating_problem_solving,
+        rating_talking_behaviour: ratingTalkingBehaviour !== undefined ? ratingTalkingBehaviour : existing.rating_talking_behaviour,
+        rating_work_quality: ratingWorkQuality !== undefined ? ratingWorkQuality : existing.rating_work_quality,
+        rating_discipline: ratingDiscipline !== undefined ? ratingDiscipline : existing.rating_discipline,
+        rating_average_overall: avg || existing.rating_average_overall,
+        work_summary: workSummary || existing.work_summary,
+        challenges: challenges || existing.challenges,
+        is_draft: shouldSaveAsDraft,
+        updated_at: new Date().toISOString()
+      };
       if (!shouldSaveAsDraft && !existing.submitted_at) {
-        existing.submitted_at = new Date().toISOString();
+        updates.submitted_at = new Date().toISOString();
+      }
+
+      if (supabase) {
+        const { data, error } = await supabase.from('daily_reports')
+          .update(updates)
+          .eq('id', existing.id)
+          .eq('organization_id', req.user.organizationId)
+          .select()
+          .single();
+        if (error) {
+          console.error('[Daily Report Update Supabase Error]:', error.message);
+          return res.status(500).json({ success: false, error: 'Failed to update daily report in database: ' + error.message });
+        }
+        if (data) existing = data;
+      }
+
+      // Synchronize in-memory fallback
+      const mIdx = memDb.dailyReports.findIndex(r => r.id === existing.id || (r.user_id === req.user.id && r.work_date === targetDate && r.organization_id === req.user.organizationId));
+      if (mIdx !== -1) {
+        memDb.dailyReports[mIdx] = { ...memDb.dailyReports[mIdx], ...updates };
+        existing = memDb.dailyReports[mIdx];
+      } else {
+        memDb.dailyReports.push({ ...existing, ...updates });
       }
 
       return res.status(200).json({
@@ -2446,23 +3038,29 @@ app.post('/api/daily-reports', requireAuth, async (req, res) => {
           ...existing,
           isDraft: existing.is_draft,
           projectName: existing.project_name,
-          tasks: existing.tasks
+          tasks: existing.tasks,
+          stats: {
+            total: (existing.tasks || []).length,
+            completed: (existing.tasks || []).filter(t => t.completed === 'Yes').length,
+            pending: (existing.tasks || []).filter(t => t.pending === 'Yes').length
+          }
         },
-        message: shouldSaveAsDraft ? 'Draft updated successfully.' : 'Daily report submitted successfully.'
+        message: shouldSaveAsDraft ? 'Draft updated successfully.' : "Today's daily report updated successfully."
       });
     }
 
     const newReport = {
-      id: `rpt-${Date.now()}`,
+      id: generateUUID(),
       organization_id: req.user.organizationId,
       user_id: req.user.id,
       user_name: req.user.name,
-      work_date: today,
-      project_name: projectName || null,
-      tasks_assigned: tasksAssigned || null,
-      tasks_completed: tasksCompleted || 'No',
-      tasks_pending: tasksPending || 'No',
-      tasks: req.body.tasks || [],
+      work_date: targetDate,
+      project_name: projectName || (normalizedTasks[0]?.projectName || 'General Operations'),
+      tasks_assigned: computedTasksAssigned || null,
+      tasks_completed: computedTasksCompleted,
+      tasks_pending: computedTasksPending,
+      tasks: normalizedTasks,
+      carried_forward_count: normalizedTasks.filter(t => t.isCarriedForward).length,
       rating_speed: ratingSpeed != null ? ratingSpeed : null,
       rating_understanding: ratingUnderstanding != null ? ratingUnderstanding : null,
       rating_problem_solving: ratingProblemSolving != null ? ratingProblemSolving : null,
@@ -2478,6 +3076,16 @@ app.post('/api/daily-reports', requireAuth, async (req, res) => {
       updated_at: new Date().toISOString()
     };
 
+    if (supabase) {
+      const dbReport = { ...newReport };
+      delete dbReport.user_name;
+      const { data, error } = await supabase.from('daily_reports').insert([dbReport]).select().single();
+      if (error) {
+        console.error('[Daily Report Insert Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Failed to save daily report in database: ' + error.message });
+      }
+    }
+
     memDb.dailyReports.push(newReport);
     res.status(shouldSaveAsDraft ? 200 : 201).json({
       success: true,
@@ -2485,13 +3093,814 @@ app.post('/api/daily-reports', requireAuth, async (req, res) => {
         ...newReport,
         isDraft: newReport.is_draft,
         projectName: newReport.project_name,
-        tasks: newReport.tasks
+        tasks: newReport.tasks,
+        stats: {
+          total: newReport.tasks.length,
+          completed: newReport.tasks.filter(t => t.completed === 'Yes').length,
+          pending: newReport.tasks.filter(t => t.pending === 'Yes').length
+        }
       },
       message: shouldSaveAsDraft ? 'Draft saved successfully.' : 'Daily report submitted successfully.'
     });
   } catch (err) {
     console.error('[Daily Reports Post] Error:', err);
     res.status(500).json({ success: false, error: 'Failed to process daily report.' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MANAGEMENT TASK REPORTS & EMPLOYEE-WISE MONITORING (Section 11)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/management/task-reports/employees
+ * GET /api/daily-reports/employees-summary
+ * List all employees belonging to the authenticated organization with latest report metrics
+ */
+const getManagementTaskReportsEmployees = async (req, res) => {
+  try {
+    if (req.user.role === 'employee') {
+      return res.status(403).json({ success: false, error: 'Access denied: Employees cannot view management task reports.' });
+    }
+
+    const orgId = req.user.organizationId;
+    let users = [];
+    let reports = [];
+
+    if (supabase) {
+      let uQuery = supabase.from('users').select('*').eq('organization_id', orgId);
+      if (req.user.role === 'team_leader') {
+        uQuery = uQuery.or(`team_leader_id.eq.${req.user.id},id.eq.${req.user.id}`);
+      }
+      const { data: dbUsers, error: uErr } = await uQuery;
+      if (uErr) {
+        console.error('[Mgmt Task Reports Users Supabase Error]:', uErr.message);
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + uErr.message });
+      }
+      users = dbUsers || [];
+
+      const { data: dbReports, error: rErr } = await supabase
+        .from('daily_reports')
+        .select('*')
+        .eq('organization_id', orgId);
+      if (rErr) {
+        console.error('[Mgmt Task Reports Reports Supabase Error]:', rErr.message);
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + rErr.message });
+      }
+      reports = dbReports || [];
+    } else {
+      users = mem.getUsersForOrg(orgId);
+      if (req.user.role === 'team_leader') {
+        users = users.filter(u => u.team_leader_id === req.user.id || u.id === req.user.id);
+      }
+      reports = memDb.dailyReports.filter(r => r.organization_id === orgId);
+    }
+
+    const today = getISTDate(0);
+
+    const employeeList = users.map(u => {
+      const allReports = reports.filter(r => r.user_id === u.id);
+      const submittedReports = allReports.filter(r => !r.is_draft);
+      const latestReport = submittedReports.length > 0
+        ? [...submittedReports].sort((a, b) => new Date(b.work_date || 0) - new Date(a.work_date || 0))[0]
+        : null;
+
+      const todayReport = allReports.find(r => r.work_date === today);
+
+      let completedCount = 0;
+      let pendingCount = 0;
+      let totalTasks = 0;
+      let todayStatus = 'Not Submitted';
+      let submissionTime = null;
+
+      if (todayReport) {
+        todayStatus = todayReport.is_draft ? 'Draft' : 'Submitted';
+        const tasks = todayReport.tasks || [];
+        totalTasks = tasks.length;
+        completedCount = tasks.filter(t => t.completed === 'Yes').length;
+        pendingCount = tasks.filter(t => t.pending === 'Yes').length;
+        submissionTime = todayReport.submitted_at || todayReport.updated_at || todayReport.created_at;
+      } else if (latestReport) {
+        const tasks = latestReport.tasks || [];
+        totalTasks = tasks.length;
+        completedCount = tasks.filter(t => t.completed === 'Yes').length;
+        pendingCount = tasks.filter(t => t.pending === 'Yes').length;
+      }
+
+      return {
+        id: u.id,
+        name: u.name,
+        employee_code: u.employee_id_number || `EMP-${u.id}`,
+        email: u.email,
+        role: u.role,
+        department: u.department || 'Operations',
+        designation: u.designation || 'Staff Member',
+        phone: u.phone,
+        avatar: u.profile_picture_url || u.profile_photo_url || null,
+        latestReportDate: latestReport?.work_date || null,
+        latestReportStatus: latestReport ? (latestReport.is_draft ? 'Draft' : 'Submitted') : 'No Reports',
+        todayReportStatus: todayStatus,
+        todayTotalTasks: totalTasks,
+        todayCompletedTasks: completedCount,
+        todayPendingTasks: pendingCount,
+        lastSubmissionTime: submissionTime,
+        totalSubmittedReports: submittedReports.length
+      };
+    });
+
+    res.json({ success: true, data: employeeList, total: employeeList.length, source: supabase ? 'supabase' : 'memory' });
+  } catch (err) {
+    console.error('[Management Task Reports Employees] Error:', err);
+    res.status(500).json({ success: false, error: 'Failed to fetch employee task summaries.' });
+  }
+};
+
+app.get('/api/management/task-reports/employees', requireAuth, getManagementTaskReportsEmployees);
+app.get('/api/daily-reports/employees-summary', requireAuth, getManagementTaskReportsEmployees);
+
+/**
+ * GET /api/management/task-reports/employees/:employeeId
+ * GET /api/daily-reports/employee/:employeeId
+ * Get an individual employee's task-report profile, summary metrics, and date timeline
+ */
+const getManagementEmployeeProfile = async (req, res) => {
+  try {
+    if (req.user.role === 'employee' && req.user.id !== req.params.employeeId) {
+      return res.status(403).json({ success: false, error: 'Access denied: You cannot view other employees\' reports.' });
+    }
+
+    const orgId = req.user.organizationId;
+    const targetUserId = req.params.employeeId;
+    let targetUser = null;
+    let allReports = [];
+
+    if (supabase) {
+      const { data: uData, error: uErr } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', targetUserId)
+        .eq('organization_id', orgId)
+        .maybeSingle();
+      if (uErr) {
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + uErr.message });
+      }
+      if (!uData) {
+        return res.status(404).json({ success: false, error: 'Employee not found in organization.' });
+      }
+      targetUser = uData;
+
+      if (req.user.role === 'team_leader' && targetUser.team_leader_id !== req.user.id && targetUser.id !== req.user.id) {
+        return res.status(403).json({ success: false, error: 'Access denied: You can only view reports for your assigned team.' });
+      }
+
+      const { data: rData, error: rErr } = await supabase
+        .from('daily_reports')
+        .select('*')
+        .eq('organization_id', orgId)
+        .eq('user_id', targetUserId)
+        .order('work_date', { ascending: false });
+      if (rErr) {
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + rErr.message });
+      }
+      allReports = rData || [];
+    } else {
+      targetUser = mem.findUserById(targetUserId);
+      if (!targetUser || targetUser.organization_id !== orgId) {
+        return res.status(404).json({ success: false, error: 'Employee not found in organization.' });
+      }
+
+      // Team Leader permission check
+      if (req.user.role === 'team_leader' && targetUser.team_leader_id !== req.user.id && targetUser.id !== req.user.id) {
+        return res.status(403).json({ success: false, error: 'Access denied: You can only view reports for your assigned team.' });
+      }
+
+      allReports = mem.getReportsForOrg(orgId, targetUserId);
+    }
+
+    const today = getISTDate(0);
+    const dayName = getISTDayName(today);
+
+    // Sort reports in strict descending chronological order (newest date first)
+    const sortedReports = [...allReports].sort((a, b) => new Date(b.work_date || 0) - new Date(a.work_date || 0));
+
+    const submittedReports = sortedReports.filter(r => !r.is_draft);
+    let totalTasksRecorded = 0;
+    let totalCompleted = 0;
+    let totalPending = 0;
+
+    sortedReports.forEach(r => {
+      const tasks = r.tasks || [];
+      totalTasksRecorded += tasks.length;
+      totalCompleted += tasks.filter(t => t.completed === 'Yes').length;
+      totalPending += tasks.filter(t => t.pending === 'Yes').length;
+    });
+
+    const todayReport = sortedReports.find(r => r.work_date === today);
+
+    res.json({
+      success: true,
+      data: {
+        employee: {
+          id: targetUser.id,
+          name: targetUser.name,
+          employee_code: targetUser.employee_id_number || `EMP-${targetUser.id}`,
+          email: targetUser.email,
+          role: targetUser.role,
+          department: targetUser.department || 'Operations',
+          designation: targetUser.designation || 'Staff Member',
+          phone: targetUser.phone
+        },
+        reports: sortedReports,
+        todayStr: today,
+        todayDayName: dayName,
+        todayReport: todayReport || null,
+        todayTasks: todayReport?.tasks || [],
+        summary: {
+          totalReportsSubmitted: submittedReports.length,
+          totalTasksRecorded,
+          totalCompleted,
+          totalPending,
+          latestReportDate: submittedReports[0]?.work_date || null
+        }
+      },
+      source: supabase ? 'supabase' : 'memory'
+    });
+  } catch (err) {
+    console.error('[Management Employee Profile] Error:', err);
+    res.status(500).json({ success: false, error: 'Failed to fetch employee task profile.' });
+  }
+};
+
+app.get('/api/management/task-reports/employees/:employeeId', requireAuth, getManagementEmployeeProfile);
+app.get('/api/daily-reports/employee/:employeeId', requireAuth, getManagementEmployeeProfile);
+
+/**
+ * GET /api/management/task-reports/employees/:employeeId/daily/:date
+ * Get report for a specific employee on a specific date (read-only for historical dates)
+ */
+app.get('/api/management/task-reports/employees/:employeeId/daily/:date', requireAuth, async (req, res) => {
+  try {
+    const orgId = req.user.organizationId;
+    const targetUserId = req.params.employeeId;
+    const targetDate = req.params.date;
+    const today = getISTDate(0);
+
+    let targetUser = null;
+    let report = null;
+
+    if (supabase) {
+      const { data: uData, error: uErr } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', targetUserId)
+        .eq('organization_id', orgId)
+        .maybeSingle();
+      if (uErr) return res.status(500).json({ success: false, error: 'Database query failed: ' + uErr.message });
+      if (!uData) return res.status(404).json({ success: false, error: 'Employee not found.' });
+      targetUser = uData;
+
+      if (req.user.role === 'employee' && req.user.id !== targetUserId) {
+        return res.status(403).json({ success: false, error: 'Access denied.' });
+      }
+
+      const { data: rData, error: rErr } = await supabase
+        .from('daily_reports')
+        .select('*')
+        .eq('organization_id', orgId)
+        .eq('user_id', targetUserId)
+        .eq('work_date', targetDate)
+        .maybeSingle();
+      if (rErr) return res.status(500).json({ success: false, error: 'Database query failed: ' + rErr.message });
+      report = rData;
+    } else {
+      targetUser = mem.findUserById(targetUserId);
+      if (!targetUser || targetUser.organization_id !== orgId) {
+        return res.status(404).json({ success: false, error: 'Employee not found.' });
+      }
+
+      if (req.user.role === 'employee' && req.user.id !== targetUserId) {
+        return res.status(403).json({ success: false, error: 'Access denied.' });
+      }
+
+      const reports = mem.getReportsForOrg(orgId, targetUserId);
+      report = reports.find(r => r.work_date === targetDate);
+    }
+
+    if (!report) {
+      return res.status(404).json({ success: false, error: `No report found for date ${targetDate}.` });
+    }
+
+    res.json({
+      success: true,
+      data: report,
+      isReadOnly: targetDate !== today,
+      source: supabase ? 'supabase' : 'memory'
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to fetch daily report details.' });
+  }
+});
+
+/**
+ * POST /api/management/task-reports/employees/:employeeId/tasks
+ * POST /api/daily-reports/assign-task
+ * Management assigns a new task to an employee for today's workflow
+ */
+const assignManagementTask = async (req, res) => {
+  try {
+    const orgId = req.user.organizationId;
+    const targetUserId = req.params.employeeId || req.body.employeeId || req.body.employee_id;
+    let targetUser = null;
+
+    if (supabase) {
+      const { data: uData, error: uErr } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', targetUserId)
+        .eq('organization_id', orgId)
+        .maybeSingle();
+      if (uErr) return res.status(500).json({ success: false, error: 'Database query failed: ' + uErr.message });
+      if (!uData) return res.status(404).json({ success: false, error: 'Employee not found in organization.' });
+      targetUser = uData;
+    } else {
+      targetUser = mem.findUserById(targetUserId);
+      if (!targetUser || targetUser.organization_id !== orgId) {
+        return res.status(404).json({ success: false, error: 'Employee not found in organization.' });
+      }
+    }
+
+    if (req.user.role === 'team_leader' && targetUser.team_leader_id !== req.user.id && targetUser.id !== req.user.id) {
+      return res.status(403).json({ success: false, error: 'Access denied: You can only assign tasks to your assigned team members.' });
+    }
+
+    const { projectName, taskTitle, taskDescription, description, priority = 'Medium', dueTime = 'EOD (18:30)' } = req.body;
+    const finalProj = (projectName || '').trim();
+    const finalDesc = (taskDescription || description || taskTitle || '').trim();
+    const finalTitle = (taskTitle || finalProj || 'Assigned Task').trim();
+
+    if (!finalProj) {
+      return res.status(400).json({ success: false, error: 'Project name is required.' });
+    }
+    if (!finalDesc) {
+      return res.status(400).json({ success: false, error: 'Task description is required.' });
+    }
+
+    const today = getISTDate(0);
+    const dayName = getISTDayName(today);
+
+    let report = null;
+
+    if (supabase) {
+      const { data: rData, error: rErr } = await supabase
+        .from('daily_reports')
+        .select('*')
+        .eq('organization_id', orgId)
+        .eq('user_id', targetUserId)
+        .eq('work_date', today)
+        .maybeSingle();
+      if (rErr) return res.status(500).json({ success: false, error: 'Database query failed: ' + rErr.message });
+      report = rData;
+    } else {
+      report = memDb.dailyReports.find(r => r.organization_id === orgId && r.user_id === targetUserId && r.work_date === today);
+    }
+
+    // Check for accidental duplicate assignment
+    const existingTasks = (report && report.tasks) ? (Array.isArray(report.tasks) ? report.tasks : JSON.parse(report.tasks)) : [];
+    const isDuplicate = existingTasks.some(
+      t => (t.taskDescription || '').trim().toLowerCase() === finalDesc.toLowerCase() ||
+           (t.tasksAssigned || '').trim().toLowerCase() === finalDesc.toLowerCase()
+    );
+    if (isDuplicate) {
+      return res.status(409).json({ success: false, error: 'A task with this description has already been added to today\'s report.' });
+    }
+
+    const newTask = {
+      id: `task-mgmt-${Date.now()}`,
+      projectName: finalProj,
+      taskTitle: finalTitle,
+      taskDescription: finalDesc,
+      tasksAssigned: finalDesc,
+      completed: 'No',
+      pending: 'Yes',
+      priority,
+      dueTime,
+      isManagementAssigned: true,
+      assignedBy: req.user.name || 'Management',
+      assignedById: req.user.id,
+      assignedAt: new Date().toISOString(),
+      date: today
+    };
+
+    const updatedTasks = [...existingTasks, newTask];
+    const completedCount = updatedTasks.filter(t => t.completed === 'Yes').length;
+    const pendingCount = updatedTasks.filter(t => t.pending === 'Yes').length;
+    const tasksCompletedStr = `${completedCount} of ${updatedTasks.length}`;
+    const tasksPendingStr = `${pendingCount} of ${updatedTasks.length}`;
+    const nowIso = new Date().toISOString();
+
+    if (supabase) {
+      if (report) {
+        const { data: updatedReport, error: updateErr } = await supabase
+          .from('daily_reports')
+          .update({
+            tasks: updatedTasks,
+            tasks_assigned: finalDesc,
+            tasks_completed: tasksCompletedStr,
+            tasks_pending: tasksPendingStr,
+            updated_at: nowIso
+          })
+          .eq('id', report.id)
+          .select()
+          .single();
+        if (updateErr) return res.status(500).json({ success: false, error: 'Database update failed: ' + updateErr.message });
+        report = updatedReport;
+      } else {
+        const newReportId = generateUUID();
+        const dbDraftReport = {
+          id: newReportId,
+          organization_id: orgId,
+          user_id: targetUserId,
+          work_date: today,
+          project_name: finalProj,
+          work_summary: `Work in progress for ${today}.`,
+          tasks: updatedTasks,
+          tasks_assigned: finalDesc,
+          tasks_completed: tasksCompletedStr,
+          tasks_pending: tasksPendingStr,
+          is_draft: true,
+          carried_forward_count: 0,
+          created_at: nowIso,
+          updated_at: nowIso
+        };
+        const { data: insertedReport, error: insertErr } = await supabase
+          .from('daily_reports')
+          .insert(dbDraftReport)
+          .select()
+          .single();
+        if (insertErr) return res.status(500).json({ success: false, error: 'Database insert failed: ' + insertErr.message });
+        report = insertedReport;
+      }
+
+      // Supabase notification
+      const notifBody = `${req.user.name || 'Management'} has assigned you a new task: ${finalDesc}. Open your Daily Task Summary to view the details.`;
+      const notifTitle = 'New task assigned';
+      await supabase.from('notifications').insert({
+        id: generateUUID(),
+        organization_id: orgId,
+        user_id: targetUserId,
+        type: 'task',
+        title: notifTitle,
+        body: notifBody,
+        is_read: false,
+        created_at: nowIso
+      });
+    } else {
+      if (!report) {
+        report = {
+          id: generateUUID(),
+          organization_id: orgId,
+          user_id: targetUserId,
+          user_name: targetUser.name,
+          work_date: today,
+          day_name: dayName,
+          project_name: finalProj,
+          work_summary: `Work in progress for ${today}.`,
+          tasks: updatedTasks,
+          tasks_assigned: finalDesc,
+          tasks_completed: tasksCompletedStr,
+          tasks_pending: tasksPendingStr,
+          ratings: null,
+          status: 'Draft',
+          is_submitted: false,
+          is_draft: true,
+          carried_forward_count: 0,
+          created_at: nowIso,
+          updated_at: nowIso
+        };
+        memDb.dailyReports.unshift(report);
+      } else {
+        report.tasks = updatedTasks;
+        report.tasks_completed = tasksCompletedStr;
+        report.tasks_pending = tasksPendingStr;
+        report.updated_at = nowIso;
+      }
+
+      // In-memory notification
+      const notifBody = `${req.user.name || 'Management'} has assigned you a new task: ${finalDesc}. Open your Daily Task Summary to view the details.`;
+      const notifTitle = 'New task assigned';
+      memDb.notifications.push({
+        id: generateUUID(),
+        organization_id: orgId,
+        user_id: targetUserId,
+        type: 'task',
+        title: notifTitle,
+        body: notifBody,
+        message: notifBody,
+        text: notifBody,
+        is_read: false,
+        unread: true,
+        created_at: nowIso
+      });
+    }
+
+    const sanitizedReport = report ? {
+      ...report,
+      day_name: report.day_name || dayName,
+      status: report.status || (report.is_draft ? 'Draft' : 'Submitted'),
+      is_submitted: report.is_submitted !== undefined ? report.is_submitted : !report.is_draft,
+      isDraft: report.is_draft !== undefined ? report.is_draft : true
+    } : null;
+
+    res.json({
+      success: true,
+      task: newTask,
+      report: sanitizedReport,
+      message: 'Task assigned successfully to employee.',
+      source: supabase ? 'supabase' : 'memory'
+    });
+  } catch (err) {
+    console.error('[Management Assign Task] Error:', err);
+    res.status(500).json({ success: false, error: 'Failed to assign task to employee.' });
+  }
+};
+
+app.post('/api/management/task-reports/employees/:employeeId/tasks', requireAuth, requireRole(['founder', 'admin', 'team_leader']), assignManagementTask);
+app.post('/api/daily-reports/assign-task', requireAuth, requireRole(['founder', 'admin', 'team_leader']), assignManagementTask);
+
+/**
+ * GET /api/management/task-reports/employees/:employeeId/export
+ * Export an individual employee's task records to a genuine multi-sheet Excel .xlsx workbook
+ */
+app.get('/api/management/task-reports/employees/:employeeId/export', requireAuth, async (req, res) => {
+  try {
+    const orgId = req.user.organizationId;
+    const targetUserId = req.params.employeeId;
+    const targetUser = mem.findUserById(targetUserId);
+
+    if (!targetUser || targetUser.organization_id !== orgId) {
+      return res.status(404).json({ success: false, error: 'Employee not found in organization.' });
+    }
+
+    if (req.user.role === 'employee' && req.user.id !== targetUserId) {
+      return res.status(403).json({ success: false, error: 'Access denied: You can only export your own task reports.' });
+    }
+
+    if (req.user.role === 'team_leader' && targetUser.team_leader_id !== req.user.id && targetUser.id !== req.user.id) {
+      return res.status(403).json({ success: false, error: 'Access denied: You can only export reports for your assigned team.' });
+    }
+
+    const { startDate, endDate, month } = req.query;
+
+    if (startDate && endDate && startDate > endDate) {
+      return res.status(400).json({ success: false, error: 'Start date cannot be after end date.' });
+    }
+
+    const org = mem.findOrgById(orgId);
+    let reports = mem.getReportsForOrg(orgId, targetUserId).filter(r => !r.is_draft);
+
+    if (startDate && endDate) {
+      reports = reports.filter(r => r.work_date && r.work_date >= startDate && r.work_date <= endDate);
+    } else if (month) {
+      reports = reports.filter(r => r.work_date && r.work_date.startsWith(month));
+    }
+
+    // Sort descending by date
+    reports.sort((a, b) => new Date(b.work_date || 0) - new Date(a.work_date || 0));
+
+    // Sheet 1: Daily Summary
+    let totalTasksCount = 0;
+    let completedTasksCount = 0;
+    let pendingTasksCount = 0;
+
+    reports.forEach(r => {
+      const tasks = r.tasks || [];
+      totalTasksCount += tasks.length;
+      completedTasksCount += tasks.filter(t => t.completed === 'Yes').length;
+      pendingTasksCount += tasks.filter(t => t.pending === 'Yes').length;
+    });
+
+    const summaryRows = [
+      { 'Metric': 'Employee Name', 'Value': targetUser.name },
+      { 'Metric': 'Employee ID', 'Value': targetUser.employee_id_number || `EMP-${targetUser.id}` },
+      { 'Metric': 'Company Workspace', 'Value': org?.name || 'Acme Technologies' },
+      { 'Metric': 'Department', 'Value': targetUser.department || 'Operations' },
+      { 'Metric': 'Designation', 'Value': targetUser.designation || 'Staff Member' },
+      { 'Metric': 'Export Date Range', 'Value': `${startDate || 'All'} to ${endDate || 'All'}` },
+      { 'Metric': 'Total Reports Filed', 'Value': reports.length },
+      { 'Metric': 'Total Recorded Tasks', 'Value': totalTasksCount },
+      { 'Metric': 'Completed Tasks', 'Value': completedTasksCount },
+      { 'Metric': 'Pending Tasks', 'Value': pendingTasksCount },
+      { 'Metric': 'Completion Rate', 'Value': totalTasksCount > 0 ? `${Math.round((completedTasksCount / totalTasksCount) * 100)}%` : '0%' }
+    ];
+
+    // Sheet 2: Task Details
+    const taskDetailsRows = [];
+    reports.forEach(r => {
+      const dayName = getISTDayName(r.work_date);
+      const tasks = Array.isArray(r.tasks) && r.tasks.length > 0 ? r.tasks : [
+        {
+          projectName: r.project_name || 'General Operations',
+          tasksAssigned: r.tasks_assigned || r.work_summary || 'Daily summary',
+          completed: r.tasks_completed?.includes('0 of') ? 'No' : 'Yes',
+          pending: r.tasks_pending?.includes('0 of') ? 'No' : 'Yes',
+          isManagementAssigned: false
+        }
+      ];
+
+      tasks.forEach((t, idx) => {
+        taskDetailsRows.push({
+          'Employee Name': targetUser.name,
+          'Employee ID': targetUser.employee_id_number || `EMP-${targetUser.id}`,
+          'Date': r.work_date || '',
+          'Day': dayName,
+          'Task #': idx + 1,
+          'Project Name': t.projectName || r.project_name || 'General Operations',
+          'Task Description': t.taskDescription || t.tasksAssigned || t.title || 'Daily operational task',
+          'Task Origin': t.isManagementAssigned ? 'Management Assigned' : 'Employee Reported',
+          'Assigned By': t.assignedBy || 'Self',
+          'Completed Status': t.completed || 'No',
+          'Pending Status': t.pending || 'No',
+          'Priority': t.priority || 'Normal',
+          'Speed (1-10)': r.rating_speed != null ? Number(r.rating_speed) : '',
+          'Understanding (1-10)': r.rating_understanding != null ? Number(r.rating_understanding) : '',
+          'Problem Solving (1-10)': r.rating_problem_solving != null ? Number(r.rating_problem_solving) : '',
+          'Communication (1-10)': r.rating_talking_behaviour != null ? Number(r.rating_talking_behaviour) : '',
+          'Work Quality (1-10)': r.rating_work_quality != null ? Number(r.rating_work_quality) : '',
+          'Discipline (1-10)': r.rating_discipline != null ? Number(r.rating_discipline) : '',
+          'Average Overall': r.rating_average_overall != null ? Number(r.rating_average_overall) : ''
+        });
+      });
+    });
+
+    // Sheet 3: Daily Breakdown
+    const dailyBreakdownRows = reports.map((r, idx) => {
+      const tasks = r.tasks || [];
+      const dayName = getISTDayName(r.work_date);
+      return {
+        'Day #': idx + 1,
+        'Report Date': r.work_date,
+        'Day of Week': dayName,
+        'Project Name': r.project_name || 'General Operations',
+        'Total Tasks': tasks.length,
+        'Completed': tasks.filter(t => t.completed === 'Yes').length,
+        'Pending': tasks.filter(t => t.pending === 'Yes').length,
+        'Submission Status': r.status || 'Submitted',
+        'Submission Time': r.submitted_at || r.created_at || 'Recorded'
+      };
+    });
+
+    const wb = xlsx.utils.book_new();
+
+    // Append Sheet 1
+    const wsSummary = xlsx.utils.json_to_sheet(summaryRows);
+    wsSummary['!cols'] = [{ wch: 25 }, { wch: 35 }];
+    xlsx.utils.book_append_sheet(wb, wsSummary, 'Daily Summary');
+
+    // Append Sheet 2
+    const wsTasks = xlsx.utils.json_to_sheet(taskDetailsRows.length > 0 ? taskDetailsRows : [{
+      'Status': 'No task records found for the selected date range'
+    }]);
+    wsTasks['!cols'] = [
+      { wch: 12 }, { wch: 12 }, { wch: 8 }, { wch: 24 }, { wch: 45 },
+      { wch: 22 }, { wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 12 },
+      { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 16 }
+    ];
+    xlsx.utils.book_append_sheet(wb, wsTasks, 'Task Details');
+
+    // Append Sheet 3
+    const wsDaily = xlsx.utils.json_to_sheet(dailyBreakdownRows.length > 0 ? dailyBreakdownRows : [{
+      'Status': 'No daily reports found'
+    }]);
+    wsDaily['!cols'] = [
+      { wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 24 }, { wch: 12 },
+      { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 24 }
+    ];
+    xlsx.utils.book_append_sheet(wb, wsDaily, 'Daily Breakdown');
+
+    const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const sanitizedName = (targetUser.name || 'Employee').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `Employee_Task_Report_${sanitizedName}_${startDate || 'All'}_to_${endDate || 'All'}.xlsx`;
+
+    if (req.query.base64 === 'true') {
+      return res.json({
+        success: true,
+        filename,
+        base64: buffer.toString('base64'),
+        rowCount: taskDetailsRows.length
+      });
+    }
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
+  } catch (err) {
+    console.error('[Management Employee Export] Error:', err);
+    res.status(500).json({ success: false, error: 'Failed to generate employee Excel export.' });
+  }
+});
+
+/**
+ * GET /api/management/task-reports/employees/:employeeId/spreadsheet
+ * Return structured JSON table data for in-app spreadsheet viewing
+ */
+app.get('/api/management/task-reports/employees/:employeeId/spreadsheet', requireAuth, async (req, res) => {
+  try {
+    const orgId = req.user.organizationId;
+    const targetUserId = req.params.employeeId;
+    const targetUser = mem.findUserById(targetUserId);
+
+    if (!targetUser || targetUser.organization_id !== orgId) {
+      return res.status(404).json({ success: false, error: 'Employee not found in organization.' });
+    }
+
+    if (req.user.role === 'employee' && req.user.id !== targetUserId) {
+      return res.status(403).json({ success: false, error: 'Access denied: You can only view your own records.' });
+    }
+
+    if (req.user.role === 'team_leader' && targetUser.team_leader_id !== req.user.id && targetUser.id !== req.user.id) {
+      return res.status(403).json({ success: false, error: 'Access denied: You can only view reports for your assigned team.' });
+    }
+
+    const { startDate, endDate, month } = req.query;
+
+    if (startDate && endDate && startDate > endDate) {
+      return res.status(400).json({ success: false, error: 'Start date cannot be after end date.' });
+    }
+
+    let reports = mem.getReportsForOrg(orgId, targetUserId);
+
+    if (startDate && endDate) {
+      reports = reports.filter(r => r.work_date && r.work_date >= startDate && r.work_date <= endDate);
+    } else if (month) {
+      reports = reports.filter(r => r.work_date && r.work_date.startsWith(month));
+    }
+
+    reports.sort((a, b) => new Date(b.work_date || 0) - new Date(a.work_date || 0));
+
+    const rows = [];
+    let completedCount = 0;
+    let pendingCount = 0;
+
+    reports.forEach((r, rIdx) => {
+      const dayName = getISTDayName(r.work_date);
+      const tasks = Array.isArray(r.tasks) && r.tasks.length > 0 ? r.tasks : [
+        {
+          id: `task-${r.id}`,
+          projectName: r.project_name || 'General Operations',
+          taskDescription: r.tasks_assigned || r.work_summary || 'Daily operational tasks',
+          completed: r.tasks_completed?.includes('0 of') ? 'No' : 'Yes',
+          pending: r.tasks_pending?.includes('0 of') ? 'No' : 'Yes',
+          isManagementAssigned: false
+        }
+      ];
+
+      tasks.forEach((t, tIdx) => {
+        if (t.completed === 'Yes') completedCount++;
+        if (t.pending === 'Yes') pendingCount++;
+
+        rows.push({
+          rowId: `${r.id}-${t.id || tIdx}`,
+          workDate: r.work_date,
+          dayName,
+          projectName: t.projectName || r.project_name || 'General Operations',
+          taskDescription: t.taskDescription || t.tasksAssigned || t.title || 'Daily task',
+          taskOrigin: t.isManagementAssigned ? 'Management Assigned' : 'Employee Reported',
+          assignedBy: t.assignedBy || 'Self',
+          assignedAt: t.assignedAt || r.created_at || '—',
+          taskStatus: t.completed === 'Yes' ? 'Completed' : 'Pending',
+          completed: t.completed || 'No',
+          pending: t.pending || 'No',
+          reportStatus: r.is_draft ? 'Draft' : 'Submitted',
+          submissionTime: r.submitted_at || r.created_at || '—',
+          ratingOverall: r.rating_average_overall || (r.rating_speed ? Number(r.rating_speed).toFixed(2) : '—')
+        });
+      });
+    });
+
+    res.json({
+      success: true,
+      data: {
+        employee: {
+          id: targetUser.id,
+          name: targetUser.name,
+          employee_code: targetUser.employee_id_number || `EMP-${targetUser.id}`,
+          department: targetUser.department || 'Operations',
+          designation: targetUser.designation || 'Staff Member'
+        },
+        startDate: startDate || (reports[reports.length - 1]?.work_date || getISTDate(0)),
+        endDate: endDate || (reports[0]?.work_date || getISTDate(0)),
+        summary: {
+          totalDays: reports.length,
+          totalTasks: rows.length,
+          completedTasks: completedCount,
+          pendingTasks: pendingCount
+        },
+        rows
+      }
+    });
+  } catch (err) {
+    console.error('[Management Spreadsheet View] Error:', err);
+    res.status(500).json({ success: false, error: 'Failed to fetch spreadsheet data.' });
   }
 });
 
@@ -2505,16 +3914,38 @@ app.get('/api/audits', requireAuth, async (req, res) => {
       return res.status(403).json({ success: false, error: 'Employees cannot access management audit records.' });
     }
 
-    let audits = mem.getAuditsForOrg(req.user.organizationId);
-
-    if (req.user.role === 'team_leader') {
-      const team = mem.getUsersForOrg(req.user.organizationId).filter(u => u.team_leader_id === req.user.id || u.id === req.user.id);
-      const allowedTeamIds = new Set(team.map(u => u.id));
-      audits = audits.filter(a => a.auditor_id === req.user.id || allowedTeamIds.has(a.employee_id));
+    let audits = [];
+    if (supabase) {
+      let query = supabase.from('team_leader_audits')
+        .select('*')
+        .eq('organization_id', req.user.organizationId);
+      if (req.user.role === 'team_leader') {
+        const team = mem.getUsersForOrg(req.user.organizationId).filter(u => u.team_leader_id === req.user.id || u.id === req.user.id);
+        const allowedTeamIds = team.map(u => u.id);
+        query = query.in('employee_id', allowedTeamIds);
+      }
+      if (req.query.employee_id) {
+        query = query.eq('employee_id', req.query.employee_id);
+      }
+      query = query.order('audit_date', { ascending: false });
+      const { data, error } = await query;
+      if (error) {
+        console.error('[Audits Get Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
+      }
+      if (data) audits = data;
     }
 
-    if (req.query.employee_id) {
-      audits = audits.filter(a => a.employee_id === req.query.employee_id);
+    if (!audits.length) {
+      audits = mem.getAuditsForOrg(req.user.organizationId);
+      if (req.user.role === 'team_leader') {
+        const team = mem.getUsersForOrg(req.user.organizationId).filter(u => u.team_leader_id === req.user.id || u.id === req.user.id);
+        const allowedTeamIds = new Set(team.map(u => u.id));
+        audits = audits.filter(a => a.auditor_id === req.user.id || allowedTeamIds.has(a.employee_id));
+      }
+      if (req.query.employee_id) {
+        audits = audits.filter(a => a.employee_id === req.query.employee_id);
+      }
     }
 
     res.json({ success: true, data: audits, total: audits.length });
@@ -2542,7 +3973,7 @@ app.post('/api/audits', requireAuth, requireRole(['founder', 'admin', 'team_lead
     const resolvedName = employeeName || targetUser?.name || 'Employee';
 
     const newAudit = {
-      id: `audit-${Date.now()}`,
+      id: generateUUID(),
       organization_id: req.user.organizationId,
       auditor_id: req.user.id,
       auditor_name: req.user.name,
@@ -2558,6 +3989,31 @@ app.post('/api/audits', requireAuth, requireRole(['founder', 'admin', 'team_lead
       action_items: actionItems || null,
       created_at: new Date().toISOString()
     };
+
+    if (supabase) {
+      const dbAudit = {
+        id: newAudit.id,
+        organization_id: newAudit.organization_id,
+        auditor_id: newAudit.auditor_id,
+        auditor_name: newAudit.auditor_name,
+        auditor_role: newAudit.auditor_role,
+        employee_id: newAudit.employee_id,
+        employee_name: newAudit.employee_name,
+        audit_date: newAudit.audit_date,
+        category: newAudit.category,
+        score: newAudit.score,
+        strengths: newAudit.strengths,
+        improvements: newAudit.improvements,
+        remarks: newAudit.remarks,
+        action_items: newAudit.action_items,
+        created_at: newAudit.created_at
+      };
+      const { data, error } = await supabase.from('team_leader_audits').insert([dbAudit]).select().single();
+      if (error) {
+        console.error('[Audits Post Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Failed to record audit in database: ' + error.message });
+      }
+    }
 
     if (!memDb.audits) memDb.audits = [];
     memDb.audits.push(newAudit);
@@ -2596,12 +4052,33 @@ app.get('/api/leaves', requireAuth, async (req, res) => {
       targetUserId = req.query.user_id || null;
     }
 
-    let leaves = mem.getLeavesForOrg(req.user.organizationId, targetUserId);
-    if (isTeamLeader && !targetUserId && allowedTeamIds) {
-      leaves = leaves.filter(l => allowedTeamIds.has(l.user_id));
+    let leaves = [];
+    if (supabase) {
+      let query = supabase.from('leave_applications')
+        .select('*')
+        .eq('organization_id', req.user.organizationId);
+      if (targetUserId) query = query.eq('user_id', targetUserId);
+      if (isTeamLeader && !targetUserId && allowedTeamIds) {
+        query = query.in('user_id', Array.from(allowedTeamIds));
+      }
+      if (req.query.status && req.query.status !== 'all') query = query.eq('status', req.query.status);
+      query = query.order('created_at', { ascending: false });
+      const { data, error } = await query;
+      if (error) {
+        console.error('[Leaves Get Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
+      }
+      if (data) leaves = data;
     }
-    if (req.query.status && req.query.status !== 'all') {
-      leaves = leaves.filter(l => l.status === req.query.status);
+
+    if (!leaves.length) {
+      leaves = mem.getLeavesForOrg(req.user.organizationId, targetUserId);
+      if (isTeamLeader && !targetUserId && allowedTeamIds) {
+        leaves = leaves.filter(l => allowedTeamIds.has(l.user_id));
+      }
+      if (req.query.status && req.query.status !== 'all') {
+        leaves = leaves.filter(l => l.status === req.query.status);
+      }
     }
     res.json({ success: true, data: leaves, total: leaves.length });
   } catch (err) {
@@ -2620,7 +4097,7 @@ app.post('/api/leaves', requireAuth, async (req, res) => {
     }
 
     const newLeave = {
-      id: `leave-${Date.now()}`,
+      id: generateUUID(),
       organization_id: req.user.organizationId,
       user_id: req.user.id,
       user_name: req.user.name,
@@ -2637,8 +4114,29 @@ app.post('/api/leaves', requireAuth, async (req, res) => {
       updated_at: new Date().toISOString()
     };
 
+    if (supabase) {
+      const dbLeave = {
+        id: newLeave.id,
+        organization_id: newLeave.organization_id,
+        user_id: newLeave.user_id,
+        leave_type: newLeave.leave_type,
+        start_date: newLeave.start_date,
+        end_date: newLeave.end_date,
+        duration_days: newLeave.duration_days,
+        reason: newLeave.reason,
+        status: newLeave.status,
+        created_at: newLeave.created_at,
+        updated_at: newLeave.updated_at
+      };
+      const { data, error } = await supabase.from('leave_applications').insert([dbLeave]).select().single();
+      if (error) {
+        console.error('[Leave Post Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Failed to submit leave in database: ' + error.message });
+      }
+    }
+
     memDb.leaves.push(newLeave);
-    res.status(201).json({ success: true, data: newLeave, source: 'memory' });
+    res.status(201).json({ success: true, data: newLeave, source: supabase ? 'supabase' : 'memory' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to submit leave request.' });
   }
@@ -2652,6 +4150,30 @@ const handleLeaveUpdate = async (req, res) => {
 
     if (!['approved', 'rejected', 'cancelled'].includes(status)) {
       return res.status(400).json({ success: false, error: 'Invalid status. Use: approved, rejected, or cancelled.' });
+    }
+
+    if (supabase) {
+      const { data, error } = await supabase.from('leave_applications')
+        .update({
+          status,
+          reviewed_by: req.user.id,
+          review_remarks: remarks,
+          reviewed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .eq('organization_id', req.user.organizationId)
+        .select()
+        .single();
+      if (error) {
+        console.error('[Leave Update Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Failed to update leave in database: ' + error.message });
+      }
+      if (data) {
+        const idx = memDb.leaves.findIndex(l => l.id === id);
+        if (idx !== -1) memDb.leaves[idx] = { ...memDb.leaves[idx], ...data };
+        return res.json({ success: true, data, source: 'supabase' });
+      }
     }
 
     const idx = memDb.leaves.findIndex(l => l.id === id && l.organization_id === req.user.organizationId);
@@ -2683,10 +4205,24 @@ app.patch('/api/leaves/:id/status', requireAuth, requireRole(['admin', 'team_lea
 
 app.get('/api/announcements', requireAuth, async (req, res) => {
   try {
-    const isAdmin = req.user.role === 'admin';
+    const isAdmin = req.user.role === 'admin' || req.user.role === 'founder';
     const showAll = req.query.all === 'true' && isAdmin;
+
+    if (supabase) {
+      let query = supabase.from('announcements').select('*').eq('organization_id', req.user.organizationId);
+      if (!showAll) query = query.eq('status', 'published');
+      query = query.order('created_at', { ascending: false });
+      const { data, error } = await query;
+      if (error) {
+        console.error('[Announcements Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
+      }
+      const list = (data || []).map(a => ({ ...a, content: a.message }));
+      return res.json({ success: true, data: list, total: list.length, source: 'supabase' });
+    }
+
     let list = mem.getAnnouncementsForOrg(req.user.organizationId, !showAll);
-    res.json({ success: true, data: list, total: list.length });
+    res.json({ success: true, data: list, total: list.length, source: 'memory' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch announcements.' });
   }
@@ -2699,7 +4235,7 @@ app.post('/api/announcements', requireAuth, requireRole(['founder', 'admin']), a
     if (!title || !msg) return res.status(400).json({ success: false, error: 'title and message are required.' });
 
     const newAnn = {
-      id: `ann-${Date.now()}`,
+      id: generateUUID(),
       organization_id: req.user.organizationId,
       title,
       message: msg,
@@ -2713,6 +4249,30 @@ app.post('/api/announcements', requireAuth, requireRole(['founder', 'admin']), a
       updated_at: new Date().toISOString()
     };
 
+    if (supabase) {
+      const dbAnn = {
+        id: newAnn.id,
+        organization_id: newAnn.organization_id,
+        title: newAnn.title,
+        message: newAnn.message,
+        priority: newAnn.priority,
+        audience: newAnn.audience,
+        status: newAnn.status,
+        published_at: newAnn.published_at,
+        expires_at: newAnn.expires_at,
+        created_by: newAnn.created_by,
+        created_at: newAnn.created_at,
+        updated_at: newAnn.updated_at
+      };
+      const { data, error } = await supabase.from('announcements').insert(dbAnn).select().single();
+      if (error) {
+        console.error('[Create Announcement Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database insert failed: ' + error.message });
+      }
+      const responseData = { ...data, content: data.message, created_by_name: req.user.name };
+      return res.status(201).json({ success: true, data: responseData, announcement: responseData, source: 'supabase' });
+    }
+
     memDb.announcements.push(newAnn);
     res.status(201).json({ success: true, data: newAnn, announcement: newAnn, source: 'memory' });
   } catch (err) {
@@ -2720,12 +4280,9 @@ app.post('/api/announcements', requireAuth, requireRole(['founder', 'admin']), a
   }
 });
 
-app.put('/api/announcements/:id', requireAuth, requireRole(['admin']), async (req, res) => {
+app.put('/api/announcements/:id', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
   try {
     const { id } = req.params;
-    const idx = memDb.announcements.findIndex(a => a.id === id && a.organization_id === req.user.organizationId);
-    if (idx === -1) return res.status(404).json({ success: false, error: 'Announcement not found.' });
-
     const { title, message, priority, audience, status } = req.body;
     const updates = { updated_at: new Date().toISOString() };
     if (title) updates.title = title;
@@ -2734,11 +4291,32 @@ app.put('/api/announcements/:id', requireAuth, requireRole(['admin']), async (re
     if (audience) updates.audience = audience;
     if (status) {
       updates.status = status;
-      if (status === 'published' && !memDb.announcements[idx].published_at) {
+      if (status === 'published') {
         updates.published_at = new Date().toISOString();
       }
     }
 
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('announcements')
+        .update(updates)
+        .eq('id', id)
+        .eq('organization_id', req.user.organizationId)
+        .select()
+        .maybeSingle();
+      if (error) {
+        return res.status(500).json({ success: false, error: 'Database update failed: ' + error.message });
+      }
+      if (!data) return res.status(404).json({ success: false, error: 'Announcement not found.' });
+      return res.json({ success: true, data: { ...data, content: data.message }, source: 'supabase' });
+    }
+
+    const idx = memDb.announcements.findIndex(a => a.id === id && a.organization_id === req.user.organizationId);
+    if (idx === -1) return res.status(404).json({ success: false, error: 'Announcement not found.' });
+
+    if (status === 'published' && !memDb.announcements[idx].published_at) {
+      updates.published_at = new Date().toISOString();
+    }
     memDb.announcements[idx] = { ...memDb.announcements[idx], ...updates };
     res.json({ success: true, data: memDb.announcements[idx], source: 'memory' });
   } catch (err) {
@@ -2746,12 +4324,25 @@ app.put('/api/announcements/:id', requireAuth, requireRole(['admin']), async (re
   }
 });
 
-app.delete('/api/announcements/:id', requireAuth, requireRole(['admin']), async (req, res) => {
+app.delete('/api/announcements/:id', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (supabase) {
+      const { error } = await supabase
+        .from('announcements')
+        .delete()
+        .eq('id', id)
+        .eq('organization_id', req.user.organizationId);
+      if (error) {
+        return res.status(500).json({ success: false, error: 'Database delete failed: ' + error.message });
+      }
+      return res.json({ success: true, message: 'Announcement deleted.', source: 'supabase' });
+    }
+
     const idx = memDb.announcements.findIndex(a => a.id === id && a.organization_id === req.user.organizationId);
     if (idx !== -1) memDb.announcements.splice(idx, 1);
-    res.json({ success: true, message: 'Announcement deleted.' });
+    res.json({ success: true, message: 'Announcement deleted.', source: 'memory' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to delete announcement.' });
   }
@@ -2763,31 +4354,56 @@ app.delete('/api/announcements/:id', requireAuth, requireRole(['admin']), async 
 
 app.get('/api/rules', requireAuth, async (req, res) => {
   try {
-    const isAdmin = req.user.role === 'admin';
+    const isAdmin = req.user.role === 'admin' || req.user.role === 'founder';
     const showAll = req.query.all === 'true' && isAdmin;
+
+    if (supabase) {
+      let query = supabase.from('company_rules').select('*').eq('organization_id', req.user.organizationId);
+      if (!showAll) query = query.eq('status', 'published');
+      if (req.query.category && req.query.category !== 'all') {
+        query = query.eq('category', req.query.category);
+      }
+      query = query.order('created_at', { ascending: false });
+      const { data, error } = await query;
+      if (error) {
+        console.error('[Rules Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
+      }
+      return res.json({ success: true, data: data || [], total: (data || []).length, source: 'supabase' });
+    }
+
     let list = mem.getRulesForOrg(req.user.organizationId, !showAll);
     if (req.query.category && req.query.category !== 'all') {
       list = list.filter(r => r.category === req.query.category);
     }
-    res.json({ success: true, data: list, total: list.length });
+    res.json({ success: true, data: list, total: list.length, source: 'memory' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch rules.' });
   }
 });
 
-app.post('/api/rules', requireAuth, requireRole(['admin']), async (req, res) => {
+app.post('/api/rules', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
   try {
     const { title, category = 'General', body, version = '1.0', status = 'published' } = req.body;
     if (!title || !body) return res.status(400).json({ success: false, error: 'title and body are required.' });
 
     const newRule = {
-      id: `rule-${Date.now()}`,
+      id: generateUUID(),
       organization_id: req.user.organizationId,
       title, category, body, version, status,
       created_by: req.user.id,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
+
+    if (supabase) {
+      const { data, error } = await supabase.from('company_rules').insert(newRule).select().single();
+      if (error) {
+        console.error('[Create Rule Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database insert failed: ' + error.message });
+      }
+      return res.status(201).json({ success: true, data, source: 'supabase' });
+    }
 
     memDb.rules.push(newRule);
     res.status(201).json({ success: true, data: newRule, source: 'memory' });
@@ -2796,12 +4412,9 @@ app.post('/api/rules', requireAuth, requireRole(['admin']), async (req, res) => 
   }
 });
 
-app.put('/api/rules/:id', requireAuth, requireRole(['admin']), async (req, res) => {
+app.put('/api/rules/:id', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
   try {
     const { id } = req.params;
-    const idx = memDb.rules.findIndex(r => r.id === id && r.organization_id === req.user.organizationId);
-    if (idx === -1) return res.status(404).json({ success: false, error: 'Rule not found.' });
-
     const { title, category, body, version, status } = req.body;
     const updates = { updated_at: new Date().toISOString() };
     if (title) updates.title = title;
@@ -2810,6 +4423,24 @@ app.put('/api/rules/:id', requireAuth, requireRole(['admin']), async (req, res) 
     if (version) updates.version = version;
     if (status) updates.status = status;
 
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('company_rules')
+        .update(updates)
+        .eq('id', id)
+        .eq('organization_id', req.user.organizationId)
+        .select()
+        .maybeSingle();
+      if (error) {
+        return res.status(500).json({ success: false, error: 'Database update failed: ' + error.message });
+      }
+      if (!data) return res.status(404).json({ success: false, error: 'Rule not found.' });
+      return res.json({ success: true, data, source: 'supabase' });
+    }
+
+    const idx = memDb.rules.findIndex(r => r.id === id && r.organization_id === req.user.organizationId);
+    if (idx === -1) return res.status(404).json({ success: false, error: 'Rule not found.' });
+
     memDb.rules[idx] = { ...memDb.rules[idx], ...updates };
     res.json({ success: true, data: memDb.rules[idx], source: 'memory' });
   } catch (err) {
@@ -2817,12 +4448,25 @@ app.put('/api/rules/:id', requireAuth, requireRole(['admin']), async (req, res) 
   }
 });
 
-app.delete('/api/rules/:id', requireAuth, requireRole(['admin']), async (req, res) => {
+app.delete('/api/rules/:id', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (supabase) {
+      const { error } = await supabase
+        .from('company_rules')
+        .delete()
+        .eq('id', id)
+        .eq('organization_id', req.user.organizationId);
+      if (error) {
+        return res.status(500).json({ success: false, error: 'Database delete failed: ' + error.message });
+      }
+      return res.json({ success: true, message: 'Rule deleted.', source: 'supabase' });
+    }
+
     const idx = memDb.rules.findIndex(r => r.id === id && r.organization_id === req.user.organizationId);
     if (idx !== -1) memDb.rules.splice(idx, 1);
-    res.json({ success: true, message: 'Rule deleted.' });
+    res.json({ success: true, message: 'Rule deleted.', source: 'memory' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to delete rule.' });
   }
@@ -2834,24 +4478,47 @@ app.delete('/api/rules/:id', requireAuth, requireRole(['admin']), async (req, re
 
 app.get('/api/holidays', requireAuth, async (req, res) => {
   try {
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('holidays')
+        .select('*')
+        .eq('organization_id', req.user.organizationId)
+        .order('holiday_date', { ascending: true });
+      if (error) {
+        console.error('[Holidays Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
+      }
+      return res.json({ success: true, data: data || [], source: 'supabase' });
+    }
+
     const holidays = mem.getHolidaysForOrg(req.user.organizationId);
-    res.json({ success: true, data: holidays });
+    res.json({ success: true, data: holidays, source: 'memory' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch holidays.' });
   }
 });
 
-app.post('/api/holidays', requireAuth, requireRole(['admin']), async (req, res) => {
+app.post('/api/holidays', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
   try {
     const { name, holidayDate, type = 'company', description } = req.body;
     if (!name || !holidayDate) return res.status(400).json({ success: false, error: 'name and holidayDate are required.' });
 
     const newHoliday = {
-      id: `hol-${Date.now()}`,
+      id: generateUUID(),
       organization_id: req.user.organizationId,
       name, holiday_date: holidayDate, type, description: description || null,
       created_at: new Date().toISOString()
     };
+
+    if (supabase) {
+      const { data, error } = await supabase.from('holidays').insert(newHoliday).select().single();
+      if (error) {
+        console.error('[Create Holiday Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database insert failed: ' + error.message });
+      }
+      return res.status(201).json({ success: true, data, source: 'supabase' });
+    }
+
     memDb.holidays.push(newHoliday);
     res.status(201).json({ success: true, data: newHoliday, source: 'memory' });
   } catch (err) {
@@ -2865,8 +4532,38 @@ app.post('/api/holidays', requireAuth, requireRole(['admin']), async (req, res) 
 
 app.get('/api/notifications', requireAuth, async (req, res) => {
   try {
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('organization_id', req.user.organizationId)
+        .eq('user_id', req.user.id)
+        .order('created_at', { ascending: false });
+      if (error) {
+        console.error('[Notifications Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
+      }
+      const formatted = (data || []).map(n => ({
+        ...n,
+        body: n.body || n.message || n.text || '',
+        message: n.body || n.message || n.text || '',
+        text: n.text || n.body || n.message || '',
+        is_read: n.is_read !== undefined ? n.is_read : !n.unread,
+        unread: n.unread !== undefined ? n.unread : !n.is_read
+      }));
+      return res.json({ success: true, data: formatted, source: 'supabase' });
+    }
+
     const notifications = mem.getNotificationsForUser(req.user.organizationId, req.user.id);
-    res.json({ success: true, data: notifications });
+    const formatted = (notifications || []).map(n => ({
+      ...n,
+      body: n.body || n.message || n.text || '',
+      message: n.message || n.body || n.text || '',
+      text: n.text || n.body || n.message || '',
+      is_read: n.is_read !== undefined ? n.is_read : !n.unread,
+      unread: n.unread !== undefined ? n.unread : !n.is_read
+    }));
+    res.json({ success: true, data: formatted, source: 'memory' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch notifications.' });
   }
@@ -2874,11 +4571,53 @@ app.get('/api/notifications', requireAuth, async (req, res) => {
 
 app.patch('/api/notifications/:id/read', requireAuth, async (req, res) => {
   try {
+    if (supabase) {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('id', req.params.id)
+        .eq('user_id', req.user.id)
+        .eq('organization_id', req.user.organizationId);
+      if (error) {
+        return res.status(500).json({ success: false, error: 'Database update failed: ' + error.message });
+      }
+      return res.json({ success: true, source: 'supabase' });
+    }
+
     const idx = memDb.notifications.findIndex(n => n.id === req.params.id && n.user_id === req.user.id);
-    if (idx !== -1) memDb.notifications[idx].is_read = true;
-    res.json({ success: true });
+    if (idx !== -1) {
+      memDb.notifications[idx].is_read = true;
+      memDb.notifications[idx].unread = false;
+    }
+    res.json({ success: true, source: 'memory' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to mark notification.' });
+  }
+});
+
+app.post('/api/notifications/mark-all-read', requireAuth, async (req, res) => {
+  try {
+    if (supabase) {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('user_id', req.user.id)
+        .eq('organization_id', req.user.organizationId);
+      if (error) {
+        return res.status(500).json({ success: false, error: 'Database update failed: ' + error.message });
+      }
+      return res.json({ success: true, source: 'supabase' });
+    }
+
+    memDb.notifications.forEach(n => {
+      if (n.user_id === req.user.id && n.organization_id === req.user.organizationId) {
+        n.is_read = true;
+        n.unread = false;
+      }
+    });
+    res.json({ success: true, source: 'memory' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to mark all notifications as read.' });
   }
 });
 
@@ -2902,6 +4641,19 @@ app.patch('/api/profile', requireAuth, async (req, res) => {
     });
     updates.updated_at = new Date().toISOString();
 
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('users')
+        .update(updates)
+        .eq('id', req.user.id)
+        .eq('organization_id', req.user.organizationId)
+        .select()
+        .maybeSingle();
+      if (error) return res.status(500).json({ success: false, error: 'Database update failed: ' + error.message });
+      if (!data) return res.status(404).json({ success: false, error: 'User not found.' });
+      return res.json({ success: true, data: safeUserView(data, true), source: 'supabase' });
+    }
+
     const idx = memDb.users.findIndex(u => u.id === req.user.id);
     if (idx === -1) return res.status(404).json({ success: false, error: 'User not found.' });
     memDb.users[idx] = { ...memDb.users[idx], ...updates };
@@ -2917,11 +4669,24 @@ app.patch('/api/profile', requireAuth, async (req, res) => {
 
 app.get('/api/timesheets', requireAuth, async (req, res) => {
   try {
-    const isAdmin = ['admin', 'team_leader'].includes(req.user.role);
+    const isAdmin = ['founder', 'admin', 'team_leader'].includes(req.user.role);
     const targetUserId = isAdmin ? (req.query.user_id || null) : req.user.id;
+
+    if (supabase) {
+      let query = supabase.from('timesheet_entries').select('*').eq('organization_id', req.user.organizationId);
+      if (targetUserId) query = query.eq('user_id', targetUserId);
+      query = query.order('work_date', { ascending: false });
+      const { data, error } = await query;
+      if (error) {
+        console.error('[Timesheets Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
+      }
+      return res.json({ success: true, data: data || [], source: 'supabase' });
+    }
+
     let list = memDb.timesheets.filter(t => t.organization_id === req.user.organizationId);
     if (targetUserId) list = list.filter(t => t.user_id === targetUserId);
-    res.json({ success: true, data: list });
+    res.json({ success: true, data: list, source: 'memory' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch timesheets.' });
   }
@@ -2938,7 +4703,7 @@ app.post('/api/timesheets', requireAuth, async (req, res) => {
       return res.status(400).json({ success: false, error: 'projectName, taskDescription, and hoursSpent are required.' });
     }
     const entry = {
-      id: `ts-${Date.now()}`,
+      id: generateUUID(),
       organization_id: req.user.organizationId,
       user_id: req.user.id,
       work_date: workDate || req.body.weekStartDate || new Date().toISOString().slice(0, 10),
@@ -2946,8 +4711,19 @@ app.post('/api/timesheets', requireAuth, async (req, res) => {
       task_description: taskDesc,
       hours_spent: Number(hours),
       status: 'submitted',
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
     };
+
+    if (supabase) {
+      const { data, error } = await supabase.from('timesheet_entries').insert(entry).select().single();
+      if (error) {
+        console.error('[Create Timesheet Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database insert failed: ' + error.message });
+      }
+      return res.status(201).json({ success: true, data, source: 'supabase' });
+    }
+
     memDb.timesheets.push(entry);
     res.status(201).json({ success: true, data: entry, source: 'memory' });
   } catch (err) {
@@ -2962,11 +4738,39 @@ app.post('/api/timesheets', requireAuth, async (req, res) => {
 // Employee: View current bank details (masked)
 app.get('/api/bank-details/me', requireAuth, async (req, res) => {
   try {
+    if (supabase) {
+      const { data: bank, error } = await supabase
+        .from('bank_details')
+        .select('*')
+        .eq('organization_id', req.user.organizationId)
+        .eq('user_id', req.user.id)
+        .maybeSingle();
+      if (error) {
+        console.error('[Bank Details Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
+      }
+      if (!bank) return res.json({ success: true, data: null, source: 'supabase' });
+
+      const safeBank = {
+        id: bank.id,
+        accountHolderName: bank.account_holder_name,
+        bankName: bank.bank_name,
+        accountNumberMasked: bank.account_number_masked,
+        maskedAccountNumber: bank.account_number_masked,
+        ifscCode: bank.ifsc_code,
+        accountType: bank.account_type,
+        status: bank.status,
+        rejectionReason: bank.rejection_reason,
+        reviewedAt: bank.reviewed_at,
+        updatedAt: bank.updated_at
+      };
+      return res.json({ success: true, data: safeBank, source: 'supabase' });
+    }
+
     const bank = mem.getBankDetailsForUser(req.user.organizationId, req.user.id);
     if (!bank) {
-      return res.json({ success: true, data: null });
+      return res.json({ success: true, data: null, source: 'memory' });
     }
-    // Strict data masking: never leak full account number or internal hash
     const safeBank = {
       id: bank.id,
       accountHolderName: bank.account_holder_name,
@@ -2980,7 +4784,7 @@ app.get('/api/bank-details/me', requireAuth, async (req, res) => {
       reviewedAt: bank.reviewed_at,
       updatedAt: bank.updated_at
     };
-    res.json({ success: true, data: safeBank });
+    res.json({ success: true, data: safeBank, source: 'memory' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch bank details.' });
   }
@@ -3011,7 +4815,6 @@ app.post('/api/bank-details', requireAuth, async (req, res) => {
     }
 
     const cleanIfsc = (ifscCode || '').trim().toUpperCase();
-    // Indian standard IFSC validation (4 letters, 0, 6 letters/digits)
     const ifscRegex = /^[A-Z]{4}0[A-Z0-9]{6}$/;
     if (!ifscRegex.test(cleanIfsc)) {
       return res.status(400).json({
@@ -3022,16 +4825,88 @@ app.post('/api/bank-details', requireAuth, async (req, res) => {
 
     const masked = 'XXXXXX' + cleanAcc.slice(-4);
     const hash = crypto.createHash('sha256').update(cleanAcc).digest('hex');
+    const now = new Date().toISOString();
+
+    if (supabase) {
+      const { data: existingBank } = await supabase
+        .from('bank_details')
+        .select('id')
+        .eq('organization_id', req.user.organizationId)
+        .eq('user_id', req.user.id)
+        .maybeSingle();
+
+      let dbRecord;
+      if (existingBank) {
+        const { data: updated, error: updateErr } = await supabase
+          .from('bank_details')
+          .update({
+            account_holder_name: accountHolderName.trim(),
+            bank_name: bankName.trim(),
+            account_number_masked: masked,
+            account_number_hash: hash,
+            ifsc_code: cleanIfsc,
+            account_type: accountType,
+            status: 'Pending Review',
+            rejection_reason: null,
+            reviewed_by: null,
+            reviewed_at: null,
+            updated_at: now
+          })
+          .eq('id', existingBank.id)
+          .select()
+          .single();
+        if (updateErr) return res.status(500).json({ success: false, error: 'Database update failed: ' + updateErr.message });
+        dbRecord = updated;
+      } else {
+        const { data: inserted, error: insertErr } = await supabase
+          .from('bank_details')
+          .insert({
+            id: generateUUID(),
+            organization_id: req.user.organizationId,
+            user_id: req.user.id,
+            account_holder_name: accountHolderName.trim(),
+            bank_name: bankName.trim(),
+            account_number_masked: masked,
+            account_number_hash: hash,
+            ifsc_code: cleanIfsc,
+            account_type: accountType,
+            status: 'Pending Review',
+            rejection_reason: null,
+            reviewed_by: null,
+            reviewed_at: null,
+            created_at: now,
+            updated_at: now
+          })
+          .select()
+          .single();
+        if (insertErr) return res.status(500).json({ success: false, error: 'Database insert failed: ' + insertErr.message });
+        dbRecord = inserted;
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: 'Bank details submitted successfully. Verification status is Pending Review by company management.',
+        data: {
+          id: dbRecord.id,
+          accountHolderName: dbRecord.account_holder_name,
+          bankName: dbRecord.bank_name,
+          accountNumberMasked: dbRecord.account_number_masked,
+          maskedAccountNumber: dbRecord.account_number_masked,
+          ifscCode: dbRecord.ifsc_code,
+          accountType: dbRecord.account_type,
+          status: dbRecord.status,
+          updatedAt: dbRecord.updated_at
+        },
+        source: 'supabase'
+      });
+    }
 
     const existingIdx = memDb.bankDetails.findIndex(
       b => b.organization_id === req.user.organizationId && b.user_id === req.user.id
     );
 
-    const now = new Date().toISOString();
     let record;
-
     if (existingIdx !== -1) {
-      // Re-submission resets verification status to 'Pending Review'
       record = memDb.bankDetails[existingIdx];
       record.account_holder_name = accountHolderName.trim();
       record.bank_name = bankName.trim();
@@ -3046,7 +4921,7 @@ app.post('/api/bank-details', requireAuth, async (req, res) => {
       record.updated_at = now;
     } else {
       record = {
-        id: `bank-${Date.now()}`,
+        id: generateUUID(),
         organization_id: req.user.organizationId,
         user_id: req.user.id,
         account_holder_name: accountHolderName.trim(),
@@ -3078,7 +4953,8 @@ app.post('/api/bank-details', requireAuth, async (req, res) => {
         accountType: record.account_type,
         status: record.status,
         updatedAt: record.updated_at
-      }
+      },
+      source: 'memory'
     });
   } catch (err) {
     console.error('[Bank Details Submission] Error:', err);
@@ -3086,9 +4962,48 @@ app.post('/api/bank-details', requireAuth, async (req, res) => {
   }
 });
 
-// Management: List submitted bank details for org (Admin/Founder only, TL forbidden)
+// Management: List submitted bank details for org
 app.get('/api/admin/bank-details', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
   try {
+    if (supabase) {
+      const { data: banks, error: bErr } = await supabase
+        .from('bank_details')
+        .select('*')
+        .eq('organization_id', req.user.organizationId)
+        .order('created_at', { ascending: false });
+      if (bErr) return res.status(500).json({ success: false, error: 'Database query failed: ' + bErr.message });
+
+      const { data: users } = await supabase
+        .from('users')
+        .select('id, name, employee_id_number, department')
+        .eq('organization_id', req.user.organizationId);
+
+      const userMap = new Map((users || []).map(u => [u.id, u]));
+
+      const list = (banks || []).map(b => {
+        const u = userMap.get(b.user_id);
+        return {
+          id: b.id,
+          userId: b.user_id,
+          employeeName: u?.name || 'Unknown',
+          employeeId: u?.employee_id_number || 'N/A',
+          department: u?.department || 'Operations',
+          accountHolderName: b.account_holder_name,
+          bankName: b.bank_name,
+          accountNumberMasked: b.account_number_masked,
+          ifscCode: b.ifsc_code,
+          accountType: b.account_type,
+          status: b.status,
+          rejectionReason: b.rejection_reason,
+          reviewedBy: b.reviewed_by,
+          reviewedAt: b.reviewed_at,
+          createdAt: b.created_at,
+          updatedAt: b.updated_at
+        };
+      });
+      return res.json({ success: true, data: list, source: 'supabase' });
+    }
+
     const list = mem.getBankDetailsForOrg(req.user.organizationId).map(b => {
       const u = mem.findUserById(b.user_id);
       return {
@@ -3110,13 +5025,13 @@ app.get('/api/admin/bank-details', requireAuth, requireRole(['founder', 'admin']
         updatedAt: b.updated_at
       };
     });
-    res.json({ success: true, data: list });
+    res.json({ success: true, data: list, source: 'memory' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch bank details.' });
   }
 });
 
-// Management: Verify or Reject bank details (Admin/Founder only)
+// Management: Verify or Reject bank details
 app.patch('/api/admin/bank-details/:id/verify', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
   try {
     const rawStatus = req.body.status || req.body.verificationStatus;
@@ -3130,17 +5045,50 @@ app.patch('/api/admin/bank-details/:id/verify', requireAuth, requireRole(['found
       return res.status(400).json({ success: false, error: 'Rejection reason is required when rejecting bank details.' });
     }
 
+    const targetStatus = normalizedStatus === 'Verified' ? 'verified' : 'rejected';
+    const nowIso = new Date().toISOString();
+
+    if (supabase) {
+      const { data: updated, error } = await supabase
+        .from('bank_details')
+        .update({
+          status: targetStatus,
+          rejection_reason: note ? note.trim() : null,
+          reviewed_by: req.user.id,
+          reviewed_at: nowIso,
+          updated_at: nowIso
+        })
+        .eq('id', req.params.id)
+        .eq('organization_id', req.user.organizationId)
+        .select()
+        .maybeSingle();
+      if (error) return res.status(500).json({ success: false, error: 'Database update failed: ' + error.message });
+      if (!updated) return res.status(404).json({ success: false, error: 'Bank record not found.' });
+
+      return res.json({
+        success: true,
+        message: `Bank details marked as ${updated.status}.`,
+        data: {
+          ...updated,
+          status: updated.status,
+          maskedAccountNumber: updated.account_number_masked,
+          accountNumberMasked: updated.account_number_masked
+        },
+        source: 'supabase'
+      });
+    }
+
     const idx = memDb.bankDetails.findIndex(b => b.id === req.params.id && b.organization_id === req.user.organizationId);
     if (idx === -1) {
       return res.status(404).json({ success: false, error: 'Bank record not found.' });
     }
 
     const record = memDb.bankDetails[idx];
-    record.status = normalizedStatus === 'Verified' ? 'verified' : 'rejected';
+    record.status = targetStatus;
     record.rejection_reason = note ? note.trim() : null;
     record.reviewed_by = req.user.id;
-    record.reviewed_at = new Date().toISOString();
-    record.updated_at = new Date().toISOString();
+    record.reviewed_at = nowIso;
+    record.updated_at = nowIso;
 
     res.json({
       success: true,
@@ -3150,7 +5098,8 @@ app.patch('/api/admin/bank-details/:id/verify', requireAuth, requireRole(['found
         status: record.status,
         maskedAccountNumber: record.account_number_masked,
         accountNumberMasked: record.account_number_masked
-      }
+      },
+      source: 'memory'
     });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to review bank details.' });
@@ -3164,8 +5113,21 @@ app.patch('/api/admin/bank-details/:id/verify', requireAuth, requireRole(['found
 // Employee: View my submitted profile update requests
 app.get('/api/profile/update-requests/me', requireAuth, async (req, res) => {
   try {
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('profile_update_requests')
+        .select('*')
+        .eq('organization_id', req.user.organizationId)
+        .eq('user_id', req.user.id)
+        .order('created_at', { ascending: false });
+      if (error) {
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
+      }
+      return res.json({ success: true, data: data || [], source: 'supabase' });
+    }
+
     const list = mem.getProfileUpdatesForUser(req.user.organizationId, req.user.id);
-    res.json({ success: true, data: list });
+    res.json({ success: true, data: list, source: 'memory' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch update requests.' });
   }
@@ -3200,10 +5162,9 @@ app.post('/api/profile/update-request', requireAuth, async (req, res) => {
     }
 
     const reqRecord = {
-      id: `pur-${Date.now()}`,
+      id: generateUUID(),
       organization_id: req.user.organizationId,
       user_id: req.user.id,
-      user_name: req.user.name,
       field_name: fieldName,
       new_value: newValue.trim(),
       current_value: currentValue || null,
@@ -3215,12 +5176,27 @@ app.post('/api/profile/update-request', requireAuth, async (req, res) => {
       updated_at: new Date().toISOString()
     };
 
-    memDb.profileUpdateRequests.push(reqRecord);
+    if (supabase) {
+      const { data, error } = await supabase.from('profile_update_requests').insert(reqRecord).select().single();
+      if (error) {
+        console.error('[Profile Update Request Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database insert failed: ' + error.message });
+      }
+      return res.status(201).json({
+        success: true,
+        message: `Profile update request for ${fieldName} submitted for HR review.`,
+        data: { ...data, user_name: req.user.name },
+        source: 'supabase'
+      });
+    }
+
+    memDb.profileUpdateRequests.push({ ...reqRecord, user_name: req.user.name });
 
     res.status(201).json({
       success: true,
       message: `Profile update request for ${fieldName} submitted for HR review.`,
-      data: reqRecord
+      data: { ...reqRecord, user_name: req.user.name },
+      source: 'memory'
     });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to submit profile update request.' });
@@ -3230,8 +5206,29 @@ app.post('/api/profile/update-request', requireAuth, async (req, res) => {
 // Management: List pending profile updates for org (Founder/Admin only)
 app.get('/api/admin/profile-update-requests', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
   try {
+    if (supabase) {
+      const { data: requests, error: rErr } = await supabase
+        .from('profile_update_requests')
+        .select('*')
+        .eq('organization_id', req.user.organizationId)
+        .order('created_at', { ascending: false });
+      if (rErr) return res.status(500).json({ success: false, error: 'Database query failed: ' + rErr.message });
+
+      const { data: users } = await supabase
+        .from('users')
+        .select('id, name')
+        .eq('organization_id', req.user.organizationId);
+
+      const userMap = new Map((users || []).map(u => [u.id, u.name]));
+      const list = (requests || []).map(r => ({
+        ...r,
+        userName: userMap.get(r.user_id) || 'Staff Member'
+      }));
+      return res.json({ success: true, data: list, source: 'supabase' });
+    }
+
     const list = mem.getProfileUpdatesForOrg(req.user.organizationId);
-    res.json({ success: true, data: list });
+    res.json({ success: true, data: list, source: 'memory' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch profile update requests.' });
   }
@@ -3247,6 +5244,47 @@ app.patch('/api/admin/profile-update-requests/:id', requireAuth, requireRole(['f
       return res.status(400).json({ success: false, error: 'Status must be Approved or Rejected.' });
     }
 
+    const nowIso = new Date().toISOString();
+    const rejReason = normalizedStatus === 'Rejected' ? (rejectionReason || 'Declined by Administrator') : null;
+
+    if (supabase) {
+      const { data: updatedReq, error: uErr } = await supabase
+        .from('profile_update_requests')
+        .update({
+          status: normalizedStatus,
+          rejection_reason: rejReason,
+          reviewed_by: req.user.id,
+          reviewed_at: nowIso,
+          updated_at: nowIso
+        })
+        .eq('id', req.params.id)
+        .eq('organization_id', req.user.organizationId)
+        .select()
+        .maybeSingle();
+
+      if (uErr) return res.status(500).json({ success: false, error: 'Database update failed: ' + uErr.message });
+      if (!updatedReq) return res.status(404).json({ success: false, error: 'Update request not found.' });
+
+      if (normalizedStatus === 'Approved') {
+        const userUpdates = { updated_at: nowIso };
+        if (updatedReq.field_name === 'phone') userUpdates.phone = updatedReq.new_value;
+        if (updatedReq.field_name === 'address') userUpdates.address = updatedReq.new_value;
+
+        await supabase
+          .from('users')
+          .update(userUpdates)
+          .eq('id', updatedReq.user_id)
+          .eq('organization_id', req.user.organizationId);
+      }
+
+      return res.json({
+        success: true,
+        message: `Profile update request ${normalizedStatus}.`,
+        data: updatedReq,
+        source: 'supabase'
+      });
+    }
+
     const idx = memDb.profileUpdateRequests.findIndex(p => p.id === req.params.id && p.organization_id === req.user.organizationId);
     if (idx === -1) {
       return res.status(404).json({ success: false, error: 'Update request not found.' });
@@ -3254,12 +5292,11 @@ app.patch('/api/admin/profile-update-requests/:id', requireAuth, requireRole(['f
 
     const request = memDb.profileUpdateRequests[idx];
     request.status = normalizedStatus;
-    request.rejection_reason = normalizedStatus === 'Rejected' ? (rejectionReason || 'Declined by Administrator') : null;
+    request.rejection_reason = rejReason;
     request.reviewed_by = req.user.id;
-    request.reviewed_at = new Date().toISOString();
-    request.updated_at = new Date().toISOString();
+    request.reviewed_at = nowIso;
+    request.updated_at = nowIso;
 
-    // If approved, commit change to employee user profile
     if (normalizedStatus === 'Approved') {
       const userIdx = memDb.users.findIndex(u => u.id === request.user_id && u.organization_id === req.user.organizationId);
       if (userIdx !== -1) {
@@ -3268,14 +5305,15 @@ app.patch('/api/admin/profile-update-requests/:id', requireAuth, requireRole(['f
         } else if (request.field_name === 'address') {
           memDb.users[userIdx].address = request.new_value;
         }
-        memDb.users[userIdx].updated_at = new Date().toISOString();
+        memDb.users[userIdx].updated_at = nowIso;
       }
     }
 
     res.json({
       success: true,
       message: `Profile update request ${normalizedStatus}.`,
-      data: request
+      data: request,
+      source: 'memory'
     });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to review update request.' });
@@ -3289,12 +5327,41 @@ app.post('/api/profile/photo', requireAuth, async (req, res) => {
     if (!photoUrl) {
       return res.status(400).json({ success: false, error: 'photoUrl is required.' });
     }
+
+    let finalPhotoUrl = photoUrl;
+    // Check if this is a base64 photo that should be uploaded to private storage
+    if (isBase64DataUri(photoUrl)) {
+      const uploadRes = await uploadPrivateFile(
+        BUCKETS.AVATARS,
+        photoUrl,
+        `avatar-${req.user.id}-${Date.now()}.jpg`,
+        req.user.organizationId
+      );
+      if (uploadRes.success) {
+        finalPhotoUrl = uploadRes.signedUrl || uploadRes.filePath;
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+
+    if (supabase) {
+      const { error } = await supabase
+        .from('users')
+        .update({ profile_photo_url: finalPhotoUrl, updated_at: nowIso })
+        .eq('id', req.user.id)
+        .eq('organization_id', req.user.organizationId);
+      if (error) {
+        return res.status(500).json({ success: false, error: 'Database update failed: ' + error.message });
+      }
+      return res.json({ success: true, message: 'Profile photo updated.', photoUrl: finalPhotoUrl, source: 'supabase' });
+    }
+
     const idx = memDb.users.findIndex(u => u.id === req.user.id);
     if (idx !== -1) {
-      memDb.users[idx].profile_photo_url = photoUrl;
-      memDb.users[idx].updated_at = new Date().toISOString();
+      memDb.users[idx].profile_photo_url = finalPhotoUrl;
+      memDb.users[idx].updated_at = nowIso;
     }
-    res.json({ success: true, message: 'Profile photo updated.', photoUrl });
+    res.json({ success: true, message: 'Profile photo updated.', photoUrl: finalPhotoUrl, source: 'memory' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to update profile photo.' });
   }
@@ -3316,6 +5383,42 @@ const VALID_ADVANCE_REASONS = [
 // Employee: View my advance requests
 app.get('/api/advances/me', requireAuth, async (req, res) => {
   try {
+    if (supabase) {
+      const { data: advances, error } = await supabase
+        .from('salary_advance_requests')
+        .select('*')
+        .eq('organization_id', req.user.organizationId)
+        .eq('user_id', req.user.id)
+        .order('created_at', { ascending: false });
+      if (error) return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
+
+      const { data: user } = await supabase
+        .from('users')
+        .select('monthly_salary')
+        .eq('id', req.user.id)
+        .maybeSingle();
+
+      const formatted = (advances || []).map(a => ({
+        ...a,
+        amount: a.requested_amount,
+        requestedAmount: a.requested_amount,
+        approvedAmount: a.approved_amount,
+        paidAmount: a.amount_paid,
+        transactionRef: a.transaction_reference,
+        transactionReference: a.transaction_reference,
+        reasonCategory: a.reason_category,
+        reasonDescription: a.reason_description,
+        tenure: a.tenure || `${a.repayment_months} Month${a.repayment_months > 1 ? 's' : ''}`
+      }));
+
+      return res.json({
+        success: true,
+        data: formatted,
+        monthlySalary: user?.monthly_salary || null,
+        source: 'supabase'
+      });
+    }
+
     const user = mem.findUserById(req.user.id);
     const advances = mem.getAdvancesForUser(req.user.organizationId, req.user.id).map(a => ({
       ...a,
@@ -3332,7 +5435,8 @@ app.get('/api/advances/me', requireAuth, async (req, res) => {
     res.json({
       success: true,
       data: advances,
-      monthlySalary: user?.monthly_salary || null
+      monthlySalary: user?.monthly_salary || null,
+      source: 'memory'
     });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch advance requests.' });
@@ -3383,17 +5487,15 @@ app.post('/api/advances', requireAuth, async (req, res) => {
 
     const now = new Date().toISOString();
     const newAdvance = {
-      id: `adv-${Date.now()}`,
+      id: generateUUID(),
       organization_id: req.user.organizationId,
       user_id: req.user.id,
-      user_name: req.user.name,
       requested_amount: numAmount,
-      amount: numAmount,
       repayment_months: months,
       tenure: `${months} Month${months > 1 ? 's' : ''}`,
       reason_category: reasonCategory,
       reason_description: reasonDescription ? reasonDescription.trim() : null,
-      status: 'Pending Approval', // 'Pending Approval', 'Approved', 'Rejected', 'Payment Pending', 'Partially Paid', 'Paid', 'Settled'
+      status: 'Pending Approval',
       approved_amount: null,
       approval_remarks: null,
       reviewed_by: null,
@@ -3409,7 +5511,26 @@ app.post('/api/advances', requireAuth, async (req, res) => {
       updated_at: now
     };
 
-    memDb.salaryAdvances.push(newAdvance);
+    if (supabase) {
+      const { data, error } = await supabase.from('salary_advance_requests').insert(newAdvance).select().single();
+      if (error) {
+        console.error('[Create Advance Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database insert failed: ' + error.message });
+      }
+      return res.status(200).json({
+        success: true,
+        message: 'Salary advance request submitted successfully for management approval.',
+        data: {
+          ...data,
+          amount: data.requested_amount,
+          requestedAmount: data.requested_amount,
+          user_name: req.user.name
+        },
+        source: 'supabase'
+      });
+    }
+
+    memDb.salaryAdvances.push({ ...newAdvance, user_name: req.user.name, amount: numAmount });
 
     res.status(200).json({
       success: true,
@@ -3417,8 +5538,10 @@ app.post('/api/advances', requireAuth, async (req, res) => {
       data: {
         ...newAdvance,
         amount: newAdvance.requested_amount,
-        requestedAmount: newAdvance.requested_amount
-      }
+        requestedAmount: newAdvance.requested_amount,
+        user_name: req.user.name
+      },
+      source: 'memory'
     });
   } catch (err) {
     console.error('[Advance Submission] Error:', err);
@@ -3426,9 +5549,41 @@ app.post('/api/advances', requireAuth, async (req, res) => {
   }
 });
 
-// Management: List all advance requests for org (Founder/Admin only, TL forbidden)
+// Management: List all advance requests for org
 app.get('/api/admin/advances', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
   try {
+    if (supabase) {
+      const { data: advances, error: aErr } = await supabase
+        .from('salary_advance_requests')
+        .select('*')
+        .eq('organization_id', req.user.organizationId)
+        .order('created_at', { ascending: false });
+      if (aErr) return res.status(500).json({ success: false, error: 'Database query failed: ' + aErr.message });
+
+      const { data: users } = await supabase
+        .from('users')
+        .select('id, name, employee_id_number, department')
+        .eq('organization_id', req.user.organizationId);
+
+      const userMap = new Map((users || []).map(u => [u.id, u]));
+
+      const formatted = (advances || []).map(a => {
+        const u = userMap.get(a.user_id);
+        return {
+          ...a,
+          amount: a.requested_amount,
+          requestedAmount: a.requested_amount,
+          approvedAmount: a.approved_amount,
+          paidAmount: a.amount_paid,
+          employeeName: u?.name || 'Staff Member',
+          employeeId: u?.employee_id_number || 'N/A',
+          department: u?.department || 'Operations'
+        };
+      });
+
+      return res.json({ success: true, data: formatted, source: 'supabase' });
+    }
+
     const advances = mem.getAdvancesForOrg(req.user.organizationId).map(a => {
       const u = mem.findUserById(a.user_id);
       return {
@@ -3438,13 +5593,13 @@ app.get('/api/admin/advances', requireAuth, requireRole(['founder', 'admin']), a
         department: u?.department || 'Operations'
       };
     });
-    res.json({ success: true, data: advances });
+    res.json({ success: true, data: advances, source: 'memory' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch advances.' });
   }
 });
 
-// Management: Approve or reject advance request (Founder/Admin only)
+// Management: Approve or reject advance request
 app.patch('/api/admin/advances/:id/approve', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
   try {
     const { approvedAmount, remarks } = req.body;
@@ -3453,13 +5608,69 @@ app.patch('/api/admin/advances/:id/approve', requireAuth, requireRole(['founder'
       return res.status(400).json({ success: false, error: 'Action must be approve or reject.' });
     }
 
+    const now = new Date().toISOString();
+
+    if (supabase) {
+      const { data: advance, error: fErr } = await supabase
+        .from('salary_advance_requests')
+        .select('*')
+        .eq('id', req.params.id)
+        .eq('organization_id', req.user.organizationId)
+        .maybeSingle();
+      if (fErr) return res.status(500).json({ success: false, error: 'Database query failed: ' + fErr.message });
+      if (!advance) return res.status(404).json({ success: false, error: 'Advance request not found.' });
+
+      let updates = {};
+      if (action === 'approve') {
+        const finalAmount = approvedAmount ? Number(approvedAmount) : advance.requested_amount;
+        if (isNaN(finalAmount) || finalAmount <= 0) {
+          return res.status(400).json({ success: false, error: 'Invalid approved amount.' });
+        }
+        updates = {
+          status: 'Approved',
+          approved_amount: finalAmount,
+          approval_remarks: remarks || 'Approved by Company Management. Payment pending disbursement.',
+          reviewed_by: req.user.id,
+          reviewed_at: now,
+          updated_at: now
+        };
+      } else {
+        updates = {
+          status: 'Rejected',
+          approval_remarks: remarks || 'Declined by Company Management',
+          reviewed_by: req.user.id,
+          reviewed_at: now,
+          updated_at: now
+        };
+      }
+
+      const { data: updated, error: uErr } = await supabase
+        .from('salary_advance_requests')
+        .update(updates)
+        .eq('id', advance.id)
+        .select()
+        .single();
+      if (uErr) return res.status(500).json({ success: false, error: 'Database update failed: ' + uErr.message });
+
+      return res.json({
+        success: true,
+        message: `Salary advance request ${updated.status}.`,
+        data: {
+          ...updated,
+          status: updated.status,
+          approvedAmount: updated.approved_amount,
+          amount: updated.requested_amount
+        },
+        source: 'supabase'
+      });
+    }
+
     const idx = memDb.salaryAdvances.findIndex(a => a.id === req.params.id && a.organization_id === req.user.organizationId);
     if (idx === -1) {
       return res.status(404).json({ success: false, error: 'Advance request not found.' });
     }
 
     const advance = memDb.salaryAdvances[idx];
-    const now = new Date().toISOString();
 
     if (action === 'approve') {
       const finalAmount = approvedAmount ? Number(approvedAmount) : advance.requested_amount;
@@ -3489,16 +5700,82 @@ app.patch('/api/admin/advances/:id/approve', requireAuth, requireRole(['founder'
         status: advance.status,
         approvedAmount: advance.approved_amount,
         amount: advance.requested_amount
-      }
+      },
+      source: 'memory'
     });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to review advance request.' });
   }
 });
 
-// Management: Record actual payment disbursement with UTR/reference proof (Founder/Admin only)
+// Management: Record actual payment disbursement
 app.post('/api/admin/advances/:id/payment', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
   try {
+    const { paymentMethod = 'Bank Transfer', paymentProofUrl, remarks } = req.body;
+    const transactionReference = req.body.transactionReference || req.body.transactionRef || req.body.utr;
+
+    if (!transactionReference || !transactionReference.trim()) {
+      return res.status(400).json({ success: false, error: 'Transaction reference or UTR number is required for audit verification.' });
+    }
+
+    const now = new Date().toISOString();
+
+    if (supabase) {
+      const { data: advance, error: fErr } = await supabase
+        .from('salary_advance_requests')
+        .select('*')
+        .eq('id', req.params.id)
+        .eq('organization_id', req.user.organizationId)
+        .maybeSingle();
+      if (fErr) return res.status(500).json({ success: false, error: 'Database query failed: ' + fErr.message });
+      if (!advance) return res.status(404).json({ success: false, error: 'Advance request not found.' });
+
+      if (advance.status === 'Rejected') {
+        return res.status(400).json({ success: false, error: 'Cannot disburse payment for a rejected advance request.' });
+      }
+
+      const rawPaid = req.body.amountPaid !== undefined ? req.body.amountPaid : (req.body.amount !== undefined ? req.body.amount : (advance.approved_amount || advance.requested_amount));
+      const numPaid = Number(rawPaid);
+      if (!numPaid || isNaN(numPaid) || numPaid <= 0) {
+        return res.status(400).json({ success: false, error: 'Please enter a valid disbursement payment amount.' });
+      }
+
+      const approvedTarget = advance.approved_amount || advance.requested_amount;
+      const previousPaid = advance.amount_paid || 0;
+      const newTotalPaid = previousPaid + numPaid;
+      const newStatus = newTotalPaid >= approvedTarget ? 'Paid' : 'Partially Paid';
+
+      const { data: updated, error: uErr } = await supabase
+        .from('salary_advance_requests')
+        .update({
+          amount_paid: newTotalPaid,
+          payment_method: paymentMethod,
+          transaction_reference: transactionReference.trim(),
+          payment_proof_url: paymentProofUrl || null,
+          payment_remarks: remarks || 'Disbursed via bank transfer',
+          payment_recorded_by: req.user.id,
+          payment_recorded_at: now,
+          status: newStatus,
+          updated_at: now
+        })
+        .eq('id', advance.id)
+        .select()
+        .single();
+      if (uErr) return res.status(500).json({ success: false, error: 'Database update failed: ' + uErr.message });
+
+      return res.json({
+        success: true,
+        message: `Payment of ₹${numPaid.toLocaleString('en-IN')} recorded successfully. Status updated to ${updated.status}.`,
+        data: {
+          ...updated,
+          status: updated.status,
+          paidAmount: updated.amount_paid,
+          transactionRef: updated.transaction_reference
+        },
+        source: 'supabase'
+      });
+    }
+
     const idx = memDb.salaryAdvances.findIndex(a => a.id === req.params.id && a.organization_id === req.user.organizationId);
     if (idx === -1) {
       return res.status(404).json({ success: false, error: 'Advance request not found.' });
@@ -3509,19 +5786,12 @@ app.post('/api/admin/advances/:id/payment', requireAuth, requireRole(['founder',
       return res.status(400).json({ success: false, error: 'Cannot disburse payment for a rejected advance request.' });
     }
 
-    const { paymentMethod = 'Bank Transfer', paymentProofUrl, remarks } = req.body;
     const rawPaid = req.body.amountPaid !== undefined ? req.body.amountPaid : (req.body.amount !== undefined ? req.body.amount : (advance.approved_amount || advance.requested_amount));
-    const transactionReference = req.body.transactionReference || req.body.transactionRef || req.body.utr;
-
     const numPaid = Number(rawPaid);
     if (!numPaid || isNaN(numPaid) || numPaid <= 0) {
       return res.status(400).json({ success: false, error: 'Please enter a valid disbursement payment amount.' });
     }
-    if (!transactionReference || !transactionReference.trim()) {
-      return res.status(400).json({ success: false, error: 'Transaction reference or UTR number is required for audit verification.' });
-    }
 
-    const now = new Date().toISOString();
     const approvedTarget = advance.approved_amount || advance.requested_amount;
     const previousPaid = advance.amount_paid || 0;
     const newTotalPaid = previousPaid + numPaid;
@@ -3549,14 +5819,15 @@ app.post('/api/admin/advances/:id/payment', requireAuth, requireRole(['founder',
         status: advance.status,
         paidAmount: advance.amount_paid,
         transactionRef: advance.transaction_reference
-      }
+      },
+      source: 'memory'
     });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to record advance payment.' });
   }
 });
 
-// Management: Record monthly payroll deduction / repayment for a disbursed advance
+// Management: Record monthly payroll deduction / repayment
 app.post('/api/admin/advances/:id/repayment', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
   try {
     const { amountRepaid, payrollMonth, remarks } = req.body;
@@ -3565,6 +5836,58 @@ app.post('/api/admin/advances/:id/repayment', requireAuth, requireRole(['founder
     if (!num || isNaN(num) || num <= 0) {
       return res.status(400).json({ success: false, error: 'Please enter a valid repayment deduction amount.' });
     }
+
+    const now = new Date().toISOString();
+
+    if (supabase) {
+      const { data: advance, error: fErr } = await supabase
+        .from('salary_advance_requests')
+        .select('*')
+        .eq('id', req.params.id)
+        .eq('organization_id', req.user.organizationId)
+        .maybeSingle();
+      if (fErr) return res.status(500).json({ success: false, error: 'Database query failed: ' + fErr.message });
+      if (!advance) return res.status(404).json({ success: false, error: 'Advance request not found.' });
+
+      if (!advance.status.includes('Paid')) {
+        return res.status(400).json({ success: false, error: 'Repayment deductions can only be recorded for disbursed advances.' });
+      }
+
+      const previousRepaid = advance.amount_repaid || 0;
+      const newTotalRepaid = previousRepaid + num;
+      const repaymentsList = Array.isArray(advance.repayments) ? [...advance.repayments] : [];
+      repaymentsList.push({
+        id: generateUUID(),
+        amount: num,
+        month: payrollMonth || new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+        remarks: remarks || 'Authorized monthly payroll advance deduction',
+        recorded_by: req.user.id,
+        recorded_at: now
+      });
+
+      const newStatus = newTotalRepaid >= (advance.amount_paid || 0) ? 'Settled' : advance.status;
+
+      const { data: updated, error: uErr } = await supabase
+        .from('salary_advance_requests')
+        .update({
+          amount_repaid: newTotalRepaid,
+          repayments: repaymentsList,
+          status: newStatus,
+          updated_at: now
+        })
+        .eq('id', advance.id)
+        .select()
+        .single();
+      if (uErr) return res.status(500).json({ success: false, error: 'Database update failed: ' + uErr.message });
+
+      return res.json({
+        success: true,
+        message: `Repayment deduction of ₹${num.toLocaleString('en-IN')} recorded successfully. Status: ${updated.status}.`,
+        data: updated,
+        source: 'supabase'
+      });
+    }
+
     const idx = memDb.salaryAdvances.findIndex(a => a.id === req.params.id && a.organization_id === req.user.organizationId);
     if (idx === -1) {
       return res.status(404).json({ success: false, error: 'Advance request not found.' });
@@ -3578,24 +5901,63 @@ app.post('/api/admin/advances/:id/repayment', requireAuth, requireRole(['founder
     advance.amount_repaid = newTotalRepaid;
     advance.repayments = advance.repayments || [];
     advance.repayments.push({
-      id: `rep-${Date.now()}`,
+      id: generateUUID(),
       amount: num,
       month: payrollMonth || new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
       remarks: remarks || 'Authorized monthly payroll advance deduction',
       recorded_by: req.user.id,
-      recorded_at: new Date().toISOString()
+      recorded_at: now
     });
     if (newTotalRepaid >= (advance.amount_paid || 0)) {
       advance.status = 'Settled';
     }
-    advance.updated_at = new Date().toISOString();
+    advance.updated_at = now;
     res.json({
       success: true,
       message: `Repayment deduction of ₹${num.toLocaleString('en-IN')} recorded successfully. Status: ${advance.status}.`,
-      data: advance
+      data: advance,
+      source: 'memory'
     });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to record repayment.' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STORAGE SERVICES (Private File Management & Signed URLs)
+// ─────────────────────────────────────────────────────────────────────────────
+
+app.post('/api/storage/upload', requireAuth, async (req, res) => {
+  try {
+    const { bucket = BUCKETS.SELFIES, dataUri, filename } = req.body;
+    if (!dataUri) {
+      return res.status(400).json({ success: false, error: 'dataUri is required (base64 data URI format).' });
+    }
+    const safeFilename = filename || `${req.user.id}-${Date.now()}.jpg`;
+    const result = await uploadPrivateFile(bucket, dataUri, safeFilename, req.user.organizationId);
+    if (!result.success) {
+      return res.status(500).json({ success: false, error: result.error || 'Failed to upload file to storage.' });
+    }
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'File upload failed.' });
+  }
+});
+
+app.get('/api/storage/signed-url', requireAuth, async (req, res) => {
+  try {
+    const { bucket = BUCKETS.SELFIES, filePath, path, expiresIn = 3600 } = req.query;
+    const targetPath = filePath || path;
+    if (!targetPath) {
+      return res.status(400).json({ success: false, error: 'filePath query parameter is required.' });
+    }
+    const result = await getSignedDownloadUrl({ bucket, path: targetPath, expiresIn: parseInt(expiresIn, 10) });
+    if (!result.success) {
+      return res.status(500).json({ success: false, error: result.error || 'Failed to generate signed download URL.' });
+    }
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Signed URL generation failed.' });
   }
 });
 
@@ -3631,7 +5993,16 @@ let server = null;
 if (process.env.NODE_ENV !== 'test') {
   server = app.listen(PORT, () => {
     console.log(`\n[EMS Server v3] Multi-Organization API running on http://localhost:${PORT}`);
-    console.log(`[EMS Server v3] Database: ${supabase ? 'Supabase Connected' : 'In-Memory Fallback (no Supabase credentials)'}`);
+    if (supabase) {
+      console.log(`[EMS Server v3] Database: SUPABASE CONNECTED (Real PostgreSQL Persistence Active)`);
+    } else {
+      console.warn(`\n⚠️  ============================================================`);
+      console.warn(`⚠️  [BACKEND NOTICE] SUPABASE CLOUD PERSISTENCE NOT CONFIGURED`);
+      console.warn(`⚠️  Operating in volatile IN-MEMORY DEMO MODE (memDb).`);
+      console.warn(`⚠️  All data changes will be lost upon server termination.`);
+      console.warn(`⚠️  To activate real PostgreSQL: add credentials to server/.env`);
+      console.warn(`⚠️  ============================================================\n`);
+    }
     console.log(`[EMS Server v3] Organizations: ${memDb.organizations.length} | Users: ${memDb.users.length}`);
     console.log(`\n--- DEMO CREDENTIALS (in-memory mode) ---`);
     console.log(`Admin (Acme): admin@acmetech.com / admin123 [role: admin]`);

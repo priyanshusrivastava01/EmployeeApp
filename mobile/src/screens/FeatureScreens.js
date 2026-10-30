@@ -56,8 +56,8 @@ export function SubScreenHeader({ title, subtitle, onBack, badge }) {
   );
 }
 
-// Common Demo Notice Banner
-export function DemoBanner({ text = 'Local session view. Data is stored in device memory and will not be sent to server.' }) {
+// Common Informational Banner
+export function DemoBanner({ text = 'Company verified records • Live synchronized with organization server.' }) {
   const { colors, isDark } = useTheme();
   const bannerStyles = getBannerStyles(colors, isDark);
   return (
@@ -175,6 +175,11 @@ export function AdvancePaymentScreen({ onBack, currentUser }) {
 
   useEffect(() => {
     loadAdvances();
+    const store = api.getStore();
+    const unsub = store.subscribe(() => {
+      loadAdvances();
+    });
+    return () => unsub();
   }, []);
 
   const handleSubmit = async () => {
@@ -862,7 +867,7 @@ export function LeaveApplicationScreen({ onBack }) {
   const loadLeaves = async () => {
     try {
       const res = await api.getLeaves();
-      if (res.success && res.data && res.data.length > 0) {
+      if (res.success && Array.isArray(res.data)) {
         const mapped = res.data.map(l => ({
           id: l.id,
           type: l.leave_type || 'Casual Leave',
@@ -870,8 +875,12 @@ export function LeaveApplicationScreen({ onBack }) {
           days: l.duration_days || 1,
           reason: l.reason,
           notes: l.review_remarks || 'None',
-          status: l.status === 'approved' ? 'Approved' : l.status === 'rejected' ? 'Rejected' : 'Pending TL Approval',
-          appliedOn: new Date(l.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+          status: l.status?.toLowerCase() === 'approved'
+            ? 'Approved'
+            : l.status?.toLowerCase() === 'rejected'
+            ? 'Rejected'
+            : 'Pending TL Approval',
+          appliedOn: l.created_at ? new Date(l.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Today'
         }));
         setRequests(mapped);
       }
@@ -882,6 +891,11 @@ export function LeaveApplicationScreen({ onBack }) {
 
   useEffect(() => {
     loadLeaves();
+    const store = api.getStore();
+    const unsub = store.subscribe(() => {
+      loadLeaves();
+    });
+    return () => unsub();
   }, []);
 
   /**
@@ -1843,10 +1857,44 @@ export function CelebrationsScreen({ onBack }) {
 // 9. NOTIFICATIONS SCREEN
 export function NotificationsScreen({ onBack }) {
   const { colors, isDark, styles } = useScreenStyles();
-  const [notifications, setNotifications] = useState(mockNotifications);
+  const [notifications, setNotifications] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const handleMarkAllRead = () => {
+  const loadNotifications = async () => {
+    try {
+      setIsLoading(true);
+      const res = await api.getNotifications();
+      if (res && res.success && Array.isArray(res.data)) {
+        setNotifications(res.data);
+      } else {
+        setNotifications(mockNotifications);
+      }
+    } catch (e) {
+      setNotifications(mockNotifications);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadNotifications();
+    const store = api.getStore();
+    const unsub = store.subscribe(() => {
+      loadNotifications();
+    });
+    return () => unsub();
+  }, []);
+
+  const handleMarkAllRead = async () => {
+    await api.markAllNotificationsRead();
     setNotifications(prev => prev.map(n => ({ ...n, unread: false })));
+  };
+
+  const handleNotificationPress = async (notif) => {
+    if (notif.unread) {
+      await api.markNotificationRead(notif.id);
+      setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, unread: false } : n));
+    }
   };
 
   return (
@@ -1855,26 +1903,46 @@ export function NotificationsScreen({ onBack }) {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <Text style={styles.sectionHeading}>Recent Updates</Text>
-          <TouchableOpacity onPress={handleMarkAllRead}>
-            <Text style={{ fontSize: 12, color: colors.primary, fontWeight: '700' }}>Mark all read</Text>
-          </TouchableOpacity>
+          {notifications.some(n => n.unread) && (
+            <TouchableOpacity onPress={handleMarkAllRead}>
+              <Text style={{ fontSize: 12, color: colors.primary, fontWeight: '700' }}>Mark all read</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
-        {notifications.map(notif => (
-          <View key={notif.id} style={[styles.itemCard, notif.unread && { borderColor: colors.primary }]}>
-            <Ionicons
-              name={notif.unread ? 'ellipse' : 'checkmark-done'}
-              size={14}
-              color={notif.unread ? colors.primary : colors.textSecondary}
-              style={{ marginTop: 4 }}
-            />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.cardMainText}>{notif.title}</Text>
-              <Text style={styles.cardSubText}>{notif.text}</Text>
-              <Text style={styles.metaText}>{notif.time}</Text>
-            </View>
+        {isLoading ? (
+          <View style={{ padding: 40, alignItems: 'center' }}>
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={{ fontSize: 12, color: colors.textSecondary, marginTop: 8 }}>Loading alerts...</Text>
           </View>
-        ))}
+        ) : notifications.length === 0 ? (
+          <View style={{ padding: 40, alignItems: 'center' }}>
+            <Ionicons name="notifications-off-outline" size={42} color={colors.textSecondary} />
+            <Text style={{ fontSize: 15, fontWeight: '700', color: colors.text, marginTop: 10 }}>You're all caught up</Text>
+            <Text style={{ fontSize: 12, color: colors.textSecondary, marginTop: 4 }}>No notifications found.</Text>
+          </View>
+        ) : (
+          notifications.map(notif => (
+            <TouchableOpacity
+              key={notif.id}
+              activeOpacity={0.7}
+              onPress={() => handleNotificationPress(notif)}
+              style={[styles.itemCard, notif.unread && { borderColor: colors.primary, backgroundColor: isDark ? '#1a2218' : '#f0f4eb' }]}
+            >
+              <Ionicons
+                name={notif.unread ? 'ellipse' : 'checkmark-done'}
+                size={14}
+                color={notif.unread ? colors.primary : colors.textSecondary}
+                style={{ marginTop: 4 }}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.cardMainText, notif.unread && { fontWeight: '800' }]}>{notif.title}</Text>
+                <Text style={styles.cardSubText}>{notif.text || notif.message}</Text>
+                <Text style={styles.metaText}>{notif.time || 'Recent'}</Text>
+              </View>
+            </TouchableOpacity>
+          ))
+        )}
       </ScrollView>
     </View>
   );

@@ -10,44 +10,61 @@
  * 7. Password Recovery & Single-Use Reset Codes
  */
 
-const http = require('http');
-
-const API_BASE = 'http://localhost:5000/api';
+process.env.NODE_ENV = 'test';
+const EventEmitter = require('events');
+const { app } = require('./src/index');
 
 function request(method, path, body = null, token = null) {
-  return new Promise((resolve, reject) => {
-    const url = new URL(API_BASE + path);
-    const options = {
-      hostname: url.hostname,
-      port: url.port,
-      path: url.pathname + url.search,
-      method,
-      headers: {
-        'Content-Type': 'application/json'
-      }
+  const url = path.startsWith('/api') ? path : `/api${path}`;
+  return new Promise((resolve) => {
+    const req = new EventEmitter();
+    req.method = method.toUpperCase();
+    req.url = url;
+    req.headers = {
+      'content-type': 'application/json',
+      accept: 'application/json'
     };
     if (token) {
-      options.headers['Authorization'] = `Bearer ${token}`;
+      req.headers['authorization'] = `Bearer ${token}`;
     }
+    req.body = body !== null ? body : {};
+    req.socket = { remoteAddress: '127.0.0.1' };
+    req.ip = '127.0.0.1';
+    req.connection = req.socket;
 
-    const req = http.request(options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(data);
-          resolve({ status: res.statusCode, body: parsed });
-        } catch (e) {
-          resolve({ status: res.statusCode, raw: data });
+    const res = {
+      statusCode: 200,
+      headers: {},
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(data) {
+        resolve({ status: this.statusCode, body: data });
+      },
+      send(data) {
+        let parsed = data;
+        if (typeof data === 'string') {
+          try {
+            parsed = JSON.parse(data);
+          } catch (e) {
+            parsed = data;
+          }
         }
-      });
-    });
+        resolve({ status: this.statusCode, body: parsed });
+      },
+      end(data) {
+        resolve({ status: this.statusCode, body: data });
+      },
+      setHeader(k, v) {
+        this.headers[k.toLowerCase()] = v;
+      },
+      getHeader(k) {
+        return this.headers[k.toLowerCase()];
+      }
+    };
 
-    req.on('error', reject);
-    if (body) {
-      req.write(JSON.stringify(body));
-    }
-    req.end();
+    app.handle(req, res);
   });
 }
 

@@ -95,6 +95,9 @@ export const darkTheme = {
   modalBackdrop: 'rgba(15, 17, 13, 0.85)'
 };
 
+// Re-export design tokens for unified access
+export * from './designTokens';
+
 // Default export for backward compatibility
 export const colors = lightTheme;
 

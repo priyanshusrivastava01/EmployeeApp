@@ -1,47 +1,67 @@
 /**
  * Verification test for Stage 1A: Health Check Endpoint
  */
-const http = require('http');
-const { server } = require('./src/index');
+process.env.NODE_ENV = 'test';
+const EventEmitter = require('events');
+const { app } = require('./src/index');
 
-const PORT = process.env.PORT || 5000;
+function simulate(method, url) {
+  return new Promise((resolve) => {
+    const req = new EventEmitter();
+    req.method = method.toUpperCase();
+    req.url = url;
+    req.headers = { 'content-type': 'application/json', accept: 'application/json' };
+    req.body = {};
+    req.socket = { remoteAddress: '127.0.0.1' };
+    req.ip = '127.0.0.1';
+    req.connection = req.socket;
 
-function runHealthCheck() {
-  console.log('[Test] Sending GET request to http://localhost:' + PORT + '/api/health ...');
-
-  http.get(`http://localhost:${PORT}/api/health`, (res) => {
-    let data = '';
-
-    res.on('data', (chunk) => {
-      data += chunk;
-    });
-
-    res.on('end', () => {
-      console.log(`[Test] HTTP Status Code: ${res.statusCode}`);
-      console.log(`[Test] Response Body: ${data}`);
-
-      try {
-        const json = JSON.parse(data);
-        if (res.statusCode === 200 && json.status === 'ok') {
-          console.log('[Test] PASSED: Health check returned status 200 and status: "ok"');
-          server.close(() => {
-            console.log('[Test] Server closed successfully.');
-            process.exit(0);
-          });
-        } else {
-          console.error('[Test] FAILED: Unexpected response format.');
-          server.close(() => process.exit(1));
+    const res = {
+      statusCode: 200,
+      headers: {},
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(data) {
+        resolve({ status: this.statusCode, body: data });
+      },
+      send(data) {
+        let parsed = data;
+        if (typeof data === 'string') {
+          try { parsed = JSON.parse(data); } catch (e) { parsed = data; }
         }
-      } catch (err) {
-        console.error('[Test] FAILED: Response was not valid JSON.', err);
-        server.close(() => process.exit(1));
-      }
-    });
-  }).on('error', (err) => {
-    console.error('[Test] FAILED: Could not connect to server:', err.message);
-    server.close(() => process.exit(1));
+        resolve({ status: this.statusCode, body: parsed });
+      },
+      end(data) {
+        resolve({ status: this.statusCode, body: data });
+      },
+      setHeader(k, v) { this.headers[k.toLowerCase()] = v; },
+      getHeader(k) { return this.headers[k.toLowerCase()]; }
+    };
+
+    app.handle(req, res);
   });
 }
 
-// Give server 500ms to bind, then run check
-setTimeout(runHealthCheck, 500);
+async function runHealthCheck() {
+  console.log('[Test] Sending GET request to /api/health ...');
+  try {
+    const res = await simulate('GET', '/api/health');
+    console.log(`[Test] HTTP Status Code: ${res.status}`);
+    console.log(`[Test] Response Body:`, JSON.stringify(res.body));
+
+    if (res.status === 200 && res.body.status === 'ok') {
+      console.log('[Test] PASSED: Health check returned status 200 and status: "ok"');
+      process.exit(0);
+    } else {
+      console.error('[Test] FAILED: Unexpected response format.');
+      process.exit(1);
+    }
+  } catch (err) {
+    console.error('[Test] FAILED:', err);
+    process.exit(1);
+  }
+}
+
+runHealthCheck();

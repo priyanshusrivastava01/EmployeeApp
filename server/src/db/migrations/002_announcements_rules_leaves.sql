@@ -88,36 +88,42 @@ ALTER TABLE leave_applications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE timesheet_entries ENABLE ROW LEVEL SECURITY;
 
 -- 7. ROW LEVEL SECURITY (RLS) POLICIES
--- Announcements: Anyone authenticated can read published announcements; only founders/admins write
+-- Announcements: Anyone authenticated can read published announcements; founders and admins manage
 DROP POLICY IF EXISTS "Anyone can read published announcements" ON announcements;
 CREATE POLICY "Anyone can read published announcements" ON announcements
     FOR SELECT USING (status = 'published');
 
 DROP POLICY IF EXISTS "Founders can manage announcements" ON announcements;
-CREATE POLICY "Founders can manage announcements" ON announcements
+DROP POLICY IF EXISTS "Founders and admins can manage announcements" ON announcements;
+CREATE POLICY "Founders and admins can manage announcements" ON announcements
     FOR ALL USING (
         EXISTS (
-            SELECT 1 FROM users WHERE users.id = auth.uid() AND users.role = 'founder'
+            SELECT 1 FROM users WHERE users.id = auth.uid() AND users.role IN ('founder', 'admin')
         )
     );
 
--- Company Rules: Anyone authenticated can read published rules; only founders/admins write
+-- Company Rules: Anyone authenticated can read published rules; founders and admins manage
 DROP POLICY IF EXISTS "Anyone can read published rules" ON company_rules;
 CREATE POLICY "Anyone can read published rules" ON company_rules
     FOR SELECT USING (status = 'published');
 
 DROP POLICY IF EXISTS "Founders can manage rules" ON company_rules;
-CREATE POLICY "Founders can manage rules" ON company_rules
+DROP POLICY IF EXISTS "Founders and admins can manage rules" ON company_rules;
+CREATE POLICY "Founders and admins can manage rules" ON company_rules
     FOR ALL USING (
         EXISTS (
-            SELECT 1 FROM users WHERE users.id = auth.uid() AND users.role = 'founder'
+            SELECT 1 FROM users WHERE users.id = auth.uid() AND users.role IN ('founder', 'admin')
         )
     );
 
--- Leave Applications: Employees see their own leaves; founders and team leaders can view/review
+-- Leave Applications: Employees see their own leaves; supervisors (founders, admins, team leaders) can view and review
 DROP POLICY IF EXISTS "Employees view own leaves" ON leave_applications;
 CREATE POLICY "Employees view own leaves" ON leave_applications
-    FOR SELECT USING (user_id = auth.uid());
+    FOR SELECT USING (
+        user_id = auth.uid() OR EXISTS (
+            SELECT 1 FROM users WHERE users.id = auth.uid() AND users.role IN ('founder', 'admin', 'team_leader')
+        )
+    );
 
 DROP POLICY IF EXISTS "Employees create own leaves" ON leave_applications;
 CREATE POLICY "Employees create own leaves" ON leave_applications
@@ -127,11 +133,19 @@ DROP POLICY IF EXISTS "Supervisors review leaves" ON leave_applications;
 CREATE POLICY "Supervisors review leaves" ON leave_applications
     FOR UPDATE USING (
         EXISTS (
-            SELECT 1 FROM users WHERE users.id = auth.uid() AND users.role IN ('founder', 'team_leader')
+            SELECT 1 FROM users WHERE users.id = auth.uid() AND users.role IN ('founder', 'admin', 'team_leader')
         )
     );
 
--- Timesheet: Employees view/create own entries; supervisors can view
+-- Timesheet: Employees view/create own entries; supervisors (founders, admins, team leaders) can view
 DROP POLICY IF EXISTS "Employees manage own timesheets" ON timesheet_entries;
 CREATE POLICY "Employees manage own timesheets" ON timesheet_entries
     FOR ALL USING (user_id = auth.uid());
+
+DROP POLICY IF EXISTS "Supervisors view timesheets" ON timesheet_entries;
+CREATE POLICY "Supervisors view timesheets" ON timesheet_entries
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1 FROM users WHERE users.id = auth.uid() AND users.role IN ('founder', 'admin', 'team_leader')
+        )
+    );

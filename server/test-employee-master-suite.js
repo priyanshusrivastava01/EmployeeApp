@@ -11,56 +11,77 @@
  * - Issue 8: Salary Advance Workflow, Reason Dropdown, Approval & Payment Recording
  */
 
-const http = require('http');
+process.env.NODE_ENV = 'test';
+const EventEmitter = require('events');
 const fs = require('fs');
 const path = require('path');
 const xlsx = require('xlsx');
+const { app } = require('./src/index');
 
-const BASE_URL = 'http://localhost:5000/api';
-
-// Helper for HTTP requests
+// Helper for in-process HTTP simulation
 function request(endpoint, options = {}) {
-  return new Promise((resolve, reject) => {
-    const url = new URL(BASE_URL + endpoint);
-    const headers = options.headers || {};
-    let body = options.body;
-
-    if (body && typeof body === 'object' && !(body instanceof Buffer)) {
-      body = JSON.stringify(body);
-      headers['Content-Type'] = 'application/json';
-    }
-
-    const req = http.request(
-      url,
-      {
-        method: options.method || 'GET',
-        headers
-      },
-      res => {
-        const chunks = [];
-        res.on('data', chunk => chunks.push(chunk));
-        res.on('end', () => {
-          const buffer = Buffer.concat(chunks);
-          const contentType = res.headers['content-type'] || '';
-          if (contentType.includes('application/json')) {
-            try {
-              const json = JSON.parse(buffer.toString('utf8'));
-              resolve({ status: res.statusCode, data: json, headers: res.headers });
-            } catch (e) {
-              resolve({ status: res.statusCode, raw: buffer.toString('utf8'), headers: res.headers });
-            }
-          } else {
-            resolve({ status: res.statusCode, buffer, headers: res.headers });
-          }
-        });
+  const url = endpoint.startsWith('/api') ? endpoint : `/api${endpoint}`;
+  return new Promise((resolve) => {
+    const req = new EventEmitter();
+    req.method = (options.method || 'GET').toUpperCase();
+    req.url = url;
+    const normalizedHeaders = {};
+    if (options.headers) {
+      for (const [k, v] of Object.entries(options.headers)) {
+        normalizedHeaders[k.toLowerCase()] = v;
       }
-    );
-
-    req.on('error', reject);
-    if (body) {
-      req.write(body);
     }
-    req.end();
+    req.headers = {
+      'content-type': 'application/json',
+      accept: 'application/json',
+      ...normalizedHeaders
+    };
+    req.body = options.body || {};
+    req.socket = { remoteAddress: '127.0.0.1' };
+    req.ip = '127.0.0.1';
+    req.connection = req.socket;
+
+    const res = {
+      statusCode: 200,
+      headers: {},
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(data) {
+        resolve({ status: this.statusCode, data, headers: this.headers });
+      },
+      send(data) {
+        let parsed = data;
+        let isJson = false;
+        if (typeof data === 'string') {
+          try {
+            parsed = JSON.parse(data);
+            isJson = true;
+          } catch (e) {
+            parsed = data;
+          }
+        }
+        resolve({
+          status: this.statusCode,
+          data: isJson || (typeof data === 'object' && !Buffer.isBuffer(data)) ? parsed : undefined,
+          raw: typeof data === 'string' ? data : undefined,
+          buffer: Buffer.isBuffer(data) ? data : Buffer.from(typeof data === 'string' ? data : JSON.stringify(data)),
+          headers: this.headers
+        });
+      },
+      end(data) {
+        resolve({ status: this.statusCode, data, buffer: data ? Buffer.from(data) : Buffer.alloc(0), headers: this.headers });
+      },
+      setHeader(k, v) {
+        this.headers[k.toLowerCase()] = v;
+      },
+      getHeader(k) {
+        return this.headers[k.toLowerCase()];
+      }
+    };
+
+    app.handle(req, res);
   });
 }
 

@@ -125,6 +125,36 @@ export default function AdminAuditsScreen({ onBack, user }) {
         </TouchableOpacity>
       </View>
 
+      {/* Executive Audits Pulse Banner */}
+      <View style={styles.pulseSummaryBanner}>
+        <View style={styles.pulseStatItem}>
+          <Ionicons name="ribbon" size={15} color={colors.primary} />
+          <Text style={styles.pulseStatText}>
+            <Text style={styles.pulseStatBold}>{audits.length}</Text> Audits
+          </Text>
+        </View>
+        <View style={styles.pulseDivider} />
+        <View style={styles.pulseStatItem}>
+          <Ionicons name="star" size={15} color="#15803d" />
+          <Text style={styles.pulseStatText}>
+            <Text style={[styles.pulseStatBold, { color: '#15803d' }]}>
+              {audits.length > 0
+                ? (audits.reduce((acc, a) => acc + Number(a.score || 0), 0) / audits.length).toFixed(1)
+                : '—'}
+            </Text> Avg Score
+          </Text>
+        </View>
+        <View style={styles.pulseDivider} />
+        <View style={styles.pulseStatItem}>
+          <Ionicons name="people" size={15} color="#b45309" />
+          <Text style={styles.pulseStatText}>
+            <Text style={[styles.pulseStatBold, { color: '#b45309' }]}>
+              {new Set(audits.map(a => a.employee_id || a.employeeId)).size}
+            </Text> Staff
+          </Text>
+        </View>
+      </View>
+
       {isLoading ? (
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
@@ -143,51 +173,66 @@ export default function AdminAuditsScreen({ onBack, user }) {
           data={audits}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
-          renderItem={({ item }) => (
-            <View style={styles.card}>
-              <View style={styles.cardHeader}>
-                <View style={styles.cardHeaderLeft}>
-                  <Text style={styles.employeeName}>{item.employee_name || 'Team Member'}</Text>
-                  <Text style={styles.categoryText}>{item.category || 'General Audit'}</Text>
+          renderItem={({ item }) => {
+            const rawName = item.employee_name || 'Team Member';
+            const initials = rawName
+              .split(' ')
+              .map(n => n[0])
+              .join('')
+              .toUpperCase()
+              .slice(0, 2);
+
+            return (
+              <View style={styles.card}>
+                <View style={styles.cardHeader}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                    <View style={styles.avatarWrap}>
+                      <Text style={styles.avatarText}>{initials}</Text>
+                    </View>
+                    <View style={styles.cardHeaderLeft}>
+                      <Text style={styles.employeeName}>{rawName}</Text>
+                      <Text style={styles.categoryText}>{item.category || 'General Audit'}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.scoreBadge}>
+                    <Text style={styles.scoreVal}>{Number(item.score).toFixed(1)}</Text>
+                    <Text style={styles.scoreMax}>/10</Text>
+                  </View>
                 </View>
-                <View style={styles.scoreBadge}>
-                  <Text style={styles.scoreVal}>{Number(item.score).toFixed(1)}</Text>
-                  <Text style={styles.scoreMax}>/10</Text>
+
+                <View style={styles.metaRow}>
+                  <Ionicons name="person-circle-outline" size={14} color={colors.textSecondary} />
+                  <Text style={styles.metaText}>
+                    Auditor: {item.auditor_name} ({item.auditor_role?.replace('_', ' ').toUpperCase()})
+                  </Text>
+                  <Text style={styles.dotSeparator}>&bull;</Text>
+                  <Ionicons name="calendar-outline" size={12} color={colors.textSecondary} />
+                  <Text style={styles.metaText}>{item.audit_date}</Text>
                 </View>
+
+                {item.strengths ? (
+                  <View style={styles.feedbackBlock}>
+                    <Text style={styles.feedbackLabel}>Key Strengths:</Text>
+                    <Text style={styles.feedbackVal}>{item.strengths}</Text>
+                  </View>
+                ) : null}
+
+                {item.improvements ? (
+                  <View style={styles.feedbackBlock}>
+                    <Text style={styles.feedbackLabel}>Areas for Improvement:</Text>
+                    <Text style={styles.feedbackVal}>{item.improvements}</Text>
+                  </View>
+                ) : null}
+
+                {item.action_items ? (
+                  <View style={styles.actionBlock}>
+                    <Ionicons name="checkbox-outline" size={14} color={colors.primary} />
+                    <Text style={styles.actionText}>{item.action_items}</Text>
+                  </View>
+                ) : null}
               </View>
-
-              <View style={styles.metaRow}>
-                <Ionicons name="person-circle-outline" size={14} color={colors.textSecondary} />
-                <Text style={styles.metaText}>
-                  Auditor: {item.auditor_name} ({item.auditor_role?.replace('_', ' ').toUpperCase()})
-                </Text>
-                <Text style={styles.dotSeparator}>&bull;</Text>
-                <Ionicons name="calendar-outline" size={12} color={colors.textSecondary} />
-                <Text style={styles.metaText}>{item.audit_date}</Text>
-              </View>
-
-              {item.strengths ? (
-                <View style={styles.feedbackBlock}>
-                  <Text style={styles.feedbackLabel}>Key Strengths:</Text>
-                  <Text style={styles.feedbackVal}>{item.strengths}</Text>
-                </View>
-              ) : null}
-
-              {item.improvements ? (
-                <View style={styles.feedbackBlock}>
-                  <Text style={styles.feedbackLabel}>Areas for Improvement:</Text>
-                  <Text style={styles.feedbackVal}>{item.improvements}</Text>
-                </View>
-              ) : null}
-
-              {item.action_items ? (
-                <View style={styles.actionBlock}>
-                  <Ionicons name="checkbox-outline" size={14} color={colors.primary} />
-                  <Text style={styles.actionText}>{item.action_items}</Text>
-                </View>
-              ) : null}
-            </View>
-          )}
+            );
+          }}
         />
       )}
 
@@ -380,16 +425,63 @@ const getStyles = (colors, isDark) =>
       padding: 16,
       gap: 12
     },
+    pulseSummaryBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: isDark ? '#22281e' : '#f0f4ea',
+      borderRadius: 12,
+      paddingVertical: 10,
+      paddingHorizontal: 16,
+      marginHorizontal: 16,
+      marginTop: 12,
+      marginBottom: 4,
+      borderWidth: 1,
+      borderColor: isDark ? '#353e2e' : '#e0e7d6'
+    },
+    pulseStatItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5
+    },
+    pulseStatBold: {
+      fontWeight: '800',
+      color: colors.textPrimary,
+      fontSize: 13
+    },
+    pulseStatText: {
+      fontSize: 11,
+      fontWeight: '500',
+      color: colors.textSecondary
+    },
+    pulseDivider: {
+      width: 1,
+      height: 16,
+      backgroundColor: isDark ? '#3b4434' : '#d2dbc6'
+    },
+    avatarWrap: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: isDark ? '#323c2c' : '#e6ede0',
+      justifyContent: 'center',
+      alignItems: 'center'
+    },
+    avatarText: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: colors.primary
+    },
     card: {
       backgroundColor: colors.surface,
-      borderRadius: 16,
-      padding: 16,
+      borderRadius: 14,
+      padding: 14,
       borderWidth: 1,
       borderColor: colors.border,
       shadowColor: '#000000',
-      shadowOffset: { width: 0, height: 2 },
+      shadowOffset: { width: 0, height: 1 },
       shadowOpacity: isDark ? 0.2 : 0.04,
-      shadowRadius: 6,
+      shadowRadius: 4,
       elevation: 2
     },
     cardHeader: {

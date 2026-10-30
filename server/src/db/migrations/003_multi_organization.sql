@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS organization_memberships (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    role VARCHAR(50) NOT NULL DEFAULT 'employee' CHECK (role IN ('admin', 'team_leader', 'employee')),
+    role VARCHAR(50) NOT NULL DEFAULT 'employee' CHECK (role IN ('founder', 'admin', 'team_leader', 'employee')),
     status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'suspended')),
     joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -153,7 +153,8 @@ CREATE TABLE IF NOT EXISTS notifications (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     title VARCHAR(255) NOT NULL,
     body TEXT NOT NULL,
-    type VARCHAR(50) DEFAULT 'info' CHECK (type IN ('info', 'leave', 'attendance', 'task', 'audit', 'announcement', 'system')),
+    message TEXT,
+    type VARCHAR(50) DEFAULT 'info' CHECK (type IN ('info', 'leave', 'attendance', 'task', 'task_assigned', 'audit', 'announcement', 'system')),
     is_read BOOLEAN NOT NULL DEFAULT false,
     reference_id UUID,  -- optional link to leave_id, attendance_id etc.
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()

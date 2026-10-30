@@ -66,6 +66,11 @@ export default function AdminHomeScreen({ onNavigate, user, organization }) {
 
   useEffect(() => {
     loadDashboardData();
+    const store = api.getStore();
+    const unsub = store.subscribe(() => {
+      loadDashboardData();
+    });
+    return () => unsub();
   }, []);
 
   const handleRefresh = () => {
@@ -90,25 +95,6 @@ export default function AdminHomeScreen({ onNavigate, user, organization }) {
         <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={colors.primary} />
       }
     >
-      {/* Organization Header Banner */}
-      <View style={styles.orgBanner}>
-        <View style={styles.orgBadge}>
-          <Ionicons name="business" size={24} color="#ffffff" />
-        </View>
-        <View style={styles.orgInfo}>
-          <Text style={styles.orgName}>{organization?.name || 'Acme Technologies'}</Text>
-          <View style={styles.roleTag}>
-            <Ionicons name="shield-checkmark" size={12} color={colors.primary} />
-            <Text style={styles.roleTagText}>
-              {user?.role === 'founder' ? 'FOUNDER' : user?.role === 'admin' ? 'ORGANIZATION ADMIN' : 'TEAM LEADER'}
-            </Text>
-          </View>
-        </View>
-        <TouchableOpacity style={styles.refreshBtn} onPress={handleRefresh}>
-          <Ionicons name="refresh" size={18} color={colors.textSecondary} />
-        </TouchableOpacity>
-      </View>
-
       {error && (
         <View style={styles.errorBox}>
           <Ionicons name="warning-outline" size={16} color="#f59e0b" />
@@ -116,40 +102,139 @@ export default function AdminHomeScreen({ onNavigate, user, organization }) {
         </View>
       )}
 
+      {/* Executive Workforce Pulse Banner */}
+      <View style={styles.pulseSummaryBanner}>
+        <View style={styles.pulseStatItem}>
+          <Ionicons name="people" size={15} color={colors.primary} />
+          <Text style={styles.pulseStatText}>
+            <Text style={styles.pulseStatBold}>{stats?.totalEmployees ?? 0}</Text> Staff
+          </Text>
+        </View>
+        <View style={styles.pulseDivider} />
+        <View style={styles.pulseStatItem}>
+          <Ionicons name="checkmark-circle" size={15} color="#15803d" />
+          <Text style={styles.pulseStatText}>
+            <Text style={[styles.pulseStatBold, { color: '#15803d' }]}>{stats?.presentToday ?? 0}</Text> Present
+          </Text>
+        </View>
+        <View style={styles.pulseDivider} />
+        <View style={styles.pulseStatItem}>
+          <Ionicons name="close-circle" size={15} color="#b91c1c" />
+          <Text style={styles.pulseStatText}>
+            <Text style={[styles.pulseStatBold, { color: '#b91c1c' }]}>{stats?.absentToday ?? 0}</Text> Absent
+          </Text>
+        </View>
+        <View style={styles.pulseDivider} />
+        <View style={styles.pulseStatItem}>
+          <Ionicons name="time" size={15} color="#b45309" />
+          <Text style={styles.pulseStatText}>
+            <Text style={[styles.pulseStatBold, { color: '#b45309' }]}>
+              {(stats?.pendingLeaves || 0) + (stats?.pendingReports || 0)}
+            </Text> Pending
+          </Text>
+        </View>
+      </View>
+
       {/* Primary KPI Grid (Section 5 requirements) */}
-      <Text style={styles.sectionHeading}>TODAY'S WORKFORCE METRICS</Text>
+      <View style={styles.sectionHeaderRow}>
+        <Text style={styles.sectionHeading}>TODAY'S WORKFORCE METRICS</Text>
+        <TouchableOpacity
+          style={styles.refreshActionBtn}
+          onPress={handleRefresh}
+          activeOpacity={0.7}
+          disabled={isRefreshing}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons
+            name="refresh-outline"
+            size={14}
+            color={colors.textSecondary}
+          />
+          <Text style={styles.refreshActionText}>Refresh</Text>
+        </TouchableOpacity>
+      </View>
       <View style={styles.kpiGrid}>
-        <View style={[styles.kpiCard, { borderLeftColor: '#3b82f6' }]}>
-          <Text style={styles.kpiLabel}>Total Staff</Text>
+        <View style={styles.kpiCard}>
+          <View style={styles.kpiCardHeader}>
+            <View style={[styles.kpiIconBox, { backgroundColor: isDark ? '#263320' : '#eef4e8' }]}>
+              <Ionicons name="people-outline" size={16} color={colors.primary} />
+            </View>
+            <Text style={styles.kpiLabel}>Total Staff</Text>
+          </View>
           <Text style={styles.kpiValue}>{stats?.totalEmployees ?? '-'}</Text>
           <Text style={styles.kpiSub}>{stats?.activeEmployees ?? '-'} active accounts</Text>
         </View>
 
-        <View style={[styles.kpiCard, { borderLeftColor: '#10b981' }]}>
-          <Text style={styles.kpiLabel}>Present Today</Text>
-          <Text style={[styles.kpiValue, { color: '#10b981' }]}>
+        <View style={styles.kpiCard}>
+          <View style={styles.kpiCardHeader}>
+            <View style={[styles.kpiIconBox, { backgroundColor: isDark ? '#143320' : '#ecfdf5' }]}>
+              <Ionicons name="checkmark-done" size={16} color="#15803d" />
+            </View>
+            <Text style={styles.kpiLabel}>Present Today</Text>
+          </View>
+          <Text style={[styles.kpiValue, { color: '#15803d' }]}>
             {stats?.presentToday ?? '-'}
           </Text>
           <Text style={styles.kpiSub}>
-            WFO: {stats?.wfoCount ?? 0} | WFH: {stats?.wfhCount ?? 0}
+            WFO: {stats?.wfoCount ?? 0} • WFH: {stats?.wfhCount ?? 0}
           </Text>
         </View>
 
-        <View style={[styles.kpiCard, { borderLeftColor: '#ef4444' }]}>
-          <Text style={styles.kpiLabel}>Absent Today</Text>
-          <Text style={[styles.kpiValue, { color: '#ef4444' }]}>
+        <View style={styles.kpiCard}>
+          <View style={styles.kpiCardHeader}>
+            <View style={[styles.kpiIconBox, { backgroundColor: isDark ? '#331c1c' : '#fef2f2' }]}>
+              <Ionicons name="person-remove-outline" size={16} color="#b91c1c" />
+            </View>
+            <Text style={styles.kpiLabel}>Absent Today</Text>
+          </View>
+          <Text style={[styles.kpiValue, { color: '#b91c1c' }]}>
             {stats?.absentToday ?? '-'}
           </Text>
           <Text style={styles.kpiSub}>Late arrivals: {stats?.lateArrivals ?? 0}</Text>
         </View>
 
-        <View style={[styles.kpiCard, { borderLeftColor: '#f59e0b' }]}>
-          <Text style={styles.kpiLabel}>Pending Leaves</Text>
-          <Text style={[styles.kpiValue, { color: '#f59e0b' }]}>
+        <View style={styles.kpiCard}>
+          <View style={styles.kpiCardHeader}>
+            <View style={[styles.kpiIconBox, { backgroundColor: isDark ? '#332714' : '#fffbeb' }]}>
+              <Ionicons name="calendar-outline" size={16} color="#b45309" />
+            </View>
+            <Text style={styles.kpiLabel}>Pending Leaves</Text>
+          </View>
+          <Text style={[styles.kpiValue, { color: '#b45309' }]}>
             {stats?.pendingLeaves ?? 0}
           </Text>
           <TouchableOpacity onPress={() => onNavigate('leaves')}>
             <Text style={styles.kpiAction}>Review Requests &rarr;</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.kpiCard}>
+          <View style={styles.kpiCardHeader}>
+            <View style={[styles.kpiIconBox, { backgroundColor: isDark ? '#261c33' : '#faf5ff' }]}>
+              <Ionicons name="cash-outline" size={16} color="#7c3aed" />
+            </View>
+            <Text style={styles.kpiLabel}>Pending Advances</Text>
+          </View>
+          <Text style={[styles.kpiValue, { color: '#7c3aed' }]}>
+            {stats?.pendingAdvances ?? 0}
+          </Text>
+          <TouchableOpacity onPress={() => onNavigate('leaves')}>
+            <Text style={styles.kpiAction}>Review Advances &rarr;</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.kpiCard}>
+          <View style={styles.kpiCardHeader}>
+            <View style={[styles.kpiIconBox, { backgroundColor: isDark ? '#142c33' : '#f0fdfa' }]}>
+              <Ionicons name="document-text-outline" size={16} color="#0d9488" />
+            </View>
+            <Text style={styles.kpiLabel}>Reports Awaiting Review</Text>
+          </View>
+          <Text style={[styles.kpiValue, { color: '#0d9488' }]}>
+            {stats?.pendingReports ?? 0}
+          </Text>
+          <TouchableOpacity onPress={() => onNavigate('reports')}>
+            <Text style={styles.kpiAction}>Review Reports &rarr;</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -291,47 +376,18 @@ const getStyles = (colors, isDark) =>
       fontSize: 13,
       color: colors.textSecondary
     },
-    orgBanner: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: colors.surface,
-      padding: 16,
-      borderRadius: 16,
-      borderWidth: 1,
-      borderColor: colors.border,
-      marginBottom: 20
-    },
-    orgBadge: {
-      width: 46,
-      height: 46,
-      borderRadius: 12,
-      backgroundColor: colors.primary,
-      justifyContent: 'center',
-      alignItems: 'center',
-      marginRight: 12
-    },
-    orgInfo: {
-      flex: 1
-    },
-    orgName: {
-      fontSize: 16,
-      fontWeight: '700',
-      color: colors.textPrimary
-    },
-    roleTag: {
+    refreshActionBtn: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 4,
-      marginTop: 4
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 6
     },
-    roleTagText: {
+    refreshActionText: {
       fontSize: 11,
-      fontWeight: '700',
-      color: colors.primary,
-      letterSpacing: 0.5
-    },
-    refreshBtn: {
-      padding: 8
+      fontWeight: '600',
+      color: colors.textSecondary
     },
     errorBox: {
       flexDirection: 'row',
@@ -345,6 +401,38 @@ const getStyles = (colors, isDark) =>
     errorText: {
       fontSize: 12,
       color: '#b45309'
+    },
+    pulseSummaryBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: isDark ? '#22281e' : '#f0f4ea',
+      borderRadius: 12,
+      paddingVertical: 10,
+      paddingHorizontal: 12,
+      marginBottom: 16,
+      borderWidth: 1,
+      borderColor: isDark ? '#353e2e' : '#e0e7d6'
+    },
+    pulseStatItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5
+    },
+    pulseStatBold: {
+      fontWeight: '800',
+      color: colors.textPrimary,
+      fontSize: 13
+    },
+    pulseStatText: {
+      fontSize: 11,
+      fontWeight: '500',
+      color: colors.textSecondary
+    },
+    pulseDivider: {
+      width: 1,
+      height: 16,
+      backgroundColor: isDark ? '#3b4434' : '#d2dbc6'
     },
     sectionHeading: {
       fontSize: 11,
@@ -380,12 +468,29 @@ const getStyles = (colors, isDark) =>
       padding: 14,
       borderWidth: 1,
       borderColor: colors.border,
-      borderLeftWidth: 4
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: isDark ? 0.2 : 0.04,
+      shadowRadius: 4,
+      elevation: 2
+    },
+    kpiCardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 4
+    },
+    kpiIconBox: {
+      width: 28,
+      height: 28,
+      borderRadius: 8,
+      justifyContent: 'center',
+      alignItems: 'center'
     },
     kpiLabel: {
       fontSize: 12,
       color: colors.textSecondary,
-      fontWeight: '500'
+      fontWeight: '600'
     },
     kpiValue: {
       fontSize: 22,
@@ -394,14 +499,14 @@ const getStyles = (colors, isDark) =>
       marginVertical: 4
     },
     kpiSub: {
-      fontSize: 10,
+      fontSize: 11,
       color: colors.textSecondary
     },
     kpiAction: {
       fontSize: 11,
-      fontWeight: '600',
+      fontWeight: '700',
       color: colors.primary,
-      marginTop: 4
+      marginTop: 6
     },
     actionGrid: {
       flexDirection: 'row',
@@ -414,13 +519,19 @@ const getStyles = (colors, isDark) =>
       backgroundColor: colors.surface,
       borderRadius: 14,
       paddingVertical: 14,
+      paddingHorizontal: 6,
       alignItems: 'center',
       borderWidth: 1,
-      borderColor: colors.border
+      borderColor: colors.border,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: isDark ? 0.2 : 0.04,
+      shadowRadius: 3,
+      elevation: 1
     },
     actionIconBadge: {
-      width: 40,
-      height: 40,
+      width: 42,
+      height: 42,
       borderRadius: 12,
       justifyContent: 'center',
       alignItems: 'center',

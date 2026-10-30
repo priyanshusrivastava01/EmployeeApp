@@ -104,6 +104,15 @@ export default function AdminLeaveScreen({ onBack, user, organization }) {
       loadAdvances();
       loadBankSubmissions();
     }
+    const store = api.getStore();
+    const unsub = store.subscribe(() => {
+      loadLeaves();
+      if (isManagement) {
+        loadAdvances();
+        loadBankSubmissions();
+      }
+    });
+    return () => unsub();
   }, []);
 
   const handleRefresh = () => {
@@ -121,6 +130,11 @@ export default function AdminLeaveScreen({ onBack, user, organization }) {
 
   const handleSubmitDecision = async () => {
     if (!selectedLeave || !decisionAction) return;
+
+    if (decisionAction === 'rejected' && (!decisionComment || !decisionComment.trim())) {
+      Alert.alert('Reason Required', 'Please provide a clear reason for rejecting the leave application.');
+      return;
+    }
 
     try {
       setIsSubmitting(true);
@@ -164,6 +178,12 @@ export default function AdminLeaveScreen({ onBack, user, organization }) {
 
   const handleSubmitAdvanceAction = async () => {
     if (!selectedAdvance || !advanceActionType) return;
+
+    if (advanceActionType === 'reject' && (!advanceRemarks || !advanceRemarks.trim())) {
+      Alert.alert('Reason Required', 'Please provide a reason for rejecting the salary advance request.');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       if (advanceActionType === 'approve' || advanceActionType === 'reject') {
@@ -239,7 +259,7 @@ export default function AdminLeaveScreen({ onBack, user, organization }) {
   };
 
   const filteredLeaves = leaves.filter(
-    (l) => leaveStatusFilter === 'all' || l.status === leaveStatusFilter
+    (l) => leaveStatusFilter === 'all' || l.status?.toLowerCase() === leaveStatusFilter.toLowerCase()
   );
 
   const filteredAdvances = advances.filter(
@@ -317,6 +337,43 @@ export default function AdminLeaveScreen({ onBack, user, organization }) {
       {/* ---------------- 1. LEAVES DESK ---------------- */}
       {deskTab === 'leaves' && (
         <>
+          {/* Leaves Summary Metrics */}
+          <View style={styles.pulseSummaryBanner}>
+            <View style={styles.pulseStatItem}>
+              <Ionicons name="calendar" size={15} color={colors.primary} />
+              <Text style={styles.pulseStatText}>
+                <Text style={styles.pulseStatBold}>{leaves.length}</Text> Total
+              </Text>
+            </View>
+            <View style={styles.pulseDivider} />
+            <View style={styles.pulseStatItem}>
+              <Ionicons name="time" size={15} color="#b45309" />
+              <Text style={styles.pulseStatText}>
+                <Text style={[styles.pulseStatBold, { color: '#b45309' }]}>
+                  {leaves.filter((l) => l.status?.toLowerCase() === 'pending').length}
+                </Text> Pending
+              </Text>
+            </View>
+            <View style={styles.pulseDivider} />
+            <View style={styles.pulseStatItem}>
+              <Ionicons name="checkmark-circle" size={15} color="#15803d" />
+              <Text style={styles.pulseStatText}>
+                <Text style={[styles.pulseStatBold, { color: '#15803d' }]}>
+                  {leaves.filter((l) => l.status?.toLowerCase() === 'approved').length}
+                </Text> Approved
+              </Text>
+            </View>
+            <View style={styles.pulseDivider} />
+            <View style={styles.pulseStatItem}>
+              <Ionicons name="close-circle" size={15} color="#b91c1c" />
+              <Text style={styles.pulseStatText}>
+                <Text style={[styles.pulseStatBold, { color: '#b91c1c' }]}>
+                  {leaves.filter((l) => l.status?.toLowerCase() === 'rejected').length}
+                </Text> Rejected
+              </Text>
+            </View>
+          </View>
+
           <View style={styles.filterRow}>
             {['all', 'pending', 'approved', 'rejected'].map((s) => (
               <TouchableOpacity
@@ -347,78 +404,93 @@ export default function AdminLeaveScreen({ onBack, user, organization }) {
               data={filteredLeaves}
               keyExtractor={(item) => item.id}
               contentContainerStyle={styles.listContent}
-              renderItem={({ item }) => (
-                <View style={styles.card}>
-                  <View style={styles.cardHeader}>
-                    <View>
-                      <Text style={styles.userName}>{item.user_name || 'Employee'}</Text>
-                      <Text style={styles.leaveType}>{item.leave_type} Leave</Text>
-                    </View>
-                    <View
-                      style={[
-                        styles.statusTag,
-                        item.status === 'approved'
-                          ? styles.statusApproved
-                          : item.status === 'rejected'
-                          ? styles.statusRejected
-                          : styles.statusPending
-                      ]}
-                    >
-                      <Text
+              renderItem={({ item }) => {
+                const rawName = item.user_name || 'Employee';
+                const initials = rawName
+                  .split(' ')
+                  .map(n => n[0])
+                  .join('')
+                  .toUpperCase()
+                  .slice(0, 2);
+
+                return (
+                  <View style={styles.card}>
+                    <View style={styles.cardHeader}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                        <View style={styles.avatarWrap}>
+                          <Text style={styles.avatarText}>{initials}</Text>
+                        </View>
+                        <View>
+                          <Text style={styles.userName}>{rawName}</Text>
+                          <Text style={styles.leaveType}>{item.leave_type} Leave</Text>
+                        </View>
+                      </View>
+                      <View
                         style={[
-                          styles.statusTagText,
+                          styles.statusTag,
                           item.status === 'approved'
-                            ? styles.statusTextApproved
+                            ? styles.statusApproved
                             : item.status === 'rejected'
-                            ? styles.statusTextRejected
-                            : styles.statusTextPending
+                            ? styles.statusRejected
+                            : styles.statusPending
                         ]}
                       >
-                        {item.status?.toUpperCase()}
+                        <Text
+                          style={[
+                            styles.statusTagText,
+                            item.status === 'approved'
+                              ? styles.statusTextApproved
+                              : item.status === 'rejected'
+                              ? styles.statusTextRejected
+                              : styles.statusTextPending
+                          ]}
+                        >
+                          {item.status?.toUpperCase()}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.datesBox}>
+                      <Ionicons name="calendar" size={14} color={colors.primary} />
+                      <Text style={styles.datesText}>
+                        {item.start_date} &rarr; {item.end_date} ({item.duration_days} {item.duration_days === 1 ? 'day' : 'days'})
                       </Text>
                     </View>
-                  </View>
 
-                  <View style={styles.datesBox}>
-                    <Ionicons name="calendar" size={14} color={colors.primary} />
-                    <Text style={styles.datesText}>
-                      {item.start_date} &rarr; {item.end_date} ({item.duration_days} {item.duration_days === 1 ? 'day' : 'days'})
+                    <Text style={styles.reasonText}>
+                      <Text style={styles.reasonLabel}>Reason: </Text>
+                      {item.reason}
                     </Text>
+
+                    {item.decision_comment && (
+                      <View style={styles.decisionCommentBox}>
+                        <Text style={styles.decisionCommentLabel}>Admin Note:</Text>
+                        <Text style={styles.decisionCommentText}>{item.decision_comment}</Text>
+                      </View>
+                    )}
+
+                    {item.status === 'pending' && (
+                      <View style={styles.actionRow}>
+                        <TouchableOpacity
+                          style={[styles.actionBtn, styles.rejectBtn]}
+                          onPress={() => handleOpenDecision(item, 'rejected')}
+                        >
+                          <Ionicons name="close-circle" size={16} color="#b91c1c" />
+                          <Text style={styles.rejectBtnText}>Reject</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={[styles.actionBtn, styles.approveBtn]}
+                          onPress={() => handleOpenDecision(item, 'approved')}
+                        >
+                          <Ionicons name="checkmark-circle" size={16} color="#047857" />
+                          <Text style={styles.approveBtnText}>Approve</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </View>
-
-                  <Text style={styles.reasonText}>
-                    <Text style={styles.reasonLabel}>Reason: </Text>
-                    {item.reason}
-                  </Text>
-
-                  {item.decision_comment && (
-                    <View style={styles.decisionCommentBox}>
-                      <Text style={styles.decisionCommentLabel}>Admin Note:</Text>
-                      <Text style={styles.decisionCommentText}>{item.decision_comment}</Text>
-                    </View>
-                  )}
-
-                  {item.status === 'pending' && (
-                    <View style={styles.actionRow}>
-                      <TouchableOpacity
-                        style={[styles.actionBtn, styles.rejectBtn]}
-                        onPress={() => handleOpenDecision(item, 'rejected')}
-                      >
-                        <Ionicons name="close-circle" size={16} color="#b91c1c" />
-                        <Text style={styles.rejectBtnText}>Reject</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[styles.actionBtn, styles.approveBtn]}
-                        onPress={() => handleOpenDecision(item, 'approved')}
-                      >
-                        <Ionicons name="checkmark-circle" size={16} color="#047857" />
-                        <Text style={styles.approveBtnText}>Approve</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                </View>
-              )}
+                );
+              }}
             />
           )}
         </>
@@ -427,6 +499,43 @@ export default function AdminLeaveScreen({ onBack, user, organization }) {
       {/* ---------------- 2. SALARY ADVANCES DESK ---------------- */}
       {deskTab === 'advances' && (
         <>
+          {/* Advances Summary Metrics */}
+          <View style={styles.pulseSummaryBanner}>
+            <View style={styles.pulseStatItem}>
+              <Ionicons name="wallet" size={15} color={colors.primary} />
+              <Text style={styles.pulseStatText}>
+                <Text style={styles.pulseStatBold}>{advances.length}</Text> Total
+              </Text>
+            </View>
+            <View style={styles.pulseDivider} />
+            <View style={styles.pulseStatItem}>
+              <Ionicons name="time" size={15} color="#b45309" />
+              <Text style={styles.pulseStatText}>
+                <Text style={[styles.pulseStatBold, { color: '#b45309' }]}>
+                  {advances.filter((a) => a.status?.toLowerCase().includes('pending')).length}
+                </Text> Pending
+              </Text>
+            </View>
+            <View style={styles.pulseDivider} />
+            <View style={styles.pulseStatItem}>
+              <Ionicons name="checkmark-circle" size={15} color="#15803d" />
+              <Text style={styles.pulseStatText}>
+                <Text style={[styles.pulseStatBold, { color: '#15803d' }]}>
+                  {advances.filter((a) => a.status === 'Approved').length}
+                </Text> Approved
+              </Text>
+            </View>
+            <View style={styles.pulseDivider} />
+            <View style={styles.pulseStatItem}>
+              <Ionicons name="cash" size={15} color="#0f766e" />
+              <Text style={styles.pulseStatText}>
+                <Text style={[styles.pulseStatBold, { color: '#0f766e' }]}>
+                  {advances.filter((a) => a.status === 'Paid').length}
+                </Text> Paid
+              </Text>
+            </View>
+          </View>
+
           <View style={styles.filterRow}>
             {['all', 'pending', 'approved', 'paid', 'rejected'].map((s) => (
               <TouchableOpacity
@@ -458,16 +567,16 @@ export default function AdminLeaveScreen({ onBack, user, organization }) {
               keyExtractor={(item) => String(item.id)}
               contentContainerStyle={styles.listContent}
               renderItem={({ item }) => {
-                const isPending = item.status === 'Pending Approval';
-                const isApproved = item.status === 'Approved' || item.status === 'Payment Pending';
+                const isPending = item.status?.toLowerCase().includes('pending');
+                const isApproved = item.status === 'Approved' || item.status?.toLowerCase().includes('payment pending');
                 const isPartiallyPaid = item.status === 'Partially Paid';
                 return (
                   <View style={styles.card}>
                     <View style={styles.cardHeader}>
                       <View>
-                        <Text style={styles.userName}>{item.employeeName || item.employee_name || 'Staff'}</Text>
+                        <Text style={styles.userName}>{item.user_name || item.userName || item.employeeName || item.employee_name || 'Staff'}</Text>
                         <Text style={{ fontSize: 13, fontWeight: '700', color: colors.primary, marginTop: 2 }}>
-                          ₹{Number(item.amount).toLocaleString('en-IN')}
+                          ₹{Number(item.amount || item.requestedAmount || 0).toLocaleString('en-IN')}
                         </Text>
                       </View>
                       <View style={[styles.statusTag, {
@@ -968,12 +1077,64 @@ const getStyles = (colors, isDark) =>
       color: colors.textSecondary,
       marginTop: 4
     },
+    pulseSummaryBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: isDark ? '#22281e' : '#f0f4ea',
+      borderRadius: 12,
+      paddingVertical: 10,
+      paddingHorizontal: 16,
+      marginHorizontal: 16,
+      marginTop: 12,
+      marginBottom: 6,
+      borderWidth: 1,
+      borderColor: isDark ? '#353e2e' : '#e0e7d6'
+    },
+    pulseStatItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5
+    },
+    pulseStatBold: {
+      fontWeight: '800',
+      color: colors.textPrimary,
+      fontSize: 13
+    },
+    pulseStatText: {
+      fontSize: 11,
+      fontWeight: '500',
+      color: colors.textSecondary
+    },
+    pulseDivider: {
+      width: 1,
+      height: 16,
+      backgroundColor: isDark ? '#3b4434' : '#d2dbc6'
+    },
+    avatarWrap: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      backgroundColor: isDark ? '#323c2c' : '#e6ede0',
+      justifyContent: 'center',
+      alignItems: 'center'
+    },
+    avatarText: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: colors.primary
+    },
     card: {
       backgroundColor: colors.surface,
-      borderRadius: 16,
+      borderRadius: 14,
       padding: 14,
       borderWidth: 1,
-      borderColor: colors.border
+      borderColor: colors.border,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: isDark ? 0.2 : 0.04,
+      shadowRadius: 4,
+      elevation: 2
     },
     cardHeader: {
       flexDirection: 'row',
@@ -1165,5 +1326,34 @@ const getStyles = (colors, isDark) =>
       fontSize: 13,
       fontWeight: '700',
       color: '#ffffff'
+    },
+    summaryRow: {
+      flexDirection: 'row',
+      gap: 8,
+      marginHorizontal: 16,
+      marginTop: 12,
+      marginBottom: 6
+    },
+    summaryCard: {
+      flex: 1,
+      backgroundColor: colors.surface,
+      borderRadius: 10,
+      paddingVertical: 8,
+      paddingHorizontal: 6,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderTopWidth: 3
+    },
+    summaryVal: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: colors.textPrimary
+    },
+    summaryLbl: {
+      fontSize: 10,
+      fontWeight: '600',
+      color: colors.textSecondary,
+      marginTop: 2
     }
   });

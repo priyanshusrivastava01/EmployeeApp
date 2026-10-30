@@ -101,9 +101,54 @@ class WebApiService {
     return this.request(`/api/daily-reports${qs ? `?${qs}` : ''}`);
   }
 
+  async getEmployeesWithDailyReports(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return this.request(`/api/daily-reports/employees-summary${qs ? `?${qs}` : ''}`);
+  }
+
+  async getEmployeeReportProfile(employeeId) {
+    return this.request(`/api/daily-reports/employee/${encodeURIComponent(employeeId)}`);
+  }
+
+  async assignTaskToEmployee(payload) {
+    return this.request('/api/daily-reports/assign-task', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async updateTaskStatus(payload) {
+    return this.request('/api/daily-reports/tasks/status', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async getTaskReportsForDateRange(params = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return this.request(`/api/daily-reports/date-range${qs ? `?${qs}` : ''}`);
+  }
+
+  async getEmployeeSpreadsheetData({ employeeId, startDate, endDate }) {
+    const qs = new URLSearchParams({ startDate, endDate }).toString();
+    return this.request(`/api/management/task-reports/employees/${encodeURIComponent(employeeId)}/spreadsheet?${qs}`);
+  }
+
+  async downloadEmployeeTaskReportsExcel({ employeeId, startDate, endDate }) {
+    const qs = new URLSearchParams({ startDate, endDate }).toString();
+    return this.request(`/api/management/task-reports/employees/${encodeURIComponent(employeeId)}/export?${qs}`);
+  }
+
   async getLeaves(params = {}) {
     const qs = new URLSearchParams(params).toString();
     return this.request(`/api/leaves${qs ? `?${qs}` : ''}`);
+  }
+
+  async submitLeave(payload) {
+    return this.request('/api/leaves', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
   }
 
   async updateLeaveStatus(id, status, decisionComment) {
@@ -111,6 +156,53 @@ class WebApiService {
       method: 'PATCH',
       body: JSON.stringify({ status, decisionComment })
     });
+  }
+
+  // ── Salary Advances (Shared Contracts) ────────────────
+  async getSalaryAdvances() {
+    return this.request('/api/advances/me');
+  }
+
+  async submitSalaryAdvance(payload) {
+    return this.request('/api/advances', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async getAdminSalaryAdvances() {
+    return this.request('/api/admin/advances');
+  }
+
+  async approveSalaryAdvance(id, action, approvedAmount, remarks) {
+    return this.request(`/api/admin/advances/${id}/approve`, {
+      method: 'PATCH',
+      body: JSON.stringify({ action, approvedAmount, remarks })
+    });
+  }
+
+  async recordAdvancePayment(id, payload) {
+    return this.request(`/api/admin/advances/${id}/payment`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  }
+
+  // ── Holidays & Notifications ──────────────────────────
+  async getHolidays() {
+    return this.request('/api/holidays');
+  }
+
+  async getNotifications() {
+    return this.request('/api/notifications');
+  }
+
+  async markNotificationRead(id) {
+    return this.request(`/api/notifications/${id}/read`, { method: 'PATCH' });
+  }
+
+  async markAllNotificationsRead() {
+    return this.request('/api/notifications/mark-all-read', { method: 'POST' });
   }
 
   async getAnnouncements(publishedOnly = false) {

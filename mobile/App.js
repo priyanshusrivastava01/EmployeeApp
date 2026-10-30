@@ -45,6 +45,8 @@ import api from './src/services/api';
 function MainApp() {
   const { colors, isDark } = useTheme();
   const safeInsets = useSafeAppInsets();
+  // Ensure Android status bar height is accounted for with fallback to safe area insets
+  const topPadding = Platform.OS === 'android' ? Math.max(StatusBar.currentHeight || 0, safeInsets.top) : safeInsets.top;
   const styles = getStyles(colors, isDark);
 
   const [isInitializing, setIsInitializing] = useState(true);
@@ -212,7 +214,7 @@ function MainApp() {
     setActiveTab('home');
     setPrefillAuth({ portal: 'employee', companyId: '', email: '' });
     setVerifiedCompany(null);
-    setAuthView('verify_company');
+    setAuthView('welcome');
   };
 
   /**
@@ -310,7 +312,7 @@ function MainApp() {
   // Not authenticated -> show clean, simple and secure Welcome / Login experience
   if (!currentUser) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: safeInsets.top }}>
+      <View style={{ flex: 1, backgroundColor: colors.background, paddingTop: topPadding }}>
         <ExpoStatusBar style={isDark ? 'light' : 'dark'} />
         <StatusBar
           barStyle={isDark ? 'light-content' : 'dark-content'}
@@ -330,7 +332,7 @@ function MainApp() {
             onRegisterCompany={() => setAuthView('register_company')}
           />
         )}
-        {authView === 'login' && (
+        {(authView === 'login' || authView === 'welcome') && (
           <WelcomeScreen
             initialPortal={prefillAuth.portal || 'employee'}
             initialCompanyId={prefillAuth.companyId || (verifiedCompany?.companyCode || '')}
@@ -385,7 +387,7 @@ function MainApp() {
 
   // Employee default dashboard view
   return (
-    <View style={[styles.container, { paddingTop: safeInsets.top }]}>
+    <View style={[styles.container, { paddingTop: topPadding }]}>
       <ExpoStatusBar style={isDark ? 'light' : 'dark'} />
       <StatusBar
         barStyle={isDark ? 'light-content' : 'dark-content'}

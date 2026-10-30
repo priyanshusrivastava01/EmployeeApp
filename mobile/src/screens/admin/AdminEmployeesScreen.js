@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeContext';
 import api from '../../services/api';
 
-export default function AdminEmployeesScreen({ onBack, user }) {
+export default function AdminEmployeesScreen({ onBack, user, organization }) {
   const { colors, isDark } = useTheme();
   const styles = getStyles(colors, isDark);
 
@@ -178,22 +178,80 @@ export default function AdminEmployeesScreen({ onBack, user }) {
     }
   };
 
-  const departments = ['all', 'Engineering', 'Operations', 'Management', 'Sales', 'Design'];
+  // Dynamically extract departments from actual employee data while preserving standard ones
+  const departments = useMemo(() => {
+    const baseDepts = ['Engineering', 'Operations', 'Management', 'Sales'];
+    const deptSet = new Set(baseDepts);
 
-  const filteredEmployees = employees.filter((emp) => {
-    const q = search.toLowerCase();
-    const matchesSearch =
-      !search ||
-      emp.name?.toLowerCase().includes(q) ||
-      emp.email?.toLowerCase().includes(q) ||
-      emp.designation?.toLowerCase().includes(q) ||
-      emp.employeeId?.toLowerCase().includes(q);
+    (employees || []).forEach((emp) => {
+      if (emp?.department && typeof emp.department === 'string') {
+        const trimmed = emp.department.trim();
+        if (trimmed) {
+          const exists = baseDepts.some(
+            (b) => b.toLowerCase() === trimmed.toLowerCase()
+          );
+          if (!exists) {
+            deptSet.add(trimmed);
+          }
+        }
+      }
+    });
 
-    const matchesDept = departmentFilter === 'all' || emp.department === departmentFilter;
-    return matchesSearch && matchesDept;
-  });
+    return ['all', ...Array.from(deptSet)];
+  }, [employees]);
 
-  const companyId = orgSettings?.public_company_id || orgSettings?.companyId || 'CMP-XXXXXXXX';
+  // Robust, case-insensitive, deduplicated, whitespace-trimmed employee filtering
+  const filteredEmployees = useMemo(() => {
+    // Deduplicate employees by unique key (TEST 13)
+    const seenKeys = new Set();
+    const uniqueEmployees = [];
+    for (const emp of employees || []) {
+      const key = emp.id || emp.employeeId || emp.email;
+      if (key && seenKeys.has(key)) continue;
+      if (key) seenKeys.add(key);
+      uniqueEmployees.push(emp);
+    }
+
+    const q = (search || '').trim().toLowerCase();
+    const selectedDeptNorm = (departmentFilter || 'all').trim().toLowerCase();
+
+    return uniqueEmployees.filter((emp) => {
+      // 1. Department Filter
+      if (selectedDeptNorm !== 'all') {
+        const empDept = (emp.department || '').trim().toLowerCase();
+        if (!empDept || empDept !== selectedDeptNorm) {
+          return false;
+        }
+      }
+
+      // 2. Search Query Filter across name, email, designation, employee ID, and department
+      if (q) {
+        const name = (emp.name || '').toLowerCase();
+        const email = (emp.email || '').toLowerCase();
+        const designation = (emp.designation || '').toLowerCase();
+        const empId = (emp.employeeId || emp.employee_id_number || '').toLowerCase();
+        const dept = (emp.department || '').toLowerCase();
+
+        const matches =
+          name.includes(q) ||
+          email.includes(q) ||
+          designation.includes(q) ||
+          empId.includes(q) ||
+          dept.includes(q);
+
+        if (!matches) return false;
+      }
+
+      return true;
+    });
+  }, [employees, departmentFilter, search]);
+
+  const companyId =
+    organization?.public_company_id ||
+    orgSettings?.public_company_id ||
+    orgSettings?.companyId ||
+    user?.company_code ||
+    'CMP-XXXXXXXX';
 
   return (
     <View style={styles.container}>
@@ -282,15 +340,18 @@ export default function AdminEmployeesScreen({ onBack, user }) {
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
+            style={styles.chipScrollView}
             contentContainerStyle={styles.chipRow}
           >
             {departments.map((dept) => {
-              const isSelected = departmentFilter === dept;
+              const isSelected =
+                departmentFilter.trim().toLowerCase() === dept.trim().toLowerCase();
               return (
                 <TouchableOpacity
                   key={dept}
                   style={[styles.chip, isSelected && styles.chipActive]}
                   onPress={() => setDepartmentFilter(dept)}
+                  activeOpacity={0.7}
                 >
                   <Text style={[styles.chipText, isSelected && styles.chipTextActive]}>
                     {dept === 'all' ? 'All Teams' : dept}
@@ -310,7 +371,23 @@ export default function AdminEmployeesScreen({ onBack, user }) {
             <View style={styles.centerContainer}>
               <Ionicons name="people-outline" size={48} color={colors.textSecondary} />
               <Text style={styles.emptyTitle}>No Employees Found</Text>
-              <Text style={styles.emptySubtitle}>Try adjusting your search or filters.</Text>
+              <Text style={styles.emptySubtitle}>
+                {departmentFilter === 'all'
+                  ? 'No employees match your search query.'
+                  : `No employees found in the ${departmentFilter} department.`}
+              </Text>
+              {(departmentFilter !== 'all' || search.trim().length > 0) && (
+                <TouchableOpacity
+                  style={styles.resetFilterBtn}
+                  onPress={() => {
+                    setDepartmentFilter('all');
+                    setSearch('');
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.resetFilterText}>View All Employees</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : (
             <FlatList
@@ -321,11 +398,16 @@ export default function AdminEmployeesScreen({ onBack, user }) {
                 <TouchableOpacity
                   style={styles.employeeCard}
                   onPress={() => setSelectedUser(item)}
-                  activeOpacity={0.7}
+                  activeOpacity={0.75}
                 >
                   <View style={styles.avatar}>
                     <Text style={styles.avatarText}>
-                      {item.name ? item.name.charAt(0).toUpperCase() : '?'}
+                      {(item.name || 'E')
+                        .split(' ')
+                        .map((n) => n[0])
+                        .join('')
+                        .toUpperCase()
+                        .slice(0, 2)}
                     </Text>
                   </View>
                   <View style={styles.empInfo}>
@@ -365,7 +447,10 @@ export default function AdminEmployeesScreen({ onBack, user }) {
                         { backgroundColor: item.isActive !== false ? '#10b981' : '#9ca3af' }
                       ]}
                     />
-                    <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+                    <Text style={[styles.statusText, { color: item.isActive !== false ? (isDark ? '#34d399' : '#15803d') : colors.textSecondary }]}>
+                      {item.isActive !== false ? 'Active' : 'Inactive'}
+                    </Text>
+                    <Ionicons name="chevron-forward" size={15} color={colors.textSecondary} />
                   </View>
                 </TouchableOpacity>
               )}
@@ -786,16 +871,28 @@ const getStyles = (colors, isDark) =>
       color: colors.textPrimary,
       height: '100%'
     },
+    chipScrollView: {
+      flexGrow: 0,
+      flexShrink: 0,
+      height: 48,
+      maxHeight: 48,
+      marginTop: 8,
+      marginBottom: 6
+    },
     chipRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
       paddingHorizontal: 16,
-      paddingVertical: 10,
-      gap: 8
+      gap: 8,
+      height: 48
     },
     chip: {
-      paddingVertical: 6,
-      paddingHorizontal: 12,
-      borderRadius: 16,
-      backgroundColor: colors.surface,
+      height: 34,
+      paddingHorizontal: 16,
+      borderRadius: 17,
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: isDark ? colors.surface : '#eef1e6',
       borderWidth: 1,
       borderColor: colors.border
     },
@@ -804,13 +901,27 @@ const getStyles = (colors, isDark) =>
       borderColor: colors.primary
     },
     chipText: {
-      fontSize: 12,
+      fontSize: 13,
       color: colors.textSecondary,
       fontWeight: '600'
     },
     chipTextActive: {
       color: '#ffffff',
       fontWeight: '700'
+    },
+    resetFilterBtn: {
+      marginTop: 14,
+      paddingVertical: 8,
+      paddingHorizontal: 16,
+      borderRadius: 10,
+      backgroundColor: isDark ? '#2e3e26' : '#e0eed6',
+      borderWidth: 1,
+      borderColor: colors.primary
+    },
+    resetFilterText: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: colors.primary
     },
     centerContainer: {
       flex: 1,
@@ -837,7 +948,7 @@ const getStyles = (colors, isDark) =>
     },
     listContent: {
       paddingHorizontal: 16,
-      paddingBottom: 24
+      paddingBottom: 110
     },
     employeeCard: {
       flexDirection: 'row',
@@ -854,14 +965,14 @@ const getStyles = (colors, isDark) =>
       width: 44,
       height: 44,
       borderRadius: 22,
-      backgroundColor: colors.primary,
+      backgroundColor: isDark ? '#323c2c' : '#e6ede0',
       justifyContent: 'center',
       alignItems: 'center',
       marginRight: 12
     },
     avatarText: {
-      color: '#ffffff',
-      fontSize: 18,
+      color: colors.primary,
+      fontSize: 15,
       fontWeight: '800'
     },
     empInfo: {
@@ -918,18 +1029,23 @@ const getStyles = (colors, isDark) =>
     },
     empDept: {
       fontSize: 11,
-      color: colors.textSecondary,
+      fontWeight: '600',
+      color: colors.primary,
       marginTop: 1
     },
     statusIndicator: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 6
+      gap: 5
     },
     statusDot: {
-      width: 8,
-      height: 8,
+      width: 7,
+      height: 7,
       borderRadius: 4
+    },
+    statusText: {
+      fontSize: 11,
+      fontWeight: '600'
     },
     // Invitations Styles
     inviteCard: {
