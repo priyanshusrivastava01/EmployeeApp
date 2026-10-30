@@ -83,27 +83,6 @@ class ApiService {
       if (savedUser) this.user = JSON.parse(savedUser);
       if (savedOrg) this.org = JSON.parse(savedOrg);
 
-      // Default fallback identity for local/offline session if none saved
-      if (!this.user) {
-        this.user = this.store.state.users[3] || {
-          id: 'emp-101',
-          name: 'Aarav Sharma',
-          email: 'aarav.sharma@company.com',
-          role: 'employee',
-          organization_id: 'org-acme-1',
-          department: 'Engineering',
-          designation: 'Senior Frontend Engineer',
-          monthly_salary: 75000
-        };
-      }
-      if (!this.org) {
-        this.org = this.store.state.organizations[0] || {
-          id: 'org-acme-1',
-          name: 'Acme Technologies Pvt. Ltd.',
-          company_code: 'CMP-7K4M9X2Q'
-        };
-      }
-
       return { token: this.token, user: this.user, org: this.org };
     } catch (e) {
       console.warn('[API] Init error:', e);
@@ -189,32 +168,40 @@ class ApiService {
 
       return data;
     } catch (err) {
-      // Offline / Local Mock Fallback for Frontend Integration
-      await this.store.init();
-      const matchedUser = this.store.state.users.find(
-        (u) => u.email.toLowerCase() === (email || '').trim().toLowerCase()
-      );
+      // Never fall back to mock when server explicitly rejected request (HTTP 400, 401, 403, 404, 409, 500)
+      if (err.isServerError || err.status) {
+        throw err;
+      }
 
-      if (matchedUser) {
-        const matchedOrg = this.store.getOrgSettings(matchedUser.organization_id);
-        const mockToken = `mock-token-${matchedUser.id}-${Date.now()}`;
-        this.token = mockToken;
-        this.user = matchedUser;
-        this.org = matchedOrg;
+      // Only permit local fallback on genuine network connection failure
+      const isNetworkError = err.name === 'AbortError' || (err.message && (err.message.includes('Cannot reach EMS backend') || err.message.includes('Network request failed') || err.message.includes('Failed to fetch') || err.message.includes('ECONNREFUSED')));
+      if (isNetworkError) {
+        await this.store.init();
+        const matchedUser = this.store.state.users.find(
+          (u) => u.email.toLowerCase() === (email || '').trim().toLowerCase()
+        );
 
-        await Promise.all([
-          storage.setItem(STORAGE_KEYS.TOKEN, mockToken),
-          storage.setItem(STORAGE_KEYS.USER, JSON.stringify(matchedUser)),
-          storage.setItem(STORAGE_KEYS.ORG, JSON.stringify(matchedOrg))
-        ]);
+        if (matchedUser) {
+          const matchedOrg = this.store.getOrgSettings(matchedUser.organization_id);
+          const mockToken = `mock-token-${matchedUser.id}-${Date.now()}`;
+          this.token = mockToken;
+          this.user = matchedUser;
+          this.org = matchedOrg;
 
-        return {
-          success: true,
-          token: mockToken,
-          user: matchedUser,
-          organization: matchedOrg,
-          isOfflineFallback: true
-        };
+          await Promise.all([
+            storage.setItem(STORAGE_KEYS.TOKEN, mockToken),
+            storage.setItem(STORAGE_KEYS.USER, JSON.stringify(matchedUser)),
+            storage.setItem(STORAGE_KEYS.ORG, JSON.stringify(matchedOrg))
+          ]);
+
+          return {
+            success: true,
+            token: mockToken,
+            user: matchedUser,
+            organization: matchedOrg,
+            isOfflineFallback: true
+          };
+        }
       }
       throw err;
     }
@@ -241,42 +228,51 @@ class ApiService {
 
       return data;
     } catch (err) {
-      // Local fallback for registration
-      await this.store.init();
-      const newOrgId = `org-${Date.now()}`;
-      const newOrg = {
-        id: newOrgId,
-        name: payload.companyName || payload.name,
-        company_code: payload.companyCode || `CMP-${Date.now().toString().slice(-6)}`,
-        work_start: '09:30',
-        work_end: '18:30',
-        grace_period_mins: 15,
-        working_days: 'Mon,Tue,Wed,Thu,Fri'
-      };
-      const newUser = {
-        id: `user-${Date.now()}`,
-        name: payload.founderName || payload.name,
-        email: payload.founderEmail || payload.email,
-        role: 'founder',
-        organization_id: newOrgId,
-        department: 'Executive',
-        designation: 'Founder & CEO'
-      };
-      this.store.state.organizations.push(newOrg);
-      this.store.state.users.push(newUser);
-      await this.store.persist();
+      // Never fall back to mock when server rejected registration (e.g. 409 duplicate code/email)
+      if (err.isServerError || err.status) {
+        throw err;
+      }
 
-      this.token = `mock-reg-${newUser.id}`;
-      this.user = newUser;
-      this.org = newOrg;
+      // Only permit local fallback on genuine network connection failure
+      const isNetworkError = err.name === 'AbortError' || (err.message && (err.message.includes('Cannot reach EMS backend') || err.message.includes('Network request failed') || err.message.includes('Failed to fetch') || err.message.includes('ECONNREFUSED')));
+      if (isNetworkError) {
+        await this.store.init();
+        const newOrgId = `org-${Date.now()}`;
+        const newOrg = {
+          id: newOrgId,
+          name: payload.companyName || payload.name,
+          company_code: payload.companyCode || `CMP-${Date.now().toString().slice(-6)}`,
+          work_start: '09:30',
+          work_end: '18:30',
+          grace_period_mins: 15,
+          working_days: 'Mon,Tue,Wed,Thu,Fri'
+        };
+        const newUser = {
+          id: `user-${Date.now()}`,
+          name: payload.founderName || payload.name,
+          email: payload.founderEmail || payload.email,
+          role: 'founder',
+          organization_id: newOrgId,
+          department: 'Executive',
+          designation: 'Founder & CEO'
+        };
+        this.store.state.organizations.push(newOrg);
+        this.store.state.users.push(newUser);
+        await this.store.persist();
 
-      return {
-        success: true,
-        token: this.token,
-        user: newUser,
-        organization: newOrg,
-        isOfflineFallback: true
-      };
+        this.token = `mock-reg-${newUser.id}`;
+        this.user = newUser;
+        this.org = newOrg;
+
+        return {
+          success: true,
+          token: this.token,
+          user: newUser,
+          organization: newOrg,
+          isOfflineFallback: true
+        };
+      }
+      throw err;
     }
   }
 
@@ -356,8 +352,15 @@ class ApiService {
     try {
       return await this.request('/api/auth/me');
     } catch (err) {
-      if (this.user) {
-        return { success: true, user: this.user, organization: this.org };
+      // HTTP 401/403: Explicit authentication failure -> clear session and rethrow
+      if (err.status === 401 || err.status === 403 || (err.message && (err.message.includes('401') || err.message.includes('Invalid') || err.message.includes('expired')))) {
+        await this.logout().catch(() => {});
+        throw err;
+      }
+      // Only permit cached fallback on genuine offline network failure when session already exists
+      const isNetworkError = err.name === 'AbortError' || (err.message && (err.message.includes('Cannot reach EMS backend') || err.message.includes('Network request failed') || err.message.includes('Failed to fetch') || err.message.includes('ECONNREFUSED')));
+      if (isNetworkError && this.user) {
+        return { success: true, user: this.user, organization: this.org, isOfflineCached: true };
       }
       throw err;
     }

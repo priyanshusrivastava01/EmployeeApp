@@ -41,6 +41,28 @@ import {
 import FaceEnrollmentScreen from './src/screens/FaceEnrollmentScreen';
 import api from './src/services/api';
 
+/**
+ * Safely formats a calendar date string (YYYY-MM-DD) without UTC timezone drift
+ */
+function formatCalendarDate(dateStr) {
+  if (!dateStr || typeof dateStr !== 'string') return 'Today';
+  const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    const year = parseInt(match[1], 10);
+    const month = parseInt(match[2], 10) - 1;
+    const day = parseInt(match[3], 10);
+    // Construct local noon date: noon avoids any midnight boundary DST or UTC offset shifts
+    const localNoonDate = new Date(year, month, day, 12, 0, 0);
+    return localNoonDate.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  }
+  return dateStr;
+}
+
 function MainApp() {
   const { colors, isDark } = useTheme();
   const safeInsets = useSafeAppInsets();
@@ -126,7 +148,7 @@ function MainApp() {
             lastPunchOutTime: rec.punch_out_time ? new Date(rec.punch_out_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null,
             mode: rec.work_mode || rec.mode || 'WFO',
             punchInTime: rec.punch_in_time ? new Date(rec.punch_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null,
-            punchInDate: rec.work_date,
+            punchInDate: rec.work_date ? formatCalendarDate(rec.work_date) : null,
             punchInPhotoUri: rec.punch_in_photo_path,
             punchInCoords: (rec.punch_in_lat != null || rec.punch_in_latitude != null) ? {
               latitude: Number(rec.punch_in_latitude ?? rec.punch_in_lat),
@@ -161,12 +183,7 @@ function MainApp() {
         const rawList = Array.isArray(res.data) ? res.data : [];
         const mapped = rawList.map(item => ({
           id: item.id,
-          date: item.work_date ? new Date(item.work_date).toLocaleDateString('en-US', {
-            weekday: 'long',
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric'
-          }) : (item.date || 'Today'),
+          date: item.work_date ? formatCalendarDate(item.work_date) : (item.date || 'Today'),
           mode: item.work_mode || item.mode || 'WFO',
           punchIn: item.punch_in_time ? new Date(item.punch_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : (item.punchIn || '—'),
           punchOut: item.punch_out_time ? new Date(item.punch_out_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : (item.punchOut || 'In Progress'),

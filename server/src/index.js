@@ -2215,6 +2215,42 @@ app.get('/api/attendance', requireAuth, async (req, res) => {
 });
 
 /**
+ * Validates attendance selfie storage path ownership and format
+ */
+function validateAttendanceSelfiePath(photoPath, organizationId, userId) {
+  if (!photoPath || typeof photoPath !== 'string' || !photoPath.trim()) {
+    return { valid: false, status: 400, error: 'Attendance selfie reference is required.' };
+  }
+  const cleanPath = photoPath.replace(/\\/g, '/').trim();
+  if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
+    return { valid: false, status: 400, error: 'External image URLs are not permitted for attendance selfies.' };
+  }
+  if (cleanPath.startsWith('file://')) {
+    return { valid: false, status: 400, error: 'Local device file URIs must be uploaded to secure storage before submitting attendance.' };
+  }
+  if (cleanPath.includes('..') || cleanPath.startsWith('/') || cleanPath.includes('//')) {
+    return { valid: false, status: 400, error: 'Invalid selfie storage path. Path traversal is not permitted.' };
+  }
+
+  const parts = cleanPath.split('/');
+  if (parts.length < 3) {
+    return { valid: false, status: 400, error: 'Invalid selfie storage path format. Expected organizationId/userId/filename.' };
+  }
+
+  const [pathOrgId, pathUserId, ...rest] = parts;
+  if (pathOrgId !== organizationId || pathUserId !== userId) {
+    return { valid: false, status: 403, error: 'Selfie photo path does not belong to your organization and user account.' };
+  }
+
+  const filename = rest.join('/');
+  if (!filename || !/^[a-zA-Z0-9._-]+$/.test(filename)) {
+    return { valid: false, status: 400, error: 'Invalid selfie file name format.' };
+  }
+
+  return { valid: true, cleanPath };
+}
+
+/**
  * POST /api/attendance/punch-in
  * Submit a Punch In record for the authenticated employee.
  */
@@ -2233,10 +2269,12 @@ app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Coordinates out of bounds. Latitude must be between -90 and 90, longitude between -180 and 180.' });
     }
 
-    // Validate selfie reference
-    if (!photoPath || typeof photoPath !== 'string' || !photoPath.trim()) {
-      return res.status(400).json({ success: false, error: 'Attendance selfie reference is required.' });
+    // Validate selfie reference and ownership
+    const selfieValidation = validateAttendanceSelfiePath(photoPath, req.user.organizationId, req.user.id);
+    if (!selfieValidation.valid) {
+      return res.status(selfieValidation.status).json({ success: false, error: selfieValidation.error });
     }
+    const validatedPhotoPath = selfieValidation.cleanPath;
 
     // Validate mode
     const normalizedMode = (mode || 'WFO').toUpperCase();
@@ -2331,7 +2369,7 @@ app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
       punch_in_lat: lat,
       punch_in_lng: lng,
       punch_in_accuracy: accuracy != null ? Number(accuracy) : null,
-      punch_in_photo_path: photoPath.trim(),
+      punch_in_photo_path: validatedPhotoPath,
       punch_in_verified: isVerified,
       punch_in_distance_meters: distanceMeters,
       punch_out_time: null,
@@ -2399,10 +2437,12 @@ app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Coordinates out of bounds. Latitude must be between -90 and 90, longitude between -180 and 180.' });
     }
 
-    // Enforce fresh selfie upload / path for punch-out
-    if (!photoPath || typeof photoPath !== 'string' || !photoPath.trim()) {
-      return res.status(400).json({ success: false, error: 'A fresh attendance selfie reference is required for punch out.' });
+    // Enforce fresh selfie upload and ownership for punch-out
+    const selfieValidation = validateAttendanceSelfiePath(photoPath, req.user.organizationId, req.user.id);
+    if (!selfieValidation.valid) {
+      return res.status(selfieValidation.status).json({ success: false, error: selfieValidation.error });
     }
+    const validatedPhotoPath = selfieValidation.cleanPath;
 
     const today = new Date().toISOString().slice(0, 10);
     const isDbMode = Boolean(supabase && isUuid(req.user.id) && isUuid(req.user.organizationId));
@@ -2481,7 +2521,7 @@ app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
       punch_out_lat: lat,
       punch_out_lng: lng,
       punch_out_accuracy: accuracy != null ? Number(accuracy) : null,
-      punch_out_photo_path: photoPath.trim(),
+      punch_out_photo_path: validatedPhotoPath,
       punch_out_verified: isVerified,
       punch_out_distance_meters: distanceMeters,
       total_minutes: totalMinutes,
@@ -6299,16 +6339,80 @@ app.post('/api/storage/upload', requireAuth, async (req, res) => {
 app.get('/api/storage/signed-url', requireAuth, async (req, res) => {
   try {
     const { bucket = BUCKETS.SELFIES, filePath, path, expiresIn = 3600 } = req.query;
-    const targetPath = filePath || path;
-    if (!targetPath) {
+    const rawPath = filePath || path;
+    if (!rawPath || typeof rawPath !== 'string' || !rawPath.trim()) {
       return res.status(400).json({ success: false, error: 'filePath query parameter is required.' });
     }
-    const result = await getSignedDownloadUrl({ bucket, path: targetPath, expiresIn: parseInt(expiresIn, 10) });
+
+    // 1. Validate bucket against approved bucket constants
+    const allowedBuckets = Object.values(BUCKETS);
+    if (!allowedBuckets.includes(bucket)) {
+      return res.status(400).json({ success: false, error: `Invalid storage bucket: "${bucket}". Allowed buckets: ${allowedBuckets.join(', ')}` });
+    }
+
+    // 2. Normalize path and prevent path traversal / malformed paths
+    const normalizedPath = rawPath.replace(/\\/g, '/').trim();
+    if (normalizedPath.includes('..') || normalizedPath.startsWith('/') || normalizedPath.includes('//')) {
+      return res.status(400).json({ success: false, error: 'Invalid file path. Path traversal is not permitted.' });
+    }
+
+    const parts = normalizedPath.split('/');
+    if (parts.length < 3) {
+      return res.status(400).json({ success: false, error: 'Invalid storage path structure. Expected format: organizationId/userId/filename.' });
+    }
+
+    const [pathOrgId, pathUserId] = parts;
+
+    // 3. Strict Organization Isolation
+    if (pathOrgId !== req.user.organizationId) {
+      return res.status(403).json({ success: false, error: 'Access denied. You cannot access files outside your organization.' });
+    }
+
+    // 4. Role-based authorization scoping
+    const isManagement = ['founder', 'admin'].includes(req.user.role);
+    const isTeamLeader = req.user.role === 'team_leader';
+    const isEmployee = req.user.role === 'employee';
+    const isDbMode = Boolean(supabase && isUuid(req.user.organizationId));
+
+    if (isEmployee) {
+      if (pathUserId !== req.user.id) {
+        return res.status(403).json({ success: false, error: 'Access denied. Employees can only access their own private files.' });
+      }
+    } else if (isTeamLeader) {
+      if (pathUserId !== req.user.id) {
+        // Must belong to an assigned team member within the same organization
+        let isAssignedMember = false;
+        if (isDbMode) {
+          const { data: member } = await supabase
+            .from('users')
+            .select('id')
+            .eq('id', pathUserId)
+            .eq('organization_id', req.user.organizationId)
+            .eq('team_leader_id', req.user.id)
+            .maybeSingle();
+          if (member) isAssignedMember = true;
+        } else {
+          const member = mem.findUserById(pathUserId);
+          if (member && member.organization_id === req.user.organizationId && member.team_leader_id === req.user.id) {
+            isAssignedMember = true;
+          }
+        }
+        if (!isAssignedMember) {
+          return res.status(403).json({ success: false, error: 'Access denied. Team leaders can only view files for their assigned team members.' });
+        }
+      }
+    } else if (!isManagement) {
+      return res.status(403).json({ success: false, error: 'Access denied. Unauthorized role.' });
+    }
+
+    const safeExpiresIn = Math.min(Math.max(parseInt(expiresIn, 10) || 3600, 60), 86400);
+    const result = await getSignedDownloadUrl({ bucket, path: normalizedPath, expiresIn: safeExpiresIn });
     if (!result.success) {
       return res.status(500).json({ success: false, error: result.error || 'Failed to generate signed download URL.' });
     }
     res.json({ success: true, data: result });
   } catch (err) {
+    console.error('[Storage Signed URL]', err.message);
     res.status(500).json({ success: false, error: 'Signed URL generation failed.' });
   }
 });

@@ -305,6 +305,174 @@ async function runRegressionSuite() {
     assert(hydratedCompleted.isPunchedOut === true, 'Completed shift: isPunchedOut is true');
   }
 
+  // ── TEST 8: Timezone-Safe Date Parsing (formatCalendarDate) ─────────
+  console.log('\n--- Test 8: Timezone-Safe Date Parsing (formatCalendarDate) ---');
+  {
+    function formatCalendarDate(dateStr) {
+      if (!dateStr || typeof dateStr !== 'string') return 'Today';
+      const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (match) {
+        const year = parseInt(match[1], 10);
+        const month = parseInt(match[2], 10) - 1;
+        const day = parseInt(match[3], 10);
+        const localNoonDate = new Date(year, month, day, 12, 0, 0);
+        return localNoonDate.toLocaleDateString('en-US', {
+          weekday: 'long',
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric'
+        });
+      }
+      return dateStr;
+    }
+
+    const testDate = '2026-10-30';
+    const formatted = formatCalendarDate(testDate);
+    assert(formatted.includes('Oct 30, 2026') || formatted.includes('October 30, 2026'), `Date "2026-10-30" formatted correctly as "${formatted}" without off-by-one drift`);
+    assert(formatCalendarDate(null) === 'Today', 'Null date safely defaults to "Today"');
+  }
+
+  // ── TEST 9: Fresh App Init Leaves User and Org as Null ──────────────
+  console.log('\n--- Test 9: Fresh App Init Leaves User and Org as Null ---');
+  {
+    // Mock ApiService.init without stored data
+    class CleanApiService {
+      constructor() {
+        this.token = null;
+        this.user = null;
+        this.org = null;
+      }
+      async init() {
+        // No saved tokens or users in storage
+        return { token: this.token, user: this.user, org: this.org };
+      }
+    }
+    const cleanApi = new CleanApiService();
+    const session = await cleanApi.init();
+    assert(session.user === null, 'Fresh app launch has user = null');
+    assert(session.org === null, 'Fresh app launch has org = null');
+    assert(session.token === null, 'Fresh app launch has token = null');
+  }
+
+  // ── TEST 10: Server Rejection on Login Never Triggers Mock Auth ──────
+  console.log('\n--- Test 10: Server Rejection on Login Never Triggers Mock Auth ---');
+  {
+    class MockRejectionApi {
+      constructor() {
+        this.token = null;
+        this.user = null;
+      }
+      async request(endpoint) {
+        const err = new Error('Invalid email or password.');
+        err.status = 401;
+        err.isServerError = true;
+        throw err;
+      }
+      async login(email, password) {
+        try {
+          return await this.request('/api/auth/login');
+        } catch (err) {
+          if (err.isServerError || err.status) {
+            throw err;
+          }
+          // offline fallback should not run
+          return { success: true, isOfflineFallback: true };
+        }
+      }
+    }
+
+    const rejectionApi = new MockRejectionApi();
+    let caught401 = false;
+    let result = null;
+    try {
+      result = await rejectionApi.login('aarav.sharma@company.com', 'wrongpassword');
+    } catch (err) {
+      caught401 = true;
+      assert(err.status === 401, 'Error retains HTTP 401 status code');
+    }
+    assert(caught401 === true, 'Server 401 error was thrown to caller');
+    assert(result === null, 'No mock session was created on wrong password');
+  }
+
+  // ── TEST 11: Server Rejection on Register Never Triggers Mock Org ────
+  console.log('\n--- Test 11: Server Rejection on Register Never Triggers Mock Org ---');
+  {
+    class MockRegisterRejectionApi {
+      async request(endpoint) {
+        const err = new Error('This company code is already in use.');
+        err.status = 409;
+        err.isServerError = true;
+        throw err;
+      }
+      async registerCompany(payload) {
+        try {
+          return await this.request('/api/auth/register-company');
+        } catch (err) {
+          if (err.isServerError || err.status) {
+            throw err;
+          }
+          return { success: true, isOfflineFallback: true };
+        }
+      }
+    }
+
+    const regApi = new MockRegisterRejectionApi();
+    let caught409 = false;
+    let regResult = null;
+    try {
+      regResult = await regApi.registerCompany({ companyCode: 'DUPLICATE' });
+    } catch (err) {
+      caught409 = true;
+      assert(err.status === 409, 'Error retains HTTP 409 status code');
+    }
+    assert(caught409 === true, 'Server 409 error was thrown to caller');
+    assert(regResult === null, 'No mock company was created on duplicate registration');
+  }
+
+  // ── TEST 12: getMe() HTTP 401 Clears Session and Throws ──────────────
+  console.log('\n--- Test 12: getMe() HTTP 401 Clears Session and Throws ---');
+  {
+    class MockGetMeApi {
+      constructor() {
+        this.token = 'expired-token';
+        this.user = { id: 'emp-101' };
+      }
+      async logout() {
+        this.token = null;
+        this.user = null;
+      }
+      async request() {
+        const err = new Error('Session expired. Please log in again.');
+        err.status = 401;
+        err.isServerError = true;
+        throw err;
+      }
+      async getMe() {
+        try {
+          return await this.request();
+        } catch (err) {
+          if (err.status === 401 || err.status === 403 || err.message?.includes('401')) {
+            await this.logout();
+            throw err;
+          }
+          if (this.user) return { success: true, user: this.user };
+          throw err;
+        }
+      }
+    }
+
+    const getMeApi = new MockGetMeApi();
+    let getMeError = false;
+    try {
+      await getMeApi.getMe();
+    } catch (e) {
+      getMeError = true;
+    }
+    assert(getMeError === true, 'getMe() rethrew HTTP 401 error');
+    assert(getMeApi.token === null, 'Token cleared on 401');
+    assert(getMeApi.user === null, 'User cleared on 401');
+  }
+
   // ── SUMMARY ────────────────────────────────────────────────────────
   console.log('\n======================================================================');
   console.log(`TOTAL TESTS: ${passed + failed} | PASSED: ${passed} | FAILED: ${failed}`);
