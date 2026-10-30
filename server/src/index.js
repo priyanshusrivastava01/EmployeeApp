@@ -56,6 +56,9 @@ const getISTDayName = (dateStr) => {
 // Standard RFC 4122 v4 UUID generator for all internal database primary & foreign keys
 const generateUUID = () => crypto.randomUUID();
 
+// Validates whether an identifier is a genuine RFC 4122 UUID
+const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // IN-MEMORY DATA STORE (Development fallback when Supabase not configured)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -785,8 +788,9 @@ app.post('/api/companies/check-code-availability', authLimiter, async (req, res)
  */
 app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
-    const { email, password, portal, companyId } = req.body;
-    const identifier = (email || '').trim();
+    const companyId = req.body.companyId || req.body.companyCode;
+    const identifier = (req.body.email || req.body.identifier || req.body.employeeId || req.body.employeeIdOrEmail || '').trim();
+    const { password, portal } = req.body;
     if (!identifier || !password) {
       return res.status(400).json({ success: false, error: 'Email or Employee ID, and password are required.' });
     }
@@ -796,11 +800,18 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     if (companyId && companyId.trim()) {
       const compId = companyId.trim().toUpperCase();
       if (supabase) {
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(companyId.trim());
+        const orConditions = [
+          `public_company_id.eq.${compId}`,
+          `company_code.eq.${compId}`,
+          `slug.eq.${companyId.trim().toLowerCase()}`
+        ];
+        if (isUuid) orConditions.push(`id.eq.${companyId.trim()}`);
         const { data: dbOrg } = await supabase
           .from('organizations')
           .select('*')
-          .or(`public_company_id.eq.${compId},slug.eq.${companyId.trim().toLowerCase()},id.eq.${companyId.trim()}`)
-          .single();
+          .or(orConditions.join(','))
+          .maybeSingle();
         if (dbOrg) targetOrg = dbOrg;
       }
       if (!targetOrg) {
@@ -962,7 +973,10 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
         name: org.name,
         slug: org.slug,
         logoUrl: org.logo_url,
-        timezone: org.timezone
+        timezone: org.timezone,
+        office_lat: org.office_lat != null ? Number(org.office_lat) : null,
+        office_lng: org.office_lng != null ? Number(org.office_lng) : null,
+        office_radius_meters: org.office_radius_meters != null ? Number(org.office_radius_meters) : 100
       }
     });
   } catch (err) {
@@ -1232,7 +1246,9 @@ app.post('/api/auth/register-company', authLimiter, async (req, res) => {
       newOrg.office_lat = locLat;
       newOrg.office_lng = locLng;
       if (supabase) {
-        await supabase.from('organizations').update({ office_lat: locLat, office_lng: locLng }).eq('id', orgId).catch(() => {});
+        try {
+          await supabase.from('organizations').update({ office_lat: locLat, office_lng: locLng }).eq('id', orgId);
+        } catch (_) {}
       }
     }
 
@@ -1254,7 +1270,10 @@ app.post('/api/auth/register-company', authLimiter, async (req, res) => {
         industry: newOrg.industry,
         country: newOrg.country,
         city: newOrg.city,
-        timezone: newOrg.timezone
+        timezone: newOrg.timezone,
+        office_lat: newOrg.office_lat != null ? Number(newOrg.office_lat) : null,
+        office_lng: newOrg.office_lng != null ? Number(newOrg.office_lng) : null,
+        office_radius_meters: newOrg.office_radius_meters != null ? Number(newOrg.office_radius_meters) : 150
       },
       branch: {
         id: newBranch.id,
@@ -1376,7 +1395,10 @@ app.post('/api/auth/join-company', authLimiter, async (req, res) => {
         name: org.name,
         slug: org.slug,
         logoUrl: org.logo_url,
-        timezone: org.timezone
+        timezone: org.timezone,
+        office_lat: org.office_lat != null ? Number(org.office_lat) : null,
+        office_lng: org.office_lng != null ? Number(org.office_lng) : null,
+        office_radius_meters: org.office_radius_meters != null ? Number(org.office_radius_meters) : 100
       }
     });
   } catch (err) {
@@ -2116,6 +2138,7 @@ app.get('/api/attendance', requireAuth, async (req, res) => {
     const isFounderOrAdmin = ['founder', 'admin'].includes(req.user.role);
     const isTeamLeader = req.user.role === 'team_leader';
     const isEmployee = req.user.role === 'employee';
+    const isDbMode = Boolean(supabase && isUuid(req.user.organizationId));
 
     let targetUserId = null;
     let allowedTeamIds = null;
@@ -2123,8 +2146,18 @@ app.get('/api/attendance', requireAuth, async (req, res) => {
     if (isEmployee) {
       targetUserId = req.user.id;
     } else if (isTeamLeader) {
-      const team = mem.getUsersForOrg(req.user.organizationId).filter(u => u.team_leader_id === req.user.id || u.id === req.user.id);
-      allowedTeamIds = new Set(team.map(u => u.id));
+      if (isDbMode) {
+        const { data: teamMembers } = await supabase
+          .from('users')
+          .select('id')
+          .eq('organization_id', req.user.organizationId)
+          .or(`team_leader_id.eq.${req.user.id},id.eq.${req.user.id}`);
+        allowedTeamIds = new Set((teamMembers || []).map(u => u.id));
+      } else {
+        const team = mem.getUsersForOrg(req.user.organizationId).filter(u => u.team_leader_id === req.user.id || u.id === req.user.id);
+        allowedTeamIds = new Set(team.map(u => u.id));
+      }
+
       if (req.query.user_id) {
         if (!allowedTeamIds.has(req.query.user_id)) {
           return res.status(403).json({ success: false, error: 'Access denied. You can only view attendance for your assigned team members.' });
@@ -2139,32 +2172,44 @@ app.get('/api/attendance', requireAuth, async (req, res) => {
     const dateFrom = req.query.date_from;
     const dateTo = req.query.date_to;
 
-    let records = [];
-    if (supabase) {
+    if (isDbMode) {
       let query = supabase.from('attendance_records')
         .select('*, users!user_id(name, designation, department, profile_photo_url)')
         .eq('organization_id', req.user.organizationId)
         .order('work_date', { ascending: false })
         .limit(100);
-      if (targetUserId) query = query.eq('user_id', targetUserId);
+
+      if (targetUserId) {
+        query = query.eq('user_id', targetUserId);
+      } else if (isTeamLeader && allowedTeamIds) {
+        const teamArr = Array.from(allowedTeamIds);
+        query = query.in('user_id', teamArr.length > 0 ? teamArr : [req.user.id]);
+      }
+
       if (dateFrom) query = query.gte('work_date', dateFrom);
       if (dateTo) query = query.lte('work_date', dateTo);
+
       const { data, error } = await query;
-      if (!error && data) records = data;
+      if (error) {
+        console.error('[Attendance History] Supabase error:', error.message);
+        return res.status(500).json({ success: false, error: 'Failed to fetch attendance: ' + error.message });
+      }
+
+      const records = data || [];
+      return res.json({ success: true, data: records, total: records.length, source: 'supabase' });
     }
 
-    if (!records.length) {
-      records = mem.getAttendanceForOrg(req.user.organizationId, targetUserId);
-      if (dateFrom) records = records.filter(r => r.work_date >= dateFrom);
-      if (dateTo) records = records.filter(r => r.work_date <= dateTo);
-    }
-
+    // In-memory fallback ONLY when !supabase
+    let records = mem.getAttendanceForOrg(req.user.organizationId, targetUserId);
+    if (dateFrom) records = records.filter(r => r.work_date >= dateFrom);
+    if (dateTo) records = records.filter(r => r.work_date <= dateTo);
     if (isTeamLeader && !targetUserId && allowedTeamIds) {
       records = records.filter(r => allowedTeamIds.has(r.user_id));
     }
 
-    res.json({ success: true, data: records, total: records.length });
+    res.json({ success: true, data: records, total: records.length, source: 'memory' });
   } catch (err) {
+    console.error('[Attendance History]', err.message);
     res.status(500).json({ success: false, error: 'Failed to fetch attendance.' });
   }
 });
@@ -2178,34 +2223,101 @@ app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
     const { mode = 'WFO', latitude, longitude, accuracy } = req.body;
     const photoPath = req.body.photoPath || req.body.photoUri;
 
-    if (!latitude || !longitude) {
-      return res.status(400).json({ success: false, error: 'GPS coordinates are required for punch in.' });
+    // Validate coordinates, allowing legitimate 0.0 values
+    if (latitude == null || longitude == null || isNaN(Number(latitude)) || isNaN(Number(longitude))) {
+      return res.status(400).json({ success: false, error: 'Valid GPS coordinates (latitude and longitude) are required for punch in.' });
     }
-    if (!photoPath) {
-      return res.status(400).json({ success: false, error: 'Attendance photo reference is required.' });
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return res.status(400).json({ success: false, error: 'Coordinates out of bounds. Latitude must be between -90 and 90, longitude between -180 and 180.' });
+    }
+
+    // Validate selfie reference
+    if (!photoPath || typeof photoPath !== 'string' || !photoPath.trim()) {
+      return res.status(400).json({ success: false, error: 'Attendance selfie reference is required.' });
+    }
+
+    // Validate mode
+    const normalizedMode = (mode || 'WFO').toUpperCase();
+    if (!['WFO', 'WFH'].includes(normalizedMode)) {
+      return res.status(400).json({ success: false, error: 'Invalid mode. Must be either "WFO" or "WFH".' });
     }
 
     const today = new Date().toISOString().slice(0, 10);
+    const isDbMode = Boolean(supabase && isUuid(req.user.id) && isUuid(req.user.organizationId));
 
     // Check for duplicate punch-in today
-    const existingToday = memDb.attendance.find(
-      a => a.user_id === req.user.id && a.work_date === today && a.organization_id === req.user.organizationId
-    );
-    if (existingToday) {
-      return res.status(409).json({ success: false, error: 'You have already punched in today. Use punch-out to end your current session.' });
+    if (isDbMode) {
+      const { data: existingRecord, error: checkErr } = await supabase
+        .from('attendance_records')
+        .select('id, punch_in_time, punch_out_time, mode')
+        .eq('user_id', req.user.id)
+        .eq('organization_id', req.user.organizationId)
+        .eq('work_date', today)
+        .maybeSingle();
+
+      if (checkErr) {
+        console.error('[Punch In] Error checking existing attendance:', checkErr.message);
+        return res.status(500).json({ success: false, error: 'Failed to verify attendance status: ' + checkErr.message });
+      }
+
+      if (existingRecord) {
+        return res.status(409).json({
+          success: false,
+          error: 'You have already punched in today. Use punch-out to end your current session.'
+        });
+      }
+    } else {
+      const existingToday = memDb.attendance.find(
+        a => a.user_id === req.user.id && a.work_date === today && a.organization_id === req.user.organizationId
+      );
+      if (existingToday) {
+        return res.status(409).json({
+          success: false,
+          error: 'You have already punched in today. Use punch-out to end your current session.'
+        });
+      }
     }
 
-    // Geofence check for WFO
-    const org = mem.findOrgById(req.user.organizationId);
-    let distanceMeters = null;
-    let isVerified = mode === 'WFH'; // WFH doesn't require geofence
+    // Fetch organization settings for geofence and WFH rules
+    let org = null;
+    if (isDbMode) {
+      const { data: dbOrg, error: orgErr } = await supabase
+        .from('organizations')
+        .select('office_lat, office_lng, office_radius_meters, wfh_allowed')
+        .eq('id', req.user.organizationId)
+        .maybeSingle();
 
-    if (mode === 'WFO' && org && org.office_lat && org.office_lng) {
-      distanceMeters = haversineDistance(
-        latitude, longitude,
-        org.office_lat, org.office_lng
-      );
-      isVerified = distanceMeters <= (org.office_radius_meters || 100);
+      if (orgErr) {
+        console.error('[Punch In] Failed to retrieve organization settings:', orgErr.message);
+        return res.status(500).json({ success: false, error: 'Failed to retrieve organization settings.' });
+      }
+      org = dbOrg;
+    } else {
+      org = mem.findOrgById(req.user.organizationId);
+    }
+
+    let distanceMeters = null;
+    let isVerified = false;
+
+    if (normalizedMode === 'WFH') {
+      if (org && org.wfh_allowed === false) {
+        return res.status(403).json({ success: false, error: 'Work from home (WFH) is not allowed for your organization.' });
+      }
+      isVerified = true;
+    } else {
+      // WFO mode
+      if (org && org.office_lat != null && org.office_lng != null) {
+        distanceMeters = Math.round(haversineDistance(
+          lat, lng,
+          Number(org.office_lat), Number(org.office_lng)
+        ));
+        const allowedRadius = Number(org.office_radius_meters) || 100;
+        isVerified = distanceMeters <= allowedRadius;
+      } else {
+        isVerified = true;
+      }
     }
 
     const punchInIso = new Date().toISOString();
@@ -2214,38 +2326,47 @@ app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
       organization_id: req.user.organizationId,
       user_id: req.user.id,
       work_date: today,
-      mode,
+      mode: normalizedMode,
       punch_in_time: punchInIso,
-      punch_in_lat: latitude,
-      punch_in_lng: longitude,
-      punch_in_accuracy: accuracy || null,
-      punch_in_photo_path: photoPath || null,
+      punch_in_lat: lat,
+      punch_in_lng: lng,
+      punch_in_accuracy: accuracy != null ? Number(accuracy) : null,
+      punch_in_photo_path: photoPath.trim(),
       punch_in_verified: isVerified,
       punch_in_distance_meters: distanceMeters,
       punch_out_time: null,
       punch_out_lat: null,
       punch_out_lng: null,
       total_minutes: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      created_at: punchInIso,
+      updated_at: punchInIso
     };
-    const newRecord = { ...dbRecord, punchInTime: punchInIso };
 
-    if (supabase) {
+    if (isDbMode) {
       const { data, error } = await supabase.from('attendance_records').insert([dbRecord]).select().single();
       if (error) {
         console.error('[Punch In] Supabase attendance insert failed:', error.message);
+        if (error.code === '23505') {
+          return res.status(409).json({ success: false, error: 'You have already punched in today. Use punch-out to end your current session.' });
+        }
         return res.status(500).json({ success: false, error: 'Database attendance record failed: ' + error.message });
       }
-      if (data) {
-        const enriched = { ...data, punchInTime: data.punch_in_time };
-        memDb.attendance.push(enriched);
-        return res.status(201).json({ success: true, data: enriched, attendance: enriched, geofenceVerified: data.punch_in_verified, distanceMeters, source: 'supabase' });
-      }
+
+      const enriched = { ...data, punchInTime: data.punch_in_time };
+      return res.status(201).json({
+        success: true,
+        data: enriched,
+        attendance: enriched,
+        geofenceVerified: data.punch_in_verified,
+        distanceMeters,
+        source: 'supabase'
+      });
     }
 
+    // In-memory fallback ONLY when !supabase
+    const newRecord = { ...dbRecord, punchInTime: punchInIso };
     memDb.attendance.push(newRecord);
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       data: newRecord,
       attendance: newRecord,
@@ -2255,7 +2376,7 @@ app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
     });
   } catch (err) {
     console.error('[Punch In]', err.message);
-    res.status(500).json({ success: false, error: 'Punch in failed.' });
+    res.status(500).json({ success: false, error: 'Punch in failed: ' + err.message });
   }
 });
 
@@ -2265,79 +2386,142 @@ app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
  */
 app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
   try {
-    const { latitude, longitude, accuracy, photoPath } = req.body;
+    const { latitude, longitude, accuracy } = req.body;
+    const photoPath = req.body.photoPath || req.body.photoUri;
 
-    if (!latitude || !longitude) {
-      return res.status(400).json({ success: false, error: 'GPS coordinates are required for punch out.' });
+    // Validate coordinates, allowing legitimate 0.0 values
+    if (latitude == null || longitude == null || isNaN(Number(latitude)) || isNaN(Number(longitude))) {
+      return res.status(400).json({ success: false, error: 'Valid GPS coordinates (latitude and longitude) are required for punch out.' });
+    }
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return res.status(400).json({ success: false, error: 'Coordinates out of bounds. Latitude must be between -90 and 90, longitude between -180 and 180.' });
+    }
+
+    // Enforce fresh selfie upload / path for punch-out
+    if (!photoPath || typeof photoPath !== 'string' || !photoPath.trim()) {
+      return res.status(400).json({ success: false, error: 'A fresh attendance selfie reference is required for punch out.' });
     }
 
     const today = new Date().toISOString().slice(0, 10);
+    const isDbMode = Boolean(supabase && isUuid(req.user.id) && isUuid(req.user.organizationId));
+    let session = null;
 
-    // Find today's open session
-    let sessionIdx = memDb.attendance.findIndex(
-      a => a.user_id === req.user.id &&
-           a.work_date === today &&
-           a.organization_id === req.user.organizationId &&
-           !a.punch_out_time
-    );
+    if (isDbMode) {
+      const { data: activeRecord, error: findErr } = await supabase
+        .from('attendance_records')
+        .select('*')
+        .eq('user_id', req.user.id)
+        .eq('organization_id', req.user.organizationId)
+        .eq('work_date', today)
+        .is('punch_out_time', null)
+        .maybeSingle();
 
-    if (sessionIdx === -1) {
-      return res.status(400).json({ success: false, error: 'No active punch-in session found for today. Please punch in first.' });
+      if (findErr) {
+        console.error('[Punch Out] Error querying active session:', findErr.message);
+        return res.status(500).json({ success: false, error: 'Failed to look up active attendance session: ' + findErr.message });
+      }
+
+      if (!activeRecord) {
+        return res.status(400).json({
+          success: false,
+          error: 'No active punch-in session found for today. Please punch in first.'
+        });
+      }
+      session = activeRecord;
+    } else {
+      let sessionIdx = memDb.attendance.findIndex(
+        a => a.user_id === req.user.id &&
+             a.work_date === today &&
+             a.organization_id === req.user.organizationId &&
+             !a.punch_out_time
+      );
+      if (sessionIdx === -1) {
+        return res.status(400).json({
+          success: false,
+          error: 'No active punch-in session found for today. Please punch in first.'
+        });
+      }
+      session = memDb.attendance[sessionIdx];
     }
 
-    const session = memDb.attendance[sessionIdx];
+    // Calculate elapsed duration in minutes
     const punchInTime = new Date(session.punch_in_time);
     const punchOutTime = new Date();
-    const totalMinutes = Math.floor((punchOutTime - punchInTime) / 60000);
+    const totalMinutes = Math.max(0, Math.floor((punchOutTime.getTime() - punchInTime.getTime()) / 60000));
 
-    // Org geofence check
-    const org = mem.findOrgById(req.user.organizationId);
+    // Fetch org geofence settings
+    let org = null;
+    if (isDbMode) {
+      const { data: dbOrg } = await supabase
+        .from('organizations')
+        .select('office_lat, office_lng, office_radius_meters')
+        .eq('id', req.user.organizationId)
+        .maybeSingle();
+      org = dbOrg;
+    } else {
+      org = mem.findOrgById(req.user.organizationId);
+    }
+
     let distanceMeters = null;
     let isVerified = session.mode === 'WFH';
 
-    if (session.mode === 'WFO' && org && org.office_lat && org.office_lng) {
-      distanceMeters = haversineDistance(latitude, longitude, org.office_lat, org.office_lng);
-      isVerified = distanceMeters <= (org.office_radius_meters || 100);
+    if (session.mode === 'WFO' && org && org.office_lat != null && org.office_lng != null) {
+      distanceMeters = Math.round(haversineDistance(lat, lng, Number(org.office_lat), Number(org.office_lng)));
+      const allowedRadius = Number(org.office_radius_meters) || 100;
+      isVerified = distanceMeters <= allowedRadius;
+    } else if (session.mode === 'WFO') {
+      isVerified = true;
     }
 
     const punchOutIso = punchOutTime.toISOString();
     const dbUpdates = {
       punch_out_time: punchOutIso,
-      punch_out_lat: latitude,
-      punch_out_lng: longitude,
-      punch_out_accuracy: accuracy || null,
-      punch_out_photo_path: photoPath || null,
+      punch_out_lat: lat,
+      punch_out_lng: lng,
+      punch_out_accuracy: accuracy != null ? Number(accuracy) : null,
+      punch_out_photo_path: photoPath.trim(),
       punch_out_verified: isVerified,
       punch_out_distance_meters: distanceMeters,
       total_minutes: totalMinutes,
-      updated_at: new Date().toISOString()
+      updated_at: punchOutIso
     };
-    const updates = { ...dbUpdates, punchOutTime: punchOutIso };
 
-    if (supabase) {
-      const { data, error } = await supabase.from('attendance_records')
+    if (isDbMode) {
+      const { data, error } = await supabase
+        .from('attendance_records')
         .update(dbUpdates)
         .eq('id', session.id)
         .eq('organization_id', req.user.organizationId)
         .select()
         .single();
+
       if (error) {
-        console.error('[Punch Out Supabase Error]', error);
-        return res.status(500).json({ success: false, error: 'Failed to record punch out: ' + (error.message || 'Database error') });
+        console.error('[Punch Out Supabase Error]', error.message);
+        return res.status(500).json({ success: false, error: 'Failed to record punch out: ' + error.message });
       }
-      if (data) {
-        const enriched = { ...data, punchOutTime: data.punch_out_time };
-        memDb.attendance[sessionIdx] = enriched;
-        return res.json({ success: true, data: enriched, attendance: enriched, totalMinutes, source: 'supabase' });
-      }
+
+      const enriched = { ...data, punchOutTime: data.punch_out_time };
+      return res.json({
+        success: true,
+        data: enriched,
+        attendance: enriched,
+        totalMinutes,
+        source: 'supabase'
+      });
     }
 
-    memDb.attendance[sessionIdx] = { ...session, ...updates };
-    const outRecord = memDb.attendance[sessionIdx];
-    res.json({ success: true, data: outRecord, attendance: outRecord, totalMinutes, source: 'memory' });
+    // In-memory fallback ONLY when !supabase
+    const sessionIdx = memDb.attendance.findIndex(a => a.id === session.id);
+    if (sessionIdx !== -1) {
+      memDb.attendance[sessionIdx] = { ...session, ...dbUpdates, punchOutTime: punchOutIso };
+    }
+    const outRecord = memDb.attendance[sessionIdx] || { ...session, ...dbUpdates };
+    return res.json({ success: true, data: outRecord, attendance: outRecord, totalMinutes, source: 'memory' });
   } catch (err) {
     console.error('[Punch Out]', err.message);
-    res.status(500).json({ success: false, error: 'Punch out failed.' });
+    res.status(500).json({ success: false, error: 'Punch out failed: ' + err.message });
   }
 });
 
@@ -2348,36 +2532,50 @@ app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
 app.get('/api/attendance/today', requireAuth, async (req, res) => {
   try {
     const today = new Date().toISOString().slice(0, 10);
-    let record = null;
+    const isDbMode = Boolean(supabase && isUuid(req.user.id) && isUuid(req.user.organizationId));
 
-    if (supabase) {
-      const { data } = await supabase.from('attendance_records')
+    if (isDbMode) {
+      const { data, error } = await supabase.from('attendance_records')
         .select('*')
         .eq('user_id', req.user.id)
         .eq('organization_id', req.user.organizationId)
         .eq('work_date', today)
-        .single();
-      record = data;
+        .maybeSingle();
+
+      if (error) {
+        console.error('[Attendance Today] Supabase error:', error.message);
+        return res.status(500).json({ success: false, error: 'Failed to fetch today\'s attendance: ' + error.message });
+      }
+
+      const isPunchedIn = Boolean(data && data.punch_in_time && !data.punch_out_time);
+      const isPunchedOut = Boolean(data && data.punch_out_time);
+      return res.json({
+        success: true,
+        data,
+        record: data,
+        isPunchedIn,
+        isPunchedOut,
+        source: 'supabase'
+      });
     }
 
-    if (!record) {
-      record = memDb.attendance.find(
-        a => a.user_id === req.user.id && a.work_date === today && a.organization_id === req.user.organizationId
-      ) || null;
-    }
-
+    // In-memory fallback ONLY when !supabase
+    const record = memDb.attendance.find(
+      a => a.user_id === req.user.id && a.work_date === today && a.organization_id === req.user.organizationId
+    ) || null;
     const isPunchedIn = Boolean(record && record.punch_in_time && !record.punch_out_time);
     const isPunchedOut = Boolean(record && record.punch_out_time);
-
-    res.json({
+    return res.json({
       success: true,
       data: record,
       record,
       isPunchedIn,
-      isPunchedOut
+      isPunchedOut,
+      source: 'memory'
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: 'Failed to fetch today\'s attendance.' });
+    console.error('[Attendance Today]', err.message);
+    res.status(500).json({ success: false, error: 'Failed to fetch today\'s attendance: ' + err.message });
   }
 });
 
@@ -2388,6 +2586,95 @@ app.get('/api/attendance/today', requireAuth, async (req, res) => {
 app.get('/api/attendance/stats', requireAuth, requireRole(['founder', 'admin', 'team_leader']), async (req, res) => {
   try {
     const today = new Date().toISOString().slice(0, 10);
+    const isDbMode = Boolean(supabase && isUuid(req.user.organizationId));
+
+    if (isDbMode) {
+      // 1. Fetch organization settings for work start time and late threshold
+      const { data: orgData } = await supabase
+        .from('organizations')
+        .select('work_start_time, late_threshold_minutes')
+        .eq('id', req.user.organizationId)
+        .maybeSingle();
+
+      const lateMinutes = orgData?.late_threshold_minutes || 15;
+      const workStartParts = (orgData?.work_start_time || '09:30').split(':');
+      const workStartH = parseInt(workStartParts[0], 10) || 9;
+      const workStartM = parseInt(workStartParts[1], 10) || 30;
+      const workStartTotalMin = workStartH * 60 + workStartM + lateMinutes;
+
+      // 2. Fetch users for org
+      let usersQuery = supabase
+        .from('users')
+        .select('id, role, is_active, team_leader_id')
+        .eq('organization_id', req.user.organizationId);
+
+      if (req.user.role === 'team_leader') {
+        usersQuery = usersQuery.or(`team_leader_id.eq.${req.user.id},id.eq.${req.user.id}`);
+      }
+
+      const { data: orgUsers, error: usersErr } = await usersQuery;
+      if (usersErr) {
+        return res.status(500).json({ success: false, error: 'Failed to fetch organization users: ' + usersErr.message });
+      }
+
+      const activeUsers = (orgUsers || []).filter(u => u.is_active && u.role !== 'admin' && u.role !== 'founder');
+
+      // 3. Fetch today's attendance records
+      let attQuery = supabase
+        .from('attendance_records')
+        .select('id, user_id, mode, punch_in_time')
+        .eq('organization_id', req.user.organizationId)
+        .eq('work_date', today);
+
+      if (req.user.role === 'team_leader') {
+        const teamIds = (orgUsers || []).map(u => u.id);
+        attQuery = attQuery.in('user_id', teamIds.length > 0 ? teamIds : [req.user.id]);
+      }
+
+      const { data: todayRecords, error: attErr } = await attQuery;
+      if (attErr) {
+        return res.status(500).json({ success: false, error: 'Failed to fetch attendance records: ' + attErr.message });
+      }
+
+      const records = todayRecords || [];
+      const presentToday = records.length;
+      const wfoCount = records.filter(a => a.mode === 'WFO').length;
+      const wfhCount = records.filter(a => a.mode === 'WFH').length;
+      const lateArrivals = records.filter(a => {
+        if (!a.punch_in_time) return false;
+        const punchTime = new Date(a.punch_in_time);
+        const punchTotalMin = punchTime.getHours() * 60 + punchTime.getMinutes();
+        return punchTotalMin > workStartTotalMin;
+      }).length;
+
+      // 4. Pending leaves from database
+      const { count: pendingLeavesCount } = await supabase
+        .from('leaves')
+        .select('*', { count: 'exact', head: true })
+        .eq('organization_id', req.user.organizationId)
+        .eq('status', 'pending');
+
+      const statsData = {
+        totalEmployees: activeUsers.length,
+        activeEmployees: activeUsers.length,
+        presentToday,
+        absentToday: Math.max(0, activeUsers.length - presentToday),
+        lateArrivals,
+        wfoCount,
+        wfhCount,
+        pendingLeaves: pendingLeavesCount || 0,
+        pendingReports: 0,
+        source: 'supabase'
+      };
+
+      return res.json({
+        success: true,
+        data: statsData,
+        ...statsData
+      });
+    }
+
+    // In-memory fallback ONLY when !supabase:
     let orgUsers = mem.getUsersForOrg(req.user.organizationId);
     let todayRecords = memDb.attendance.filter(
       a => a.organization_id === req.user.organizationId && a.work_date === today
@@ -2431,7 +2718,8 @@ app.get('/api/attendance/stats', requireAuth, requireRole(['founder', 'admin', '
       wfoCount,
       wfhCount,
       pendingLeaves: mem.getLeavesForOrg(req.user.organizationId, null).filter(l => l.status === 'pending').length,
-      pendingReports: 0
+      pendingReports: 0,
+      source: 'memory'
     };
 
     res.json({
@@ -2440,6 +2728,7 @@ app.get('/api/attendance/stats', requireAuth, requireRole(['founder', 'admin', '
       ...statsData
     });
   } catch (err) {
+    console.error('[Attendance Stats]', err.message);
     res.status(500).json({ success: false, error: 'Failed to fetch attendance stats.' });
   }
 });
@@ -5331,14 +5620,20 @@ app.post('/api/profile/photo', requireAuth, async (req, res) => {
     let finalPhotoUrl = photoUrl;
     // Check if this is a base64 photo that should be uploaded to private storage
     if (isBase64DataUri(photoUrl)) {
-      const uploadRes = await uploadPrivateFile(
-        BUCKETS.AVATARS,
-        photoUrl,
-        `avatar-${req.user.id}-${Date.now()}.jpg`,
-        req.user.organizationId
-      );
-      if (uploadRes.success) {
-        finalPhotoUrl = uploadRes.signedUrl || uploadRes.filePath;
+      try {
+        const { contentType, buffer } = parseBase64DataUri(photoUrl);
+        const avatarPath = `${req.user.organizationId}/${req.user.id}/avatar-${Date.now()}.jpg`;
+        const uploadRes = await uploadPrivateFile({
+          bucket: BUCKETS.AVATARS,
+          path: avatarPath,
+          buffer,
+          contentType
+        });
+        if (uploadRes.success) {
+          finalPhotoUrl = uploadRes.path;
+        }
+      } catch (uploadErr) {
+        console.warn('[Profile Photo Upload]', uploadErr.message);
       }
     }
 
@@ -5930,17 +6225,74 @@ app.post('/api/admin/advances/:id/repayment', requireAuth, requireRole(['founder
 app.post('/api/storage/upload', requireAuth, async (req, res) => {
   try {
     const { bucket = BUCKETS.SELFIES, dataUri, filename } = req.body;
-    if (!dataUri) {
+    if (!dataUri || typeof dataUri !== 'string') {
       return res.status(400).json({ success: false, error: 'dataUri is required (base64 data URI format).' });
     }
-    const safeFilename = filename || `${req.user.id}-${Date.now()}.jpg`;
-    const result = await uploadPrivateFile(bucket, dataUri, safeFilename, req.user.organizationId);
+
+    // Validate bucket
+    const allowedBuckets = Object.values(BUCKETS);
+    if (!allowedBuckets.includes(bucket)) {
+      return res.status(400).json({ success: false, error: `Invalid storage bucket: "${bucket}". Allowed buckets: ${allowedBuckets.join(', ')}` });
+    }
+
+    // Validate base64 data URI format
+    if (!isBase64DataUri(dataUri)) {
+      return res.status(400).json({ success: false, error: 'Invalid file payload. Must be a valid image base64 data URI (e.g. data:image/jpeg;base64,...).' });
+    }
+
+    let parsed;
+    try {
+      parsed = parseBase64DataUri(dataUri);
+    } catch (parseErr) {
+      return res.status(400).json({ success: false, error: 'Failed to parse image data: ' + parseErr.message });
+    }
+
+    const { contentType, buffer } = parsed;
+
+    // Validate MIME type
+    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!allowedMimeTypes.includes(contentType.toLowerCase())) {
+      return res.status(400).json({ success: false, error: `Unsupported image format: "${contentType}". Allowed formats: JPEG, PNG, WEBP.` });
+    }
+
+    // Validate file size (max 5MB)
+    const MAX_SIZE_BYTES = 5 * 1024 * 1024;
+    if (buffer.length > MAX_SIZE_BYTES) {
+      return res.status(400).json({ success: false, error: 'Image file size exceeds maximum allowed limit of 5MB.' });
+    }
+
+    // Organization-specific & user-isolated storage path
+    const safeBaseName = (filename || `${Date.now()}.jpg`).replace(/[^a-zA-Z0-9._-]/g, '_');
+    const storagePath = `${req.user.organizationId}/${req.user.id}/${Date.now()}-${safeBaseName}`;
+
+    // Call uploadPrivateFile with its expected options object
+    const result = await uploadPrivateFile({
+      bucket,
+      path: storagePath,
+      buffer,
+      contentType
+    });
+
     if (!result.success) {
       return res.status(500).json({ success: false, error: result.error || 'Failed to upload file to storage.' });
     }
-    res.json({ success: true, data: result });
+
+    // Generate signed download URL for immediate preview
+    const signedRes = await getSignedDownloadUrl({ bucket, path: result.path, expiresIn: 3600 });
+
+    res.json({
+      success: true,
+      data: {
+        path: result.path,
+        filePath: result.path,
+        bucket,
+        signedUrl: signedRes.success ? signedRes.signedUrl : null,
+        source: result.source
+      }
+    });
   } catch (err) {
-    res.status(500).json({ success: false, error: 'File upload failed.' });
+    console.error('[Storage Upload]', err.message);
+    res.status(500).json({ success: false, error: 'File upload failed: ' + err.message });
   }
 });
 
@@ -6013,4 +6365,4 @@ if (process.env.NODE_ENV !== 'test') {
   });
 }
 
-module.exports = { app, server };
+module.exports = { app, server, memDb };

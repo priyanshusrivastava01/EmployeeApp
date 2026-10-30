@@ -17,11 +17,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
 
-import { mockOfficeGeofence } from '../data/mockEmployeeData';
 import { evaluateGeofence } from '../utils/geofence';
 import { useTheme } from '../theme/ThemeContext';
 
-export default function PunchScreen({ attendanceState, onPunchSuccess }) {
+export default function PunchScreen({ attendanceState, onPunchSuccess, currentOrg }) {
   const { colors, isDark } = useTheme();
   const styles = getStyles(colors, isDark);
 
@@ -31,6 +30,14 @@ export default function PunchScreen({ attendanceState, onPunchSuccess }) {
   const [selectedMode, setSelectedMode] = useState(
     isPunchedIn ? attendanceState.mode : 'WFO'
   );
+
+  // Derive real company office geofence from authenticated organization
+  const officeGeofence = (currentOrg && (currentOrg.office_lat != null || currentOrg.latitude != null)) ? {
+    name: currentOrg.name || 'Company Office',
+    latitude: currentOrg.office_lat != null ? Number(currentOrg.office_lat) : Number(currentOrg.latitude),
+    longitude: currentOrg.office_lng != null ? Number(currentOrg.office_lng) : Number(currentOrg.longitude),
+    radiusMeters: currentOrg.office_radius_meters != null ? Number(currentOrg.office_radius_meters) : (currentOrg.radius_meters != null ? Number(currentOrg.radius_meters) : 100)
+  } : null;
 
   // Camera state - Strictly front-facing only
   const cameraRef = useRef(null);
@@ -164,8 +171,8 @@ export default function PunchScreen({ attendanceState, onPunchSuccess }) {
     }
   };
 
-  // Evaluate geofence
-  const geofenceResult = evaluateGeofence(currentCoords, mockOfficeGeofence, selectedMode);
+  // Evaluate geofence against authenticated organization
+  const geofenceResult = evaluateGeofence(currentCoords, officeGeofence, selectedMode);
 
   /**
    * One-Step Attendance Capture & Immediate Submission
@@ -240,16 +247,30 @@ export default function PunchScreen({ attendanceState, onPunchSuccess }) {
       }
 
       // 2. Geofence enforcement for WFO only
-      const freshGeofence = evaluateGeofence(freshCoords, mockOfficeGeofence, selectedMode);
-      if (selectedMode === 'WFO' && !freshGeofence.isInside) {
-        setIsTakingPhoto(false);
-        setIsSubmittingPunch(false);
-        Alert.alert(
-          'Outside Office Geofence',
-          `You are currently outside the authorized office geofence (${freshGeofence.distanceMeters || '—'}m away, allowed radius: ${mockOfficeGeofence.radius}m). Please move closer or select authorized WFH mode.`
-        );
-        return;
+      if (selectedMode === 'WFO') {
+        if (!officeGeofence || officeGeofence.latitude == null || officeGeofence.longitude == null) {
+          setIsTakingPhoto(false);
+          setIsSubmittingPunch(false);
+          Alert.alert(
+            'Office Location Not Configured',
+            'Office GPS coordinates are not configured for your company. WFO attendance cannot be verified. Please contact your company administrator or select WFH if authorized.'
+          );
+          return;
+        }
+
+        const freshGeofence = evaluateGeofence(freshCoords, officeGeofence, selectedMode);
+        if (!freshGeofence.isInside) {
+          setIsTakingPhoto(false);
+          setIsSubmittingPunch(false);
+          Alert.alert(
+            'Outside Office Geofence',
+            `You are currently outside the authorized office geofence (${freshGeofence.distanceMeters != null ? `${freshGeofence.distanceMeters}m away` : 'location unverified'}, allowed radius: ${officeGeofence.radiusMeters}m). Please move closer or select authorized WFH mode.`
+          );
+          return;
+        }
       }
+
+      const freshGeofence = evaluateGeofence(freshCoords, officeGeofence, selectedMode);
 
       // 3. Snap live front-camera photo
       const photo = await cameraRef.current.takePictureAsync({
@@ -295,8 +316,8 @@ export default function PunchScreen({ attendanceState, onPunchSuccess }) {
         time: timeStr,
         mode: selectedMode,
         photoUri: photo.uri,
-        distance: geofenceResult.distanceMeters,
-        verified: geofenceResult.isInside
+        distance: freshGeofence.distanceMeters,
+        verified: freshGeofence.isInside
       });
     } catch (err) {
       console.error('[Punch Capture] Error:', err);

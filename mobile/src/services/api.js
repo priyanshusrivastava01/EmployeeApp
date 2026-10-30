@@ -143,7 +143,11 @@ class ApiService {
         if (response.status === 401 && this.token) {
           await this.logout().catch(() => {});
         }
-        throw new Error(data.error || `Server responded with status ${response.status}`);
+        const error = new Error(data.error || `Server responded with status ${response.status}`);
+        error.status = response.status;
+        error.data = data;
+        error.isServerError = true;
+        throw error;
       }
 
       return data;
@@ -403,56 +407,64 @@ class ApiService {
     }
   }
 
+  // ── Storage (Private Supabase Buckets) ───────────────
+  async uploadStorageFile({ bucket = 'attendance-selfies', dataUri, filename }) {
+    return await this.request('/api/storage/upload', {
+      method: 'POST',
+      body: JSON.stringify({ bucket, dataUri, filename })
+    });
+  }
+
+  async getStorageSignedUrl({ bucket = 'attendance-selfies', filePath, expiresIn = 3600 }) {
+    const qs = new URLSearchParams({ bucket, filePath, expiresIn }).toString();
+    return await this.request(`/api/storage/signed-url?${qs}`);
+  }
+
   // ── Attendance ────────────────────────────────────────
   async punchIn(payload) {
-    try {
+    if (this.token) {
       return await this.request('/api/attendance/punch-in', {
         method: 'POST',
         body: JSON.stringify(payload)
       });
-    } catch (err) {
-      return await this.store.punchIn(payload, this.user, this.org);
     }
+    return await this.store.punchIn(payload, this.user, this.org);
   }
 
   async punchOut(payload) {
-    try {
+    if (this.token) {
       return await this.request('/api/attendance/punch-out', {
         method: 'POST',
         body: JSON.stringify(payload)
       });
-    } catch (err) {
-      return await this.store.punchOut(payload, this.user, this.org);
     }
+    return await this.store.punchOut(payload, this.user, this.org);
   }
 
   async getTodayAttendance() {
-    try {
+    if (this.token) {
       return await this.request('/api/attendance/today');
-    } catch (err) {
-      return this.store.getTodayAttendance(this.user, this.org);
     }
+    return this.store.getTodayAttendance(this.user, this.org);
   }
 
   async getAttendanceHistory(params = {}) {
-    try {
+    if (this.token) {
       const qs = new URLSearchParams(params).toString();
       return await this.request(`/api/attendance${qs ? `?${qs}` : ''}`);
-    } catch (err) {
-      const list = this.store.getAttendanceHistory({
-        organizationId: this.org?.id || 'org-acme-1',
-        userId: this.user?.role === 'employee' ? this.user?.id : undefined
-      });
-      return { success: true, data: list };
     }
+    const list = this.store.getAttendanceHistory({
+      organizationId: this.org?.id || 'org-acme-1',
+      userId: this.user?.role === 'employee' ? this.user?.id : undefined
+    });
+    return { success: true, data: list };
   }
 
   async getAttendanceStats() {
-    try {
+    if (this.token) {
       return await this.request('/api/attendance/stats');
-    } catch (err) {
-      return this.store.getAttendanceStats(this.org?.id || 'org-acme-1');
     }
+    return this.store.getAttendanceStats(this.org?.id || 'org-acme-1');
   }
 
   // ── Users & Employees ────────────────────────────────

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,16 +7,122 @@ import {
   Image,
   TouchableOpacity,
   Modal,
-  Platform
+  Platform,
+  ActivityIndicator
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
-import { mockAttendanceHistory } from '../data/mockEmployeeData';
+import api from '../services/api';
 
-export default function HistoryScreen({ attendanceHistory = mockAttendanceHistory }) {
+// In-memory cache for time-limited signed URLs
+const signedUrlCache = new Map();
+
+function SecureSelfie({ photoPath, style, placeholderIcon = 'camera', placeholderText = 'Photo Logged' }) {
+  const { colors } = useTheme();
+  const [resolvedUrl, setResolvedUrl] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!photoPath || typeof photoPath !== 'string') {
+      setResolvedUrl(null);
+      setLoading(false);
+      return;
+    }
+
+    // Direct HTTP(S) or base64 data URI
+    if (photoPath.startsWith('http://') || photoPath.startsWith('https://') || photoPath.startsWith('data:image/')) {
+      setResolvedUrl(photoPath);
+      setLoading(false);
+      return;
+    }
+
+    // Check signed URL cache
+    const cached = signedUrlCache.get(photoPath);
+    if (cached && cached.expiresAt > Date.now()) {
+      setResolvedUrl(cached.url);
+      setLoading(false);
+      return;
+    }
+
+    // Fetch signed URL via authenticated API
+    setLoading(true);
+    setLoadError(false);
+
+    api.getStorageSignedUrl({ bucket: 'attendance-selfies', filePath: photoPath, expiresIn: 3600 })
+      .then(res => {
+        if (!isMounted) return;
+        const signedUrl = res?.data?.signedUrl || res?.signedUrl;
+        if (signedUrl) {
+          // Cache URL for 50 minutes (expires in 60 mins)
+          signedUrlCache.set(photoPath, {
+            url: signedUrl,
+            expiresAt: Date.now() + 50 * 60 * 1000
+          });
+          setResolvedUrl(signedUrl);
+        } else {
+          setLoadError(true);
+        }
+      })
+      .catch(() => {
+        if (isMounted) setLoadError(true);
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [photoPath]);
+
+  if (loading) {
+    return (
+      <View style={[style, { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.lightOlive || '#f1f5f9' }]}>
+        <ActivityIndicator size="small" color={colors.primary} />
+      </View>
+    );
+  }
+
+  if (resolvedUrl && !loadError) {
+    return (
+      <Image
+        source={{ uri: resolvedUrl }}
+        style={style}
+        onError={() => setLoadError(true)}
+      />
+    );
+  }
+
+  return (
+    <View style={[style, { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.lightOlive || '#f1f5f9' }]}>
+      <Ionicons name={placeholderIcon} size={style?.width && style.width < 50 ? 14 : 22} color={colors.primary || '#64748b'} />
+      {placeholderText && style?.height && style.height > 60 ? (
+        <Text style={{ fontSize: 10, color: colors.textSecondary, marginTop: 4 }}>{placeholderText}</Text>
+      ) : null}
+    </View>
+  );
+}
+
+export default function HistoryScreen({ attendanceHistory = [] }) {
   const { colors, isDark } = useTheme();
   const styles = getStyles(colors, isDark);
   const shiftsCount = attendanceHistory.length;
+
+  // Calculate dynamic stats from real history records
+  const totalMins = attendanceHistory.reduce((acc, item) => {
+    if (item.total_minutes) return acc + Number(item.total_minutes);
+    if (item.duration && typeof item.duration === 'string' && item.duration.includes('h')) {
+      const parts = item.duration.match(/(\d+)h\s*(\d+)?m?/);
+      if (parts) {
+        return acc + parseInt(parts[1], 10) * 60 + (parts[2] ? parseInt(parts[2], 10) : 0);
+      }
+    }
+    return acc;
+  }, 0);
+  const totalHoursStr = totalMins > 0 ? `${Math.floor(totalMins / 60)}h ${totalMins % 60}m` : (shiftsCount > 0 ? '—' : '0h 00m');
 
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [showInGps, setShowInGps] = useState(false);
@@ -43,12 +149,12 @@ export default function HistoryScreen({ attendanceHistory = mockAttendanceHistor
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statBox}>
-          <Text style={styles.statNumber}>36h 30m+</Text>
+          <Text style={styles.statNumber}>{totalHoursStr}</Text>
           <Text style={styles.statLabel}>Total Hours</Text>
         </View>
         <View style={styles.statDivider} />
         <View style={styles.statBox}>
-          <Text style={styles.statNumber}>100%</Text>
+          <Text style={styles.statNumber}>{shiftsCount > 0 ? '100%' : '—'}</Text>
           <Text style={styles.statLabel}>On-Time</Text>
         </View>
       </View>
@@ -73,13 +179,12 @@ export default function HistoryScreen({ attendanceHistory = mockAttendanceHistor
             >
               <View style={styles.cardTop}>
                 <View style={styles.cardDateRow}>
-                  {item.punchInPhotoUri || item.photoUri ? (
-                    <Image source={{ uri: item.punchInPhotoUri || item.photoUri }} style={styles.cardSelfieThumb} />
-                  ) : (
-                    <View style={[styles.cardSelfieThumb, { backgroundColor: colors.lightOlive, alignItems: 'center', justifyContent: 'center' }]}>
-                      <Ionicons name="camera" size={14} color={colors.primary} />
-                    </View>
-                  )}
+                  <SecureSelfie
+                    photoPath={item.punchInPhotoUri || item.photoUri}
+                    style={styles.cardSelfieThumb}
+                    placeholderIcon="camera"
+                    placeholderText={null}
+                  />
                   <Text style={styles.dateText}>{item.date}</Text>
                 </View>
                 <View style={[styles.modeBadge, item.mode === 'WFO' ? styles.modeWfo : styles.modeWfh]}>
@@ -176,36 +281,24 @@ export default function HistoryScreen({ attendanceHistory = mockAttendanceHistor
                 <View style={styles.eventBox}>
                   <Text style={styles.eventLabel}>Punch In Event</Text>
                   <Text style={styles.eventTime}>{selectedRecord?.punchIn || '—'}</Text>
-                  {selectedRecord?.punchInPhotoUri || selectedRecord?.photoUri ? (
-                    <Image
-                      source={{ uri: selectedRecord.punchInPhotoUri || selectedRecord.photoUri }}
-                      style={styles.eventPhoto}
-                    />
-                  ) : (
-                    <View style={styles.eventPhotoPlaceholder}>
-                      <Ionicons name="person" size={24} color={colors.textSecondary} />
-                      <Text style={styles.photoPlaceholderText}>Photo Logged</Text>
-                    </View>
-                  )}
+                  <SecureSelfie
+                    photoPath={selectedRecord?.punchInPhotoUri || selectedRecord?.photoUri}
+                    style={styles.eventPhoto}
+                    placeholderIcon="person"
+                    placeholderText="Photo Logged"
+                  />
                 </View>
 
                 {/* Punch Out Event */}
                 <View style={styles.eventBox}>
                   <Text style={styles.eventLabel}>Punch Out Event</Text>
                   <Text style={styles.eventTime}>{selectedRecord?.punchOut || 'Not punched out'}</Text>
-                  {selectedRecord?.punchOutPhotoUri ? (
-                    <Image
-                      source={{ uri: selectedRecord.punchOutPhotoUri }}
-                      style={styles.eventPhoto}
-                    />
-                  ) : (
-                    <View style={styles.eventPhotoPlaceholder}>
-                      <Ionicons name="camera-outline" size={24} color={colors.textSecondary} />
-                      <Text style={styles.photoPlaceholderText}>
-                        {selectedRecord?.punchOut ? 'Photo Logged' : 'In Progress'}
-                      </Text>
-                    </View>
-                  )}
+                  <SecureSelfie
+                    photoPath={selectedRecord?.punchOutPhotoUri}
+                    style={styles.eventPhoto}
+                    placeholderIcon="camera-outline"
+                    placeholderText={selectedRecord?.punchOut ? 'Photo Logged' : 'In Progress'}
+                  />
                 </View>
               </View>
 

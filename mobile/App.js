@@ -39,7 +39,6 @@ import {
   NotificationsScreen
 } from './src/screens/FeatureScreens';
 import FaceEnrollmentScreen from './src/screens/FaceEnrollmentScreen';
-import { mockAttendanceHistory } from './src/data/mockEmployeeData';
 import api from './src/services/api';
 
 function MainApp() {
@@ -59,8 +58,8 @@ function MainApp() {
   const [setupSuccessData, setSetupSuccessData] = useState(null);
   const [prefillAuth, setPrefillAuth] = useState({ portal: 'employee', companyId: '', email: '' });
 
-  // Attendance history array
-  const [attendanceHistory, setAttendanceHistory] = useState(mockAttendanceHistory);
+  // Attendance history array - initialized empty for authenticated sessions
+  const [attendanceHistory, setAttendanceHistory] = useState([]);
 
   // Active shift attendance state with punch-out memory
   const [attendanceState, setAttendanceState] = useState({
@@ -118,19 +117,37 @@ function MainApp() {
   const fetchTodayAttendance = async () => {
     try {
       const res = await api.getTodayAttendance();
-      if (res.success && res.data) {
+      if (res && res.success) {
         const rec = res.data;
-        setAttendanceState({
-          isPunchedIn: Boolean(rec.punch_in_time && !rec.punch_out_time),
-          isPunchedOut: Boolean(rec.punch_out_time),
-          lastPunchOutTime: rec.punch_out_time ? new Date(rec.punch_out_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null,
-          mode: rec.mode || 'WFO',
-          punchInTime: rec.punch_in_time ? new Date(rec.punch_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null,
-          punchInDate: rec.work_date,
-          punchInPhotoUri: rec.punch_in_photo_path,
-          punchInCoords: rec.punch_in_lat ? { latitude: rec.punch_in_lat, longitude: rec.punch_in_lng } : null,
-          punchInGeofence: rec.punch_in_verified ? { verified: true } : null
-        });
+        if (rec) {
+          setAttendanceState({
+            isPunchedIn: Boolean(rec.punch_in_time && !rec.punch_out_time),
+            isPunchedOut: Boolean(rec.punch_out_time),
+            lastPunchOutTime: rec.punch_out_time ? new Date(rec.punch_out_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null,
+            mode: rec.work_mode || rec.mode || 'WFO',
+            punchInTime: rec.punch_in_time ? new Date(rec.punch_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null,
+            punchInDate: rec.work_date,
+            punchInPhotoUri: rec.punch_in_photo_path,
+            punchInCoords: (rec.punch_in_lat != null || rec.punch_in_latitude != null) ? {
+              latitude: Number(rec.punch_in_latitude ?? rec.punch_in_lat),
+              longitude: Number(rec.punch_in_longitude ?? rec.punch_in_lng),
+              accuracy: Number(rec.punch_in_accuracy ?? 10)
+            } : null,
+            punchInGeofence: rec.punch_in_verified ? { verified: true } : null
+          });
+        } else {
+          setAttendanceState({
+            isPunchedIn: false,
+            isPunchedOut: false,
+            lastPunchOutTime: null,
+            mode: 'WFO',
+            punchInTime: null,
+            punchInDate: null,
+            punchInPhotoUri: null,
+            punchInCoords: null,
+            punchInGeofence: null
+          });
+        }
       }
     } catch (e) {
       console.warn('[App] Today attendance fetch error:', e.message);
@@ -140,8 +157,39 @@ function MainApp() {
   const fetchAttendanceHistory = async () => {
     try {
       const res = await api.getAttendanceHistory();
-      if (res.success && res.data && res.data.length > 0) {
-        setAttendanceHistory(res.data);
+      if (res && res.success) {
+        const rawList = Array.isArray(res.data) ? res.data : [];
+        const mapped = rawList.map(item => ({
+          id: item.id,
+          date: item.work_date ? new Date(item.work_date).toLocaleDateString('en-US', {
+            weekday: 'long',
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+          }) : (item.date || 'Today'),
+          mode: item.work_mode || item.mode || 'WFO',
+          punchIn: item.punch_in_time ? new Date(item.punch_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : (item.punchIn || '—'),
+          punchOut: item.punch_out_time ? new Date(item.punch_out_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : (item.punchOut || 'In Progress'),
+          duration: item.total_minutes ? `${Math.floor(item.total_minutes / 60)}h ${item.total_minutes % 60}m` : (item.duration || item.totalHours || '—'),
+          totalHours: item.total_minutes ? `${Math.floor(item.total_minutes / 60)}h ${item.total_minutes % 60}m` : (item.totalHours || '—'),
+          status: item.punch_in_verified !== false ? 'Verified Session' : 'Pending Verification',
+          isVerified: item.punch_in_verified !== false,
+          verified: item.punch_in_verified !== false,
+          photoUri: item.punch_in_photo_path || item.photoUri,
+          punchInPhotoUri: item.punch_in_photo_path || item.punchInPhotoUri,
+          punchOutPhotoUri: item.punch_out_photo_path || item.punchOutPhotoUri,
+          punchInCoords: (item.punch_in_lat != null || item.punch_in_latitude != null) ? {
+            latitude: Number(item.punch_in_latitude ?? item.punch_in_lat),
+            longitude: Number(item.punch_in_longitude ?? item.punch_in_lng),
+            accuracy: item.punch_in_accuracy
+          } : null,
+          punchOutCoords: (item.punch_out_lat != null || item.punch_out_latitude != null) ? {
+            latitude: Number(item.punch_out_latitude ?? item.punch_out_lat),
+            longitude: Number(item.punch_out_longitude ?? item.punch_out_lng),
+            accuracy: item.punch_out_accuracy
+          } : null
+        }));
+        setAttendanceHistory(mapped);
       }
     } catch (e) {
       console.warn('[App] History fetch error:', e.message);
@@ -199,6 +247,7 @@ function MainApp() {
   const handleLoginSuccess = (user, org) => {
     setCurrentUser(user);
     setCurrentOrg(org);
+    setAttendanceHistory([]);
     setActiveTab('home');
     setActiveSubScreen(null);
     setAuthView('verify_company');
@@ -210,6 +259,7 @@ function MainApp() {
     await api.logout();
     setCurrentUser(null);
     setCurrentOrg(null);
+    setAttendanceHistory([]);
     setActiveSubScreen(null);
     setActiveTab('home');
     setPrefillAuth({ portal: 'employee', companyId: '', email: '' });
@@ -218,87 +268,96 @@ function MainApp() {
   };
 
   /**
-   * Safe punch lifecycle handler (Punch In & Punch Out) with backend sync
+   * Authoritative punch lifecycle handler (Punch In & Punch Out) with live backend sync
    */
   const handlePunchSuccess = async (record) => {
     if (!record) return;
 
-    if (record.type === 'IN') {
-      try {
-        // Submit to real backend API
-        await api.punchIn({
-          mode: record.mode || 'WFO',
-          latitude: record.coords?.latitude || 12.9716,
-          longitude: record.coords?.longitude || 77.5946,
-          accuracy: record.coords?.accuracy || 10,
-          photoPath: record.photoUri || 'file://local-attendance.jpg'
-        });
-      } catch (err) {
-        console.warn('[Punch] Server sync fallback:', err.message);
-      }
-
-      setAttendanceState({
-        isPunchedIn: true,
-        isPunchedOut: false,
-        lastPunchOutTime: null,
-        mode: record.mode || 'WFO',
-        punchInTime: record.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        punchInDate: record.date || new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-        punchInPhotoUri: record.photoUri || null,
-        punchInCoords: record.coords || null,
-        punchInGeofence: record.geofence || null
-      });
-
-      // Optimistically prepend to history
-      const newHistoryItem = {
-        id: `att-${Date.now()}`,
-        date: record.date || 'Today',
-        punchIn: record.timestamp || 'Now',
-        punchOut: '--:--',
-        duration: 'In Progress',
-        mode: record.mode || 'WFO',
-        verified: record.geofence?.verified ?? true,
-        isComplete: false
-      };
-      setAttendanceHistory(prev => [newHistoryItem, ...prev]);
-
-    } else if (record.type === 'OUT') {
-      try {
-        // Submit to real backend API
-        await api.punchOut({
-          latitude: record.coords?.latitude || 12.9716,
-          longitude: record.coords?.longitude || 77.5946,
-          accuracy: record.coords?.accuracy || 10,
-          photoPath: record.photoUri || null
-        });
-      } catch (err) {
-        console.warn('[Punch Out] Server sync fallback:', err.message);
-      }
-
-      const outTime = record.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const duration = record.duration || '8h 15m';
-
-      setAttendanceState(prev => ({
-        ...prev,
-        isPunchedIn: false,
-        isPunchedOut: true,
-        lastPunchOutTime: outTime
-      }));
-
-      // Update history entry
-      setAttendanceHistory(prev => {
-        if (!prev || prev.length === 0) return prev;
-        const updated = [...prev];
-        const first = { ...updated[0] };
-        first.punchOut = outTime;
-        first.duration = duration;
-        first.isComplete = true;
-        updated[0] = first;
-        return updated;
-      });
+    // 1. Enforce selfie capture
+    if (!record.photoUri) {
+      throw new Error('A live selfie capture is required for attendance verification.');
     }
 
-    setActiveTab('home');
+    // 2. Convert selfie to base64 dataUri for storage upload
+    let base64Data = null;
+    if (record.photoUri.startsWith('data:image/')) {
+      base64Data = record.photoUri;
+    } else {
+      let FileSystemModule = null;
+      try {
+        FileSystemModule = require('expo-file-system/legacy');
+      } catch (e1) {
+        try {
+          FileSystemModule = require('expo-file-system');
+        } catch (e2) {}
+      }
+
+      if (FileSystemModule?.readAsStringAsync) {
+        try {
+          const rawBase64 = await FileSystemModule.readAsStringAsync(record.photoUri, {
+            encoding: FileSystemModule.EncodingType ? FileSystemModule.EncodingType.Base64 : 'base64'
+          });
+          if (rawBase64) {
+            base64Data = `data:image/jpeg;base64,${rawBase64}`;
+          }
+        } catch (fsErr) {
+          throw new Error('Could not read captured selfie file from device storage: ' + fsErr.message);
+        }
+      }
+    }
+
+    if (!base64Data) {
+      throw new Error('Unable to encode selfie photo for upload. Attendance punch aborted.');
+    }
+
+    // 3. Upload selfie to private Supabase storage bucket
+    const uploadRes = await api.uploadStorageFile({
+      bucket: 'attendance-selfies',
+      dataUri: base64Data,
+      filename: `punch-${record.type.toLowerCase()}-${Date.now()}.jpg`
+    });
+
+    const remotePhotoPath = uploadRes?.data?.path || uploadRes?.path;
+    if (!remotePhotoPath) {
+      throw new Error(uploadRes?.error || 'Selfie upload to secure storage failed. Attendance punch aborted.');
+    }
+
+    // 4. Validate coordinates
+    if (!record.coords || record.coords.latitude == null || record.coords.longitude == null) {
+      throw new Error('Valid GPS coordinates are required for attendance verification.');
+    }
+
+    // 5. Submit to backend API with validated remote storage path
+    if (record.type === 'IN') {
+      const punchRes = await api.punchIn({
+        mode: record.mode || 'WFO',
+        latitude: Number(record.coords.latitude),
+        longitude: Number(record.coords.longitude),
+        accuracy: record.coords.accuracy != null ? Number(record.coords.accuracy) : 10,
+        photoPath: remotePhotoPath
+      });
+
+      if (!punchRes || punchRes.success === false) {
+        throw new Error(punchRes?.error || 'Punch In was rejected by the server.');
+      }
+    } else if (record.type === 'OUT') {
+      const punchRes = await api.punchOut({
+        latitude: Number(record.coords.latitude),
+        longitude: Number(record.coords.longitude),
+        accuracy: record.coords.accuracy != null ? Number(record.coords.accuracy) : 10,
+        photoPath: remotePhotoPath
+      });
+
+      if (!punchRes || punchRes.success === false) {
+        throw new Error(punchRes?.error || 'Punch Out was rejected by the server.');
+      }
+    }
+
+    // 6. Refresh state from server authoritatively only after backend confirms success
+    await Promise.all([
+      fetchTodayAttendance(),
+      fetchAttendanceHistory()
+    ]);
   };
 
   if (isInitializing) {
@@ -430,6 +489,7 @@ function MainApp() {
             <PunchScreen
               attendanceState={attendanceState}
               onPunchSuccess={handlePunchSuccess}
+              currentOrg={currentOrg}
             />
           </View>
         )}
