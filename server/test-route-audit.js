@@ -36,3 +36,4 @@ const neither = routes.filter(r => !r.usesSupabase && !r.usesMemDb);
 console.log('\n--- UTILITY / HEALTH / STATIC ROUTES (NO DB) ---');
 console.log('Count:', neither.length);
 neither.forEach(r => console.log(` - [${r.method}] ${r.path}`));
+
