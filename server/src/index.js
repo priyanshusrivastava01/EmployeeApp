@@ -1697,17 +1697,39 @@ app.post('/api/invitations', requireAuth, requireRole(['founder', 'admin']), asy
  */
 app.get('/api/invitations', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
   try {
-    const invites = mem.getInvitationsForOrg(req.user.organizationId).map(i => ({
-      id: i.id,
-      email: i.email,
-      employeeId: i.employee_id_number,
-      role: i.role,
-      status: i.status,
-      expiresAt: i.expires_at,
-      tokenPreview: i.token_preview,
-      createdAt: i.created_at,
-      acceptedAt: i.accepted_at
-    }));
+    let invites = [];
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('invitations')
+        .select('*')
+        .eq('organization_id', req.user.organizationId)
+        .order('created_at', { ascending: false });
+      if (!error && data) {
+        invites = data.map(i => ({
+          id: i.id,
+          email: i.email,
+          employeeId: i.employee_id_number,
+          role: i.role,
+          status: i.status,
+          expiresAt: i.expires_at,
+          tokenPreview: i.token_preview,
+          createdAt: i.created_at,
+          acceptedAt: i.accepted_at
+        }));
+      }
+    } else {
+      invites = mem.getInvitationsForOrg(req.user.organizationId).map(i => ({
+        id: i.id,
+        email: i.email,
+        employeeId: i.employee_id_number,
+        role: i.role,
+        status: i.status,
+        expiresAt: i.expires_at,
+        tokenPreview: i.token_preview,
+        createdAt: i.created_at,
+        acceptedAt: i.accepted_at
+      }));
+    }
     res.json({ success: true, data: invites, invitations: invites, total: invites.length });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch invitations.' });
@@ -2846,8 +2868,18 @@ app.get('/api/daily-reports', requireAuth, async (req, res) => {
     if (isEmployee) {
       targetUserId = req.user.id;
     } else if (isTeamLeader) {
-      const team = mem.getUsersForOrg(req.user.organizationId).filter(u => u.team_leader_id === req.user.id || u.id === req.user.id);
-      allowedTeamIds = new Set(team.map(u => u.id));
+      if (supabase) {
+        const { data: teamUsers } = await supabase
+          .from('users')
+          .select('id')
+          .eq('organization_id', req.user.organizationId)
+          .or(`team_leader_id.eq.${req.user.id},id.eq.${req.user.id}`);
+        allowedTeamIds = new Set((teamUsers || []).map(u => u.id));
+      } else {
+        const team = mem.getUsersForOrg(req.user.organizationId).filter(u => u.team_leader_id === req.user.id || u.id === req.user.id);
+        allowedTeamIds = new Set(team.map(u => u.id));
+      }
+
       if (req.query.user_id) {
         if (!allowedTeamIds.has(req.query.user_id)) {
           return res.status(403).json({ success: false, error: 'Access denied. You can only view reports for your assigned team members.' });
@@ -2858,9 +2890,28 @@ app.get('/api/daily-reports', requireAuth, async (req, res) => {
       targetUserId = req.query.user_id || null;
     }
 
-    let reports = mem.getReportsForOrg(req.user.organizationId, targetUserId);
-    if (isTeamLeader && !targetUserId && allowedTeamIds) {
-      reports = reports.filter(r => allowedTeamIds.has(r.user_id));
+    let reports = [];
+    if (supabase) {
+      let rQuery = supabase
+        .from('daily_reports')
+        .select('*')
+        .eq('organization_id', req.user.organizationId)
+        .order('work_date', { ascending: false });
+      if (targetUserId) {
+        rQuery = rQuery.eq('user_id', targetUserId);
+      }
+      const { data, error } = await rQuery;
+      if (!error && data) {
+        reports = data;
+        if (isTeamLeader && !targetUserId && allowedTeamIds) {
+          reports = reports.filter(r => allowedTeamIds.has(r.user_id));
+        }
+      }
+    } else {
+      reports = mem.getReportsForOrg(req.user.organizationId, targetUserId);
+      if (isTeamLeader && !targetUserId && allowedTeamIds) {
+        reports = reports.filter(r => allowedTeamIds.has(r.user_id));
+      }
     }
 
     res.json({ success: true, data: reports, total: reports.length });
@@ -2888,9 +2939,7 @@ app.get('/api/daily-reports/today', requireAuth, async (req, res) => {
         return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
       }
       if (data) existing = data;
-    }
-
-    if (!existing) {
+    } else {
       existing = memDb.dailyReports.find(
         r => r.user_id === req.user.id && r.work_date === today && r.organization_id === req.user.organizationId
       );
@@ -2934,9 +2983,7 @@ app.get('/api/daily-reports/today', requireAuth, async (req, res) => {
         return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
       }
       if (data) prevReport = data;
-    }
-
-    if (!prevReport) {
+    } else {
       const previousReports = memDb.dailyReports
         .filter(r => r.user_id === req.user.id && r.organization_id === req.user.organizationId && r.work_date < today && !r.is_draft)
         .sort((a, b) => b.work_date.localeCompare(a.work_date));
@@ -3015,9 +3062,7 @@ app.get('/api/daily-reports/history', requireAuth, async (req, res) => {
         return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
       }
       if (data) pastReports = data;
-    }
-
-    if (!pastReports.length) {
+    } else {
       pastReports = memDb.dailyReports
         .filter(r => r.organization_id === req.user.organizationId && r.user_id === targetUserId && r.work_date < today && !r.is_draft)
         .sort((a, b) => b.work_date.localeCompare(a.work_date));
@@ -3179,17 +3224,38 @@ app.get('/api/daily-reports/export', requireAuth, async (req, res) => {
       targetUserId = req.query.user_id;
     }
 
-    let reports = mem.getReportsForOrg(req.user.organizationId, targetUserId);
-    // Filter out drafts from official export
-    reports = reports.filter(r => !r.is_draft);
+    let reports = [];
+    let org = null;
+    let user = null;
+
+    if (supabase) {
+      let rQuery = supabase
+        .from('daily_reports')
+        .select('*')
+        .eq('organization_id', req.user.organizationId)
+        .eq('is_draft', false)
+        .order('work_date', { ascending: false });
+      if (targetUserId) {
+        rQuery = rQuery.eq('user_id', targetUserId);
+      }
+      const { data: dbReports } = await rQuery;
+      if (dbReports) reports = dbReports;
+
+      const { data: dbOrg } = await supabase.from('organizations').select('*').eq('id', req.user.organizationId).maybeSingle();
+      org = dbOrg;
+
+      const { data: dbUser } = await supabase.from('users').select('*').eq('id', targetUserId || req.user.id).maybeSingle();
+      user = dbUser;
+    } else {
+      reports = mem.getReportsForOrg(req.user.organizationId, targetUserId).filter(r => !r.is_draft);
+      org = mem.findOrgById(req.user.organizationId);
+      user = mem.findUserById(targetUserId || req.user.id);
+    }
 
     const monthFilter = req.query.month; // e.g. '2026-10'
     if (monthFilter) {
       reports = reports.filter(r => r.work_date && r.work_date.startsWith(monthFilter));
     }
-
-    const org = mem.findOrgById(req.user.organizationId);
-    const user = mem.findUserById(targetUserId || req.user.id);
 
     // Build genuine Excel spreadsheet rows with individual task row explosion
     const excelRows = [];
@@ -4021,7 +4087,19 @@ app.get('/api/management/task-reports/employees/:employeeId/export', requireAuth
   try {
     const orgId = req.user.organizationId;
     const targetUserId = req.params.employeeId;
-    const targetUser = mem.findUserById(targetUserId);
+    let targetUser = null;
+    let org = null;
+    let reports = [];
+
+    if (supabase) {
+      const { data: dbUser } = await supabase.from('users').select('*').eq('id', targetUserId).maybeSingle();
+      targetUser = dbUser;
+      const { data: dbOrg } = await supabase.from('organizations').select('*').eq('id', orgId).maybeSingle();
+      org = dbOrg;
+    } else {
+      targetUser = mem.findUserById(targetUserId);
+      org = mem.findOrgById(orgId);
+    }
 
     if (!targetUser || targetUser.organization_id !== orgId) {
       return res.status(404).json({ success: false, error: 'Employee not found in organization.' });
@@ -4041,13 +4119,28 @@ app.get('/api/management/task-reports/employees/:employeeId/export', requireAuth
       return res.status(400).json({ success: false, error: 'Start date cannot be after end date.' });
     }
 
-    const org = mem.findOrgById(orgId);
-    let reports = mem.getReportsForOrg(orgId, targetUserId).filter(r => !r.is_draft);
-
-    if (startDate && endDate) {
-      reports = reports.filter(r => r.work_date && r.work_date >= startDate && r.work_date <= endDate);
-    } else if (month) {
-      reports = reports.filter(r => r.work_date && r.work_date.startsWith(month));
+    if (supabase) {
+      let rQuery = supabase
+        .from('daily_reports')
+        .select('*')
+        .eq('organization_id', orgId)
+        .eq('user_id', targetUserId)
+        .eq('is_draft', false)
+        .order('work_date', { ascending: false });
+      if (startDate && endDate) {
+        rQuery = rQuery.gte('work_date', startDate).lte('work_date', endDate);
+      } else if (month) {
+        rQuery = rQuery.like('work_date', `${month}%`);
+      }
+      const { data: dbReports } = await rQuery;
+      if (dbReports) reports = dbReports;
+    } else {
+      reports = mem.getReportsForOrg(orgId, targetUserId).filter(r => !r.is_draft);
+      if (startDate && endDate) {
+        reports = reports.filter(r => r.work_date && r.work_date >= startDate && r.work_date <= endDate);
+      } else if (month) {
+        reports = reports.filter(r => r.work_date && r.work_date.startsWith(month));
+      }
     }
 
     // Sort descending by date
@@ -4193,7 +4286,19 @@ app.get('/api/management/task-reports/employees/:employeeId/spreadsheet', requir
   try {
     const orgId = req.user.organizationId;
     const targetUserId = req.params.employeeId;
-    const targetUser = mem.findUserById(targetUserId);
+    let targetUser = null;
+
+    if (supabase) {
+      const { data: dbUser } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', targetUserId)
+        .eq('organization_id', orgId)
+        .maybeSingle();
+      targetUser = dbUser;
+    } else {
+      targetUser = mem.findUserById(targetUserId);
+    }
 
     if (!targetUser || targetUser.organization_id !== orgId) {
       return res.status(404).json({ success: false, error: 'Employee not found in organization.' });
@@ -4213,12 +4318,32 @@ app.get('/api/management/task-reports/employees/:employeeId/spreadsheet', requir
       return res.status(400).json({ success: false, error: 'Start date cannot be after end date.' });
     }
 
-    let reports = mem.getReportsForOrg(orgId, targetUserId);
+    let reports = [];
 
-    if (startDate && endDate) {
-      reports = reports.filter(r => r.work_date && r.work_date >= startDate && r.work_date <= endDate);
-    } else if (month) {
-      reports = reports.filter(r => r.work_date && r.work_date.startsWith(month));
+    if (supabase) {
+      let rQuery = supabase
+        .from('daily_reports')
+        .select('*')
+        .eq('organization_id', orgId)
+        .eq('user_id', targetUserId)
+        .eq('is_draft', false);
+
+      if (startDate && endDate) {
+        rQuery = rQuery.gte('work_date', startDate).lte('work_date', endDate);
+      } else if (month) {
+        rQuery = rQuery.gte('work_date', `${month}-01`).lte('work_date', `${month}-31`);
+      }
+
+      const { data: dbReports } = await rQuery;
+      if (dbReports) reports = dbReports;
+    } else {
+      reports = mem.getReportsForOrg(orgId, targetUserId).filter(r => !r.is_draft);
+
+      if (startDate && endDate) {
+        reports = reports.filter(r => r.work_date && r.work_date >= startDate && r.work_date <= endDate);
+      } else if (month) {
+        reports = reports.filter(r => r.work_date && r.work_date.startsWith(month));
+      }
     }
 
     reports.sort((a, b) => new Date(b.work_date || 0) - new Date(a.work_date || 0));
@@ -5011,11 +5136,24 @@ app.post('/api/notifications/mark-all-read', requireAuth, async (req, res) => {
 // PROFILE
 // ─────────────────────────────────────────────────────────────────────────────
 
-app.get('/api/profile', requireAuth, (req, res) => {
-  const user = mem.findUserById(req.user.id);
-  const org = mem.findOrgById(req.user.organizationId);
-  if (!user) return res.status(404).json({ success: false, error: 'Profile not found.' });
-  res.json({ success: true, data: safeUserView(user, true), organization: org });
+app.get('/api/profile', requireAuth, async (req, res) => {
+  try {
+    let user = null;
+    let org = null;
+    if (supabase) {
+      const { data: userData } = await supabase.from('users').select('*').eq('id', req.user.id).maybeSingle();
+      user = userData;
+      const { data: orgData } = await supabase.from('organizations').select('*').eq('id', req.user.organizationId).maybeSingle();
+      org = orgData;
+    } else {
+      user = mem.findUserById(req.user.id);
+      org = mem.findOrgById(req.user.organizationId);
+    }
+    if (!user) return res.status(404).json({ success: false, error: 'Profile not found.' });
+    res.json({ success: true, data: safeUserView(user, true), organization: org });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to fetch profile.' });
+  }
 });
 
 app.patch('/api/profile', requireAuth, async (req, res) => {
