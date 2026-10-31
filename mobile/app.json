@@ -5,14 +5,9 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "androidNavigationBar": {
-      "visible": "always",
-      "barStyle": "dark-content",
-      "backgroundColor": "#FFFFFF"
-    },
     "androidStatusBar": {
       "barStyle": "dark-content",
-      "backgroundColor": "transparent",
+      "backgroundColor": "#00000000",
       "translucent": true
     },
     "android": {
