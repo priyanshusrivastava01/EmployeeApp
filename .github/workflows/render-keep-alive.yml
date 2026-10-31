@@ -1,0 +1,102 @@
+name: EMS Render Keep Alive
+
+on:
+  schedule:
+    # Run every 10 minutes to help prevent Render Free tier from spinning down
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: render-keep-alive
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ping-health:
+    name: Ping EMS Backend Health Endpoint
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Ping EMS Health Endpoint
+        env:
+          # Prioritize repository secret over repository variable, with default fallback to deployed Render service
+          RENDER_BACKEND_URL: ${{ secrets.RENDER_BACKEND_URL || vars.RENDER_BACKEND_URL || 'https://employeeapp-5u4l.onrender.com' }}
+        run: |
+          set -e
+
+          # 1. Verify RENDER_BACKEND_URL configuration
+          if [ -z "$RENDER_BACKEND_URL" ]; then
+            echo "::error::RENDER_BACKEND_URL is not configured."
+            echo "=========================================================================="
+            echo "CONFIGURATION REQUIRED:"
+            echo "1. Go to repository Settings -> Secrets and variables -> Actions"
+            echo "2. Under 'Variables' (or 'Secrets'), create: RENDER_BACKEND_URL"
+            echo "3. Value: Your deployed EMS Render URL (e.g., https://your-ems-service.onrender.com)"
+            echo "=========================================================================="
+            exit 1
+          fi
+
+          # 2. Trim whitespace and trailing slashes
+          CLEAN_BASE_URL=$(echo "$RENDER_BACKEND_URL" | tr -d ' ' | sed 's:/*$::')
+
+          # 3. Guard against placeholders, localhost, and private LAN IPs
+          if [[ "$CLEAN_BASE_URL" =~ (your-actual-ems-service|your-ems-service|example\.com|placeholder) ]]; then
+            echo "::error::RENDER_BACKEND_URL is set to a placeholder value ($CLEAN_BASE_URL)."
+            echo "Please set RENDER_BACKEND_URL to your actual deployed EMS Render service URL."
+            exit 1
+          fi
+
+          if [[ "$CLEAN_BASE_URL" =~ ^https?://(localhost|127\.0\.0\.1|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.) ]]; then
+            echo "::error::RENDER_BACKEND_URL cannot be a local or private address ($CLEAN_BASE_URL)."
+            echo "GitHub Actions runners cannot reach local PC or LAN IP addresses."
+            exit 1
+          fi
+
+          TARGET_URL="${CLEAN_BASE_URL}/api/health"
+          echo "Target endpoint: ${TARGET_URL}"
+
+          # 4. Execute HTTP GET with cold-start allowance and retries
+          MAX_ATTEMPTS=3
+          RETRY_DELAY_SECS=10
+          SUCCESS=0
+
+          for attempt in $(seq 1 $MAX_ATTEMPTS); do
+            echo ""
+            echo ">>> [Attempt $attempt of $MAX_ATTEMPTS] Pinging health endpoint..."
+            START_TIME=$(date +%s)
+
+            # Allow up to 60s total time for Render free tier cold-start spin-up
+            HTTP_CODE=$(curl -s -S -o /dev/null -w "%{http_code}" \
+              --connect-timeout 20 \
+              --max-time 60 \
+              --header "User-Agent: EMS-KeepAlive/1.0 (GitHubActions)" \
+              "$TARGET_URL" 2>&1) || CURL_EXIT=$?
+
+            END_TIME=$(date +%s)
+            DURATION=$((END_TIME - START_TIME))
+
+            if [[ "$HTTP_CODE" =~ ^2[0-9][0-9]$ ]]; then
+              echo "✓ Success: EMS Backend is live and healthy! HTTP Status: $HTTP_CODE (Response time: ${DURATION}s)"
+              SUCCESS=1
+              break
+            else
+              echo "✗ Warning: Health check attempt $attempt failed."
+              echo "  HTTP Status / curl output: $HTTP_CODE"
+              echo "  Duration: ${DURATION}s"
+
+              if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+                echo "  Waiting ${RETRY_DELAY_SECS}s before next attempt (allowing Render spin-up)..."
+                sleep $RETRY_DELAY_SECS
+              fi
+            fi
+          done
+
+          if [ "$SUCCESS" -ne 1 ]; then
+            echo ""
+            echo "::error::All $MAX_ATTEMPTS health check attempts failed for ${TARGET_URL}."
+            exit 1
+          fi
+

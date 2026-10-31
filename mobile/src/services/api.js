@@ -105,7 +105,8 @@ class ApiService {
     };
 
     const controller = new AbortController();
-    const timeoutMs = options.timeout || 6000;
+    const defaultTimeout = (this.baseUrl && this.baseUrl.includes('onrender.com')) ? 35000 : 12000;
+    const timeoutMs = options.timeout || defaultTimeout;
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
@@ -151,7 +152,7 @@ class ApiService {
       const data = await this.request('/api/auth/login', {
         method: 'POST',
         body: JSON.stringify(body),
-        timeout: 4000
+        timeout: (this.baseUrl && this.baseUrl.includes('onrender.com')) ? 35000 : 10000
       });
 
       if (data.success && data.token) {

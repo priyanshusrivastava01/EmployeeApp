@@ -19,11 +19,12 @@
  */
 
 process.env.NODE_ENV = 'test';
+// Force in-memory mode for isolated contract unit tests
+process.env.SUPABASE_URL = '';
+process.env.SUPABASE_SERVICE_ROLE_KEY = '';
 
 const path = require('path');
 const EventEmitter = require('events');
-
-require('./node_modules/dotenv').config({ path: path.resolve(__dirname, '.env') });
 
 const { app, memDb } = require('./src/index');
 

@@ -635,6 +635,7 @@ function getRolePermissions(role) {
 // HEALTH CHECK
 // ─────────────────────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
+  const isDb = Boolean(supabase);
   res.status(200).json({
     success: true,
     status: 'ok',
@@ -642,16 +643,59 @@ app.get('/api/health', (req, res) => {
     version: '3.0.0',
     timestamp: new Date().toISOString(),
     uptimeSeconds: Math.floor(process.uptime()),
-    database: supabase ? 'supabase_connected' : 'memory_fallback',
-    persistence: supabase ? 'persistent_postgresql' : 'volatile_in_memory_demo',
-    isPersistentStorage: Boolean(supabase),
-    organizations: memDb.organizations.length,
-    users: memDb.users.length
+    database: isDb ? 'supabase_connected' : 'memory_fallback',
+    persistence: isDb ? 'persistent_postgresql' : 'volatile_in_memory_demo',
+    isPersistentStorage: isDb,
+    environment: process.env.NODE_ENV || 'development'
   });
 });
 
+/**
+ * GET /api/ready
+ * Database readiness endpoint. Performs a minimal, safe, read-only check against
+ * PostgreSQL to verify authoritative database responsiveness.
+ */
+app.get('/api/ready', async (req, res) => {
+  if (!supabase) {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(503).json({
+        success: false,
+        status: 'unready',
+        error: 'Database is not configured in production.'
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      status: 'ready',
+      mode: 'in_memory_development'
+    });
+  }
+
+  try {
+    const { error } = await supabase.from('users').select('id', { count: 'exact', head: true });
+    if (error) {
+      return res.status(503).json({
+        success: false,
+        status: 'unready',
+        error: 'Database query failed'
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      status: 'ready',
+      database: 'postgresql_connected'
+    });
+  } catch (err) {
+    return res.status(503).json({
+      success: false,
+      status: 'unready',
+      error: 'Database connection failed'
+    });
+  }
+});
+
 app.get('/', (req, res) => {
-  res.json({ message: 'EMS API v3 running. See /api/health' });
+  res.json({ message: 'EMS API v3 running. See /api/health and /api/ready' });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -813,8 +857,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
           .or(orConditions.join(','))
           .maybeSingle();
         if (dbOrg) targetOrg = dbOrg;
-      }
-      if (!targetOrg) {
+      } else {
         targetOrg = mem.findOrgByCompanyId(compId) || mem.findOrgBySlug(companyId.trim().toLowerCase()) || mem.findOrgById(companyId.trim());
       }
 
@@ -841,14 +884,12 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
         if (targetOrg) {
           query = query.eq('organization_id', targetOrg.id);
         }
-        const { data: userData, error } = await query.single();
+        const { data: userData, error } = await query.maybeSingle();
         if (!error && userData) {
           user = userData;
           org = userData.organizations;
         }
-      }
-
-      if (!user) {
+      } else {
         user = mem.findUserByEmail(normalizedEmail);
         if (user) {
           // If targetOrg was specified, enforce that user must belong to targetOrg
@@ -872,25 +913,40 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
             .select('*, organizations!organization_id(*)')
             .eq('organization_id', targetOrg.id)
             .ilike('employee_id_number', empId)
-            .single();
+            .maybeSingle();
           if (userData) {
             user = userData;
             org = userData.organizations || targetOrg;
           }
-        }
-        if (!user) {
+        } else {
           user = mem.findUserByMemberId(targetOrg.id, empId);
         }
       } else {
-        const matchingUsers = memDb.users.filter(u => u.employee_id_number && u.employee_id_number.toUpperCase() === empId);
-        if (matchingUsers.length === 1) {
-          user = matchingUsers[0];
-          org = mem.findOrgById(user.organization_id);
-        } else if (matchingUsers.length > 1) {
-          return res.status(400).json({
-            success: false,
-            error: 'Multiple organizations found with this Employee ID. Please enter your Company ID to log in.'
-          });
+        if (supabase) {
+          const { data: matchingUsers } = await supabase
+            .from('users')
+            .select('*, organizations!organization_id(*)')
+            .ilike('employee_id_number', empId);
+          if (matchingUsers && matchingUsers.length === 1) {
+            user = matchingUsers[0];
+            org = user.organizations;
+          } else if (matchingUsers && matchingUsers.length > 1) {
+            return res.status(400).json({
+              success: false,
+              error: 'Multiple organizations found with this Employee ID. Please enter your Company ID to log in.'
+            });
+          }
+        } else {
+          const matchingUsers = memDb.users.filter(u => u.employee_id_number && u.employee_id_number.toUpperCase() === empId);
+          if (matchingUsers.length === 1) {
+            user = matchingUsers[0];
+            org = mem.findOrgById(user.organization_id);
+          } else if (matchingUsers.length > 1) {
+            return res.status(400).json({
+              success: false,
+              error: 'Multiple organizations found with this Employee ID. Please enter your Company ID to log in.'
+            });
+          }
         }
       }
     }
@@ -999,14 +1055,14 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
         .from('users')
         .select('id, name, email, role, department, designation, phone, profile_photo_url, face_enrollment_status, is_active, organization_id, employee_id_number')
         .eq('id', req.user.id)
-        .single();
+        .maybeSingle();
       if (!error && data) user = data;
-      const { data: orgData } = await supabase.from('organizations').select('*').eq('id', req.user.organizationId).single();
+      const { data: orgData } = await supabase.from('organizations').select('*').eq('id', req.user.organizationId).maybeSingle();
       if (orgData) org = orgData;
+    } else {
+      user = mem.findUserById(req.user.id);
+      org = mem.findOrgById(req.user.organizationId);
     }
-
-    if (!user) user = mem.findUserById(req.user.id);
-    if (!org) org = mem.findOrgById(req.user.organizationId);
 
     if (!user) return res.status(404).json({ success: false, error: 'User not found.' });
 
@@ -1800,10 +1856,11 @@ app.get('/api/org/settings', requireAuth, async (req, res) => {
   try {
     let org = null;
     if (supabase) {
-      const { data } = await supabase.from('organizations').select('*').eq('id', req.user.organizationId).single();
+      const { data } = await supabase.from('organizations').select('*').eq('id', req.user.organizationId).maybeSingle();
       org = data;
+    } else {
+      org = mem.findOrgById(req.user.organizationId);
     }
-    if (!org) org = mem.findOrgById(req.user.organizationId);
     if (!org) return res.status(404).json({ success: false, error: 'Organization not found.' });
     res.json({
       success: true,
@@ -6458,14 +6515,16 @@ if (process.env.NODE_ENV !== 'test') {
       console.warn(`⚠️  All data changes will be lost upon server termination.`);
       console.warn(`⚠️  To activate real PostgreSQL: add credentials to server/.env`);
       console.warn(`⚠️  ============================================================\n`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[EMS Server v3] In-Memory Organizations: ${memDb.organizations.length} | In-Memory Users: ${memDb.users.length}`);
+        console.log(`\n--- DEMO CREDENTIALS (development fallback only) ---`);
+        console.log(`Admin (Acme): admin@acmetech.com / admin123 [role: admin]`);
+        console.log(`Team Leader:  priya.n@acmetech.com / admin123 [role: team_leader]`);
+        console.log(`Employee:     aarav.sharma@acmetech.com / admin123 [role: employee]`);
+        console.log(`Admin (Nexus): admin@nexussolutions.in / admin123 [role: admin]`);
+        console.log(`----------------------------------------------------\n`);
+      }
     }
-    console.log(`[EMS Server v3] Organizations: ${memDb.organizations.length} | Users: ${memDb.users.length}`);
-    console.log(`\n--- DEMO CREDENTIALS (in-memory mode) ---`);
-    console.log(`Admin (Acme): admin@acmetech.com / admin123 [role: admin]`);
-    console.log(`Team Leader:  priya.n@acmetech.com / admin123 [role: team_leader]`);
-    console.log(`Employee:     aarav.sharma@acmetech.com / admin123 [role: employee]`);
-    console.log(`Admin (Nexus): admin@nexussolutions.in / admin123 [role: admin]`);
-    console.log(`------------------------------------------\n`);
   });
 }
 
