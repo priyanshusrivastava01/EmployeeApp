@@ -331,7 +331,7 @@ const getStyles = (colors, isDark) =>
       borderRadius: 4
     },
     priorityMed: {
-      backgroundColor: isDark ? '#1a2218' : '#f0f5ee'
+      backgroundColor: isDark ? '#133333' : '#E6F3F1'
     },
     priorityHigh: {
       backgroundColor: '#fee2e2'
@@ -379,7 +379,7 @@ const getStyles = (colors, isDark) =>
       marginTop: 10
     },
     formInput: {
-      backgroundColor: isDark ? '#1a2218' : '#f7faf5',
+      backgroundColor: isDark ? '#133333' : '#F7FAF9',
       borderRadius: 10,
       borderWidth: 1,
       borderColor: colors.border,
@@ -401,7 +401,7 @@ const getStyles = (colors, isDark) =>
       flex: 1,
       paddingVertical: 8,
       borderRadius: 8,
-      backgroundColor: isDark ? '#1a2218' : '#f0f5ee',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       alignItems: 'center'
     },
     prioritySelectBtnActive: {

@@ -786,14 +786,14 @@ const getStyles = (colors, isDark) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      backgroundColor: isDark ? '#23321d' : '#edf5ea',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       marginHorizontal: 16,
       marginTop: 12,
       paddingHorizontal: 14,
       paddingVertical: 10,
       borderRadius: 12,
       borderWidth: 1,
-      borderColor: isDark ? '#384d2b' : '#cce2c3'
+      borderColor: isDark ? '#1F3A3A' : '#E2E8F0'
     },
     companyIdLeft: {
       flex: 1
@@ -815,7 +815,7 @@ const getStyles = (colors, isDark) =>
       paddingVertical: 5,
       paddingHorizontal: 10,
       borderRadius: 8,
-      backgroundColor: isDark ? '#2e3e26' : '#e0eed6',
+      backgroundColor: isDark ? '#1F3A3A' : '#E2E8F0',
       gap: 4
     },
     companyIdCopyText: {
@@ -892,7 +892,7 @@ const getStyles = (colors, isDark) =>
       borderRadius: 17,
       justifyContent: 'center',
       alignItems: 'center',
-      backgroundColor: isDark ? colors.surface : '#eef1e6',
+      backgroundColor: isDark ? colors.surface : '#E6F3F1',
       borderWidth: 1,
       borderColor: colors.border
     },
@@ -914,7 +914,7 @@ const getStyles = (colors, isDark) =>
       paddingVertical: 8,
       paddingHorizontal: 16,
       borderRadius: 10,
-      backgroundColor: isDark ? '#2e3e26' : '#e0eed6',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       borderWidth: 1,
       borderColor: colors.primary
     },
@@ -965,7 +965,7 @@ const getStyles = (colors, isDark) =>
       width: 44,
       height: 44,
       borderRadius: 22,
-      backgroundColor: isDark ? '#323c2c' : '#e6ede0',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       justifyContent: 'center',
       alignItems: 'center',
       marginRight: 12
@@ -1221,11 +1221,11 @@ const getStyles = (colors, isDark) =>
       lineHeight: 18
     },
     codeShareBox: {
-      backgroundColor: isDark ? '#1f2d1b' : '#edf5ea',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       borderRadius: 12,
       padding: 14,
       borderWidth: 1,
-      borderColor: isDark ? '#384d2b' : '#cce2c3',
+      borderColor: isDark ? '#1F3A3A' : '#E2E8F0',
       marginBottom: 16
     },
     codeRow: {
@@ -1234,7 +1234,7 @@ const getStyles = (colors, isDark) =>
       alignItems: 'center',
       paddingVertical: 6,
       borderBottomWidth: 1,
-      borderBottomColor: isDark ? '#2e3e26' : '#d8ebd0'
+      borderBottomColor: isDark ? '#1F3A3A' : '#E2E8F0'
     },
     codeLabel: {
       fontSize: 12,

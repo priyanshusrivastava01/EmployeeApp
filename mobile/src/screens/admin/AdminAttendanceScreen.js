@@ -279,14 +279,14 @@ const getStyles = (colors, isDark) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      backgroundColor: isDark ? '#22281e' : '#f0f4ea',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       borderRadius: 12,
       paddingVertical: 10,
       paddingHorizontal: 16,
       marginHorizontal: 16,
       marginTop: 12,
       borderWidth: 1,
-      borderColor: isDark ? '#353e2e' : '#e0e7d6'
+      borderColor: isDark ? '#1F3A3A' : '#E2E8F0'
     },
     pulseStatItem: {
       flexDirection: 'row',
@@ -306,7 +306,7 @@ const getStyles = (colors, isDark) =>
     pulseDivider: {
       width: 1,
       height: 16,
-      backgroundColor: isDark ? '#3b4434' : '#d2dbc6'
+      backgroundColor: isDark ? '#1F3A3A' : '#CBD5E1'
     },
     filterRow: {
       flexDirection: 'row',
@@ -343,7 +343,7 @@ const getStyles = (colors, isDark) =>
       paddingHorizontal: 5,
       paddingVertical: 1,
       borderRadius: 8,
-      backgroundColor: isDark ? '#353e2e' : '#e2e8da'
+      backgroundColor: isDark ? '#1F3A3A' : '#E2E8F0'
     },
     tabCountBadgeActive: {
       backgroundColor: 'rgba(255, 255, 255, 0.25)'
@@ -411,7 +411,7 @@ const getStyles = (colors, isDark) =>
       width: 40,
       height: 40,
       borderRadius: 20,
-      backgroundColor: isDark ? '#323c2c' : '#e6ede0',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       justifyContent: 'center',
       alignItems: 'center'
     },
@@ -472,7 +472,7 @@ const getStyles = (colors, isDark) =>
     punchDetailsGrid: {
       flexDirection: 'row',
       gap: 8,
-      backgroundColor: isDark ? '#1d221a' : '#f7faf5',
+      backgroundColor: isDark ? '#133333' : '#F7FAF9',
       borderRadius: 10,
       padding: 10
     },

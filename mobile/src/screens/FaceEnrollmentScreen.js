@@ -906,7 +906,7 @@ const getStyles = (colors, isDark) => StyleSheet.create({
   },
   cameraBox: {
     height: 340,
-    backgroundColor: '#1E2319',
+    backgroundColor: colors.cameraBackdrop || '#0B1414',
     borderRadius: 16,
     overflow: 'hidden',
     position: 'relative',
@@ -930,7 +930,7 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     height: '62%',
     borderRadius: 120,
     borderWidth: 2,
-    borderColor: '#A3B879',
+    borderColor: colors.primary,
     borderStyle: 'dashed'
   },
   poseInstructionBox: {
@@ -938,19 +938,19 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     bottom: 12,
     left: 12,
     right: 12,
-    backgroundColor: 'rgba(25, 28, 23, 0.88)',
+    backgroundColor: 'rgba(11, 20, 20, 0.88)',
     borderRadius: 10,
     padding: 10
   },
   poseInstructionTitle: {
     fontSize: 12,
     fontWeight: '800',
-    color: '#A3B879',
+    color: colors.primary,
     marginBottom: 2
   },
   poseInstructionSub: {
     fontSize: 10,
-    color: '#F1F2E9',
+    color: '#F1F5F9',
     lineHeight: 14
   },
   cameraCenterMessage: {
@@ -961,7 +961,7 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     gap: 10
   },
   cameraMessageText: {
-    color: '#F1F2E9',
+    color: '#F1F5F9',
     fontSize: 12
   },
   permissionTitle: {
@@ -971,7 +971,7 @@ const getStyles = (colors, isDark) => StyleSheet.create({
   },
   permissionDesc: {
     fontSize: 12,
-    color: '#B7BBAE',
+    color: colors.textSecondary || '#94A3B8',
     textAlign: 'center',
     lineHeight: 17
   },

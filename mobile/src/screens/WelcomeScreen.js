@@ -749,12 +749,12 @@ const getStyles = (colors, isDark) =>
     // Segmented Role Selector
     segmentContainer: {
       flexDirection: 'row',
-      backgroundColor: isDark ? '#232b1f' : '#e9eee3',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       borderRadius: 14,
       padding: 4,
       marginBottom: 8,
       borderWidth: 1,
-      borderColor: isDark ? '#333e2c' : '#dbe3d4'
+      borderColor: isDark ? '#1F3A3A' : '#E2E8F0'
     },
     segmentBtn: {
       flex: 1,
@@ -1025,7 +1025,7 @@ const getStyles = (colors, isDark) =>
     },
     serverResetBtn: {
       flex: 1,
-      backgroundColor: isDark ? '#333e2c' : '#e5e7eb',
+      backgroundColor: isDark ? '#1F3A3A' : '#E2E8F0',
       borderRadius: 8,
       height: 36,
       alignItems: 'center',
@@ -1085,7 +1085,7 @@ const getStyles = (colors, isDark) =>
       alignItems: 'center',
       padding: 8,
       borderRadius: 8,
-      backgroundColor: isDark ? '#23321d' : '#edf4e8',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       marginBottom: 12
     },
     devHintText: {

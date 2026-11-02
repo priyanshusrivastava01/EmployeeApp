@@ -526,7 +526,7 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
 
               {/* Camera Mount Error Overlay with Retry */}
               {cameraError && (
-                <View style={[styles.cameraCenterMessage, StyleSheet.absoluteFillObject, { backgroundColor: '#1E2319', zIndex: 10, padding: 20 }]}>
+                <View style={[styles.cameraCenterMessage, StyleSheet.absoluteFillObject, { backgroundColor: colors.cameraBackdrop || '#0B1414', zIndex: 10, padding: 20 }]}>
                   <Ionicons name="alert-circle-outline" size={44} color="#EF4444" />
                   <Text style={styles.permissionTitle}>Camera Error</Text>
                   <Text style={[styles.permissionDesc, { marginVertical: 8 }]}>{cameraError}</Text>
@@ -835,7 +835,7 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: '#1E2319',
+    backgroundColor: colors.cameraBackdrop || '#0B1414',
     overflow: Platform.OS === 'ios' ? 'hidden' : 'visible'
   },
   liveCameraView: {

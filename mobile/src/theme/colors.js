@@ -1,98 +1,144 @@
 /**
  * EMS Design System: Light and Dark Theme Palettes
- * Foundations: Premium Olive Green, Sage, Warm Off-White, and Low-Glare Dark Olive
+ * Foundations: Approved Professional Teal Palette
+ * Light Mode: Fresh Teal & Pure White (#0D9488, #F7FAF9, #FFFFFF, #E6F3F1)
+ * Dark Mode: Premium Low-Glare Teal & Dark Charcoal (#14B8A6, #0B1414, #0F1F1F, #133333)
  */
 
 export const lightTheme = {
   // Brand Palette
-  primary: '#687747',        // Primary Olive (Actions, active items, highlights)
-  primaryDark: '#57643A',    // Darker Olive for press states
-  darkOlive: '#414C30',      // Deep Olive for headers, navigation, dark accents
-  lightOlive: '#E8EDDC',     // Light Olive for badges and subtle tint boxes
+  primary: '#0D9488',        // Professional teal (Actions, active items, highlights)
+  primaryDark: '#0F766E',    // Deep teal for press / active states
+  primaryActive: '#0F766E',  // Primary active / hover state
+  darkTeal: '#0F766E',       // Deep teal for headers, navigation, dark accents
+  darkOlive: '#0F766E',      // Backward-compatible alias for deep teal
+  lightTeal: '#E6F3F1',      // Pale teal for badges and subtle tint boxes
+  lightOlive: '#E6F3F1',     // Backward-compatible alias for pale teal
   
   // Surfaces & Backgrounds
-  surface: '#FFFFFF',        // Fully Opaque White Surface for Navigation & Modals
-  background: '#F7F7F0',     // Main Warm Off-White Page Background
-  card: '#FFFFFF',           // Crisp White Card / Modal Surfaces
-  beige: '#EFEEE4',          // Beige Subtle Surface
-  elevatedSurface: '#EFEEE4',// Elevated secondary surface
-  cardSubtle: '#FBFBF8',     // Very Subtle Off-White Card
+  surface: '#FFFFFF',        // Pure white surface for Navigation & Modals
+  background: '#F7FAF9',     // Very light cool white main page background
+  card: '#FFFFFF',           // Pure white card / modal surfaces
+  beige: '#E6F3F1',          // Pale teal secondary surface (replaces old beige)
+  secondarySurface: '#E6F3F1',// Pale teal secondary surface
+  elevatedSurface: '#E6F3F1',// Elevated secondary surface
+  cardSubtle: '#F0FDFA',     // Very subtle cool off-white card (Teal 50)
   
   // Typography
-  text: '#292D26',           // Charcoal High-Contrast Main Text
-  textPrimary: '#292D26',    // Alias for main text
-  textSecondary: '#73776C',  // Soft Muted Text for secondary labels
-  textMuted: '#8E9287',      // Subtle Tertiary Text
-  textInverse: '#FFFFFF',    // White text on dark/olive buttons
+  text: '#111827',           // Deep charcoal high-contrast main text
+  textPrimary: '#111827',    // Alias for main text
+  textSecondary: '#64748B',  // Muted blue-gray for secondary labels
+  textMuted: '#94A3B8',      // Muted gray for disabled / tertiary text
+  textInverse: '#FFFFFF',    // White text on dark/teal buttons
   
   // Borders & Dividers
-  border: '#DDE1D3',         // Subtle Border
-  borderStrong: '#C5CBB7',   // Emphasized Border
-  borderFocus: '#687747',    // Focus Outline
+  border: '#E2E8F0',         // Light gray-teal subtle border
+  borderStrong: '#CBD5E1',   // Emphasized border
+  borderFocus: '#0D9488',    // Professional teal focus outline
+  disabled: '#94A3B8',       // Muted gray for disabled elements
   
-  // Semantic Accents
-  success: '#527A45',        // Forest Green for Verified status
-  successLight: '#EDF3EB',   // Soft Green Tint for success badges
-  successDark: '#3F5E34',
+  // Status Colors (Consistent & distinguishable)
+  success: '#16A34A',        // Success / Present
+  successLight: '#DCFCE7',   // Soft green tint for success badges
+  successDark: '#15803D',
   
-  warning: '#C28424',        // Warm Amber for Review/Pending
-  warningLight: '#FAF4E8',   // Soft Amber Tint
-  warningDark: '#9E6A1B',
+  warning: '#D97706',        // Warning / On Leave
+  warningLight: '#FEF3C7',   // Soft amber tint
+  warningDark: '#B45309',
   
-  danger: '#C0392B',         // Muted Carmine for Errors / Sign Out
-  dangerLight: '#FDF2F0',    // Soft Red Tint
-  dangerDark: '#962D22',
+  danger: '#DC2626',         // Error / Absent
+  dangerLight: '#FEE2E2',    // Soft red tint
+  dangerDark: '#B91C1C',
+  error: '#DC2626',
+  errorLight: '#FEE2E2',
+  
+  info: '#2563EB',           // Information
+  infoLight: '#DBEAFE',
+  infoDark: '#1D4ED8',
+  
+  neutral: '#64748B',        // Secondary / Neutral
+  
+  // Inputs & Modals
+  inputBackground: '#F8FAFC',
+  inputBorder: '#E2E8F0',
+  modalBackground: '#FFFFFF',
+  navigationBackground: '#FFFFFF',
+  navigationActive: '#0D9488',
+  iconPrimary: '#0D9488',
+  iconSecondary: '#64748B',
   
   // Camera & Viewfinder Dark Backdrop
-  cameraBackdrop: '#1E2319',
-  cameraFrameBorder: '#687747',
-  modalBackdrop: 'rgba(41, 45, 38, 0.72)'
+  cameraBackdrop: '#0B1414',
+  cameraFrameBorder: '#0D9488',
+  modalBackdrop: 'rgba(11, 20, 20, 0.72)'
 };
 
 export const darkTheme = {
   // Brand Palette
-  primary: '#A3B879',        // Primary Olive (Bright, clear on dark)
-  primaryDark: '#8DA066',    // Darker tone for press states
-  darkOlive: '#687747',      // Olive Accent for headers, active pills
-  lightOlive: '#343D2D',     // Deep sage-olive tint for badges/containers
+  primary: '#14B8A6',        // Luminous teal (Bright, clear on dark)
+  primaryDark: '#0D9488',    // Bright teal for press states
+  primaryActive: '#0D9488',  // Primary active / hover state
+  darkTeal: '#14B8A6',       // Teal accent for headers, active pills
+  darkOlive: '#14B8A6',      // Backward-compatible alias
+  lightTeal: '#133333',      // Dark teal-gray for badges/containers
+  lightOlive: '#133333',     // Backward-compatible alias
   
   // Surfaces & Backgrounds
-  surface: '#242920',        // Fully Opaque Dark Olive-Charcoal Surface for Navigation & Modals
-  background: '#191C17',     // Low-glare dark page background
-  card: '#242920',           // Deep olive-charcoal card surface
-  beige: '#2D3327',          // Elevated surface (replaces light beige)
-  elevatedSurface: '#2D3327',// Elevated secondary surface
-  cardSubtle: '#2A3024',     // Subtle contrast card
+  surface: '#0F1F1F',        // Dark charcoal surface for Navigation & Modals
+  background: '#0B1414',     // Deep teal-charcoal low-glare dark page background
+  card: '#0F1F1F',           // Dark charcoal card surface
+  beige: '#133333',          // Dark teal-gray elevated surface (replaces light beige)
+  secondarySurface: '#133333',// Dark teal-gray secondary surface
+  elevatedSurface: '#133333',// Elevated secondary surface
+  cardSubtle: '#132626',     // Subtle contrast card
   
   // Typography
-  text: '#F1F2E9',           // Warm high-contrast off-white main text
-  textPrimary: '#F1F2E9',    // Alias for main text
-  textSecondary: '#B7BBAE',  // Muted sage-grey secondary text
-  textMuted: '#868B7E',      // Tertiary text
-  textInverse: '#191C17',    // Inverted text on bright buttons
+  text: '#F1F5F9',           // Soft white high-contrast main text
+  textPrimary: '#F1F5F9',    // Alias for main text
+  textSecondary: '#94A3B8',  // Cool gray secondary text
+  textMuted: '#64748B',      // Tertiary text
+  textInverse: '#0B1414',    // Inverted text on bright buttons
   
   // Borders & Dividers
-  border: '#3B4235',         // Low-contrast olive-grey border
-  borderStrong: '#4C5544',   // Emphasized border
-  borderFocus: '#A3B879',    // Focus outline
+  border: '#1F3A3A',         // Dark muted teal border
+  borderStrong: '#2A4D4D',   // Emphasized border
+  borderFocus: '#14B8A6',    // Luminous teal focus outline
+  disabled: '#64748B',       // Muted gray for disabled elements
   
-  // Semantic Accents
-  success: '#A3B879',        // Light Olive for success
-  successLight: '#2C3626',   // Dark Green Tint
-  successDark: '#8DA066',
+  // Status Colors (Consistent & distinguishable)
+  success: '#4ADE80',        // Success / Present
+  successLight: '#143320',   // Dark green tint
+  successDark: '#22C55E',
   
-  warning: '#E5A84B',        // Clear Amber
-  warningLight: '#3B3122',   // Dark Amber Tint
-  warningDark: '#C28424',
+  warning: '#FBBF24',        // Warning / On Leave
+  warningLight: '#332714',   // Dark amber tint
+  warningDark: '#D97706',
   
-  danger: '#E57373',         // Soft Red for Destructive/Errors
-  dangerLight: '#3A2323',    // Dark Red Tint
-  dangerDark: '#C0392B',
+  danger: '#F87171',         // Error / Absent
+  dangerLight: '#331C1C',    // Dark red tint
+  dangerDark: '#DC2626',
+  error: '#F87171',
+  errorLight: '#331C1C',
+  
+  info: '#60A5FA',           // Information
+  infoLight: '#1E2E48',
+  infoDark: '#3B82F6',
+  
+  neutral: '#94A3B8',        // Secondary / Neutral
+  
+  // Inputs & Modals
+  inputBackground: '#132626',
+  inputBorder: '#1F3A3A',
+  modalBackground: '#0F1F1F',
+  navigationBackground: '#0F1F1F',
+  navigationActive: '#14B8A6',
+  iconPrimary: '#14B8A6',
+  iconSecondary: '#94A3B8',
   
   // Camera & Viewfinder Dark Backdrop
-  cameraBackdrop: '#131611',
-  cameraFrameBorder: '#A3B879',
-  modalBackdrop: 'rgba(15, 17, 13, 0.85)'
+  cameraBackdrop: '#060A0A',
+  cameraFrameBorder: '#14B8A6',
+  modalBackdrop: 'rgba(11, 20, 20, 0.85)'
 };
 
 // Re-export design tokens for unified access

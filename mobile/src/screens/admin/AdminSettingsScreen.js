@@ -854,11 +854,11 @@ const getStyles = (colors, isDark) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      backgroundColor: isDark ? '#1f2d1b' : '#edf5ea',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       borderRadius: 14,
       padding: 14,
       borderWidth: 1,
-      borderColor: isDark ? '#384d2b' : '#cce2c3'
+      borderColor: isDark ? '#1F3A3A' : '#E2E8F0'
     },
     idCardLeft: {
       flex: 1,
@@ -888,7 +888,7 @@ const getStyles = (colors, isDark) =>
       paddingVertical: 6,
       paddingHorizontal: 10,
       borderRadius: 8,
-      backgroundColor: isDark ? '#2e3e26' : '#e0eed6',
+      backgroundColor: isDark ? '#1F3A3A' : '#E2E8F0',
       gap: 4
     },
     idCopyText: {
@@ -954,13 +954,13 @@ const getStyles = (colors, isDark) =>
       padding: 4
     },
     digitalClockCard: {
-      backgroundColor: isDark ? '#1f2d1b' : '#edf5ea',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       borderRadius: 14,
       padding: 14,
       alignItems: 'center',
       marginBottom: 16,
       borderWidth: 1,
-      borderColor: isDark ? '#384d2b' : '#cce2c3'
+      borderColor: isDark ? '#1F3A3A' : '#E2E8F0'
     },
     clockRow: {
       flexDirection: 'row',
@@ -975,7 +975,7 @@ const getStyles = (colors, isDark) =>
     },
     periodPillsWrap: {
       flexDirection: 'row',
-      backgroundColor: isDark ? '#2e3e26' : '#d8ebd0',
+      backgroundColor: isDark ? '#1F3A3A' : '#E2E8F0',
       borderRadius: 8,
       padding: 3
     },

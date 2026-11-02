@@ -642,7 +642,7 @@ const getStyles = (colors, isDark) =>
       width: 40,
       height: 40,
       borderRadius: 20,
-      backgroundColor: isDark ? '#263321' : '#eef4ea',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       justifyContent: 'center',
       alignItems: 'center'
     },
@@ -996,7 +996,7 @@ const getStyles = (colors, isDark) =>
       alignItems: 'center',
       padding: 10,
       borderRadius: 8,
-      backgroundColor: isDark ? '#23321d' : '#edf4e8',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       marginBottom: 14
     },
     devHintText: {

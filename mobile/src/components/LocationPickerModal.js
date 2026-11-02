@@ -326,7 +326,7 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: isDark ? '#263321' : '#eef4ea',
+    backgroundColor: isDark ? '#133333' : '#E6F3F1',
     justifyContent: 'center',
     alignItems: 'center'
   },
@@ -375,11 +375,11 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     lineHeight: 18
   },
   locationCard: {
-    backgroundColor: isDark ? '#202c1b' : '#edf4e8',
+    backgroundColor: isDark ? '#133333' : '#E6F3F1',
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    borderColor: isDark ? '#33452b' : '#cce0c2',
+    borderColor: isDark ? '#1F3A3A' : '#E2E8F0',
     marginBottom: 16
   },
   locationIconRow: {

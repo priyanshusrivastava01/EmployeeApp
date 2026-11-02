@@ -265,7 +265,7 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: isDark ? '#263321' : '#eef4ea',
+    backgroundColor: isDark ? '#133333' : '#E6F3F1',
     justifyContent: 'center',
     alignItems: 'center'
   },
@@ -278,9 +278,9 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     flexDirection: 'row',
     padding: 16,
     borderRadius: 16,
-    backgroundColor: isDark ? '#1f2d1b' : '#edf5ea',
+    backgroundColor: isDark ? '#133333' : '#E6F3F1',
     borderWidth: 1.5,
-    borderColor: isDark ? '#354b2a' : '#cee2c4',
+    borderColor: isDark ? '#1F3A3A' : '#E2E8F0',
     alignItems: 'center',
     marginBottom: 20
   },

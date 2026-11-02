@@ -292,7 +292,7 @@ export default function AdminLeaveScreen({ onBack, user, organization }) {
       {isManagement && (
         <View style={{
           flexDirection: 'row',
-          backgroundColor: isDark ? '#1a2218' : '#eef2eb',
+          backgroundColor: isDark ? '#133333' : '#E6F3F1',
           marginHorizontal: 16,
           marginTop: 10,
           borderRadius: 10,
@@ -1089,7 +1089,7 @@ const getStyles = (colors, isDark) =>
       marginTop: 12,
       marginBottom: 6,
       borderWidth: 1,
-      borderColor: isDark ? '#353e2e' : '#e0e7d6'
+      borderColor: isDark ? '#1F3A3A' : '#E2E8F0'
     },
     pulseStatItem: {
       flexDirection: 'row',
@@ -1109,13 +1109,13 @@ const getStyles = (colors, isDark) =>
     pulseDivider: {
       width: 1,
       height: 16,
-      backgroundColor: isDark ? '#3b4434' : '#d2dbc6'
+      backgroundColor: isDark ? '#1F3A3A' : '#CBD5E1'
     },
     avatarWrap: {
       width: 38,
       height: 38,
       borderRadius: 19,
-      backgroundColor: isDark ? '#323c2c' : '#e6ede0',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       justifyContent: 'center',
       alignItems: 'center'
     },
@@ -1184,7 +1184,7 @@ const getStyles = (colors, isDark) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: 6,
-      backgroundColor: isDark ? '#1a2218' : '#f0f5ee',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       padding: 8,
       borderRadius: 8,
       marginBottom: 8
@@ -1283,7 +1283,7 @@ const getStyles = (colors, isDark) =>
       marginBottom: 6
     },
     commentInput: {
-      backgroundColor: isDark ? '#1a2218' : '#f7faf5',
+      backgroundColor: isDark ? '#133333' : '#F7FAF9',
       borderRadius: 10,
       borderWidth: 1,
       borderColor: colors.border,

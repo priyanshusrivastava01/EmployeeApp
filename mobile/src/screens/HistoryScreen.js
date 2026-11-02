@@ -688,7 +688,7 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: 8,
-    backgroundColor: isDark ? '#2d3748' : '#e8eddc',
+    backgroundColor: isDark ? '#133333' : '#E6F3F1',
     alignSelf: 'flex-start'
   },
   locActionText: {

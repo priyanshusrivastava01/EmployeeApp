@@ -156,7 +156,7 @@ export default function AdminHomeScreen({ onNavigate, user, organization }) {
       <View style={styles.kpiGrid}>
         <View style={styles.kpiCard}>
           <View style={styles.kpiCardHeader}>
-            <View style={[styles.kpiIconBox, { backgroundColor: isDark ? '#263320' : '#eef4e8' }]}>
+            <View style={[styles.kpiIconBox, { backgroundColor: isDark ? '#133333' : '#E6F3F1' }]}>
               <Ionicons name="people-outline" size={16} color={colors.primary} />
             </View>
             <Text style={styles.kpiLabel}>Total Staff</Text>
@@ -406,13 +406,13 @@ const getStyles = (colors, isDark) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      backgroundColor: isDark ? '#22281e' : '#f0f4ea',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       borderRadius: 12,
       paddingVertical: 10,
       paddingHorizontal: 12,
       marginBottom: 16,
       borderWidth: 1,
-      borderColor: isDark ? '#353e2e' : '#e0e7d6'
+      borderColor: isDark ? '#1F3A3A' : '#E2E8F0'
     },
     pulseStatItem: {
       flexDirection: 'row',
@@ -432,7 +432,7 @@ const getStyles = (colors, isDark) =>
     pulseDivider: {
       width: 1,
       height: 16,
-      backgroundColor: isDark ? '#3b4434' : '#d2dbc6'
+      backgroundColor: isDark ? '#1F3A3A' : '#CBD5E1'
     },
     sectionHeading: {
       fontSize: 11,
@@ -564,7 +564,7 @@ const getStyles = (colors, isDark) =>
       width: 32,
       height: 32,
       borderRadius: 8,
-      backgroundColor: isDark ? '#1a2218' : '#f0f5ee',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       justifyContent: 'center',
       alignItems: 'center'
     },
@@ -625,7 +625,7 @@ const getStyles = (colors, isDark) =>
       marginRight: 8
     },
     priorityBadge: {
-      backgroundColor: isDark ? '#1a2218' : '#f0f5ee',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       paddingHorizontal: 6,
       paddingVertical: 2,
       borderRadius: 6

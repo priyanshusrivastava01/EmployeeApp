@@ -701,9 +701,9 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     paddingVertical: 20,
     paddingHorizontal: 16,
     borderRadius: 16,
-    backgroundColor: isDark ? '#202c1b' : '#edf4e8',
+    backgroundColor: isDark ? '#133333' : '#E6F3F1',
     borderWidth: 1,
-    borderColor: isDark ? '#33452b' : '#cce0c2',
+    borderColor: isDark ? '#1F3A3A' : '#E2E8F0',
     marginRight: 0
   },
   carouselIconCircle: {
@@ -739,7 +739,7 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 3.5,
-    backgroundColor: isDark ? '#3B4235' : '#DDE1D3',
+    backgroundColor: isDark ? '#1F3A3A' : '#E2E8F0',
     marginHorizontal: 4
   },
   dotActive: {

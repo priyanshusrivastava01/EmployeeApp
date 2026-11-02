@@ -429,7 +429,7 @@ const getStyles = (colors, isDark) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      backgroundColor: isDark ? '#22281e' : '#f0f4ea',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       borderRadius: 12,
       paddingVertical: 10,
       paddingHorizontal: 16,
@@ -437,7 +437,7 @@ const getStyles = (colors, isDark) =>
       marginTop: 12,
       marginBottom: 4,
       borderWidth: 1,
-      borderColor: isDark ? '#353e2e' : '#e0e7d6'
+      borderColor: isDark ? '#1F3A3A' : '#E2E8F0'
     },
     pulseStatItem: {
       flexDirection: 'row',
@@ -457,13 +457,13 @@ const getStyles = (colors, isDark) =>
     pulseDivider: {
       width: 1,
       height: 16,
-      backgroundColor: isDark ? '#3b4434' : '#d2dbc6'
+      backgroundColor: isDark ? '#1F3A3A' : '#CBD5E1'
     },
     avatarWrap: {
       width: 40,
       height: 40,
       borderRadius: 20,
-      backgroundColor: isDark ? '#323c2c' : '#e6ede0',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       justifyContent: 'center',
       alignItems: 'center'
     },

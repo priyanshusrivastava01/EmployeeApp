@@ -2103,7 +2103,7 @@ const getStyles = (colors, isDark, insets) =>
       width: 44,
       height: 44,
       borderRadius: 22,
-      backgroundColor: isDark ? '#334027' : '#e6ede0',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 1,
@@ -2607,7 +2607,7 @@ const getStyles = (colors, isDark, insets) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: 4,
-      backgroundColor: isDark ? '#232b1e' : '#f0f4eb',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       paddingHorizontal: 8,
       paddingVertical: 3,
       borderRadius: 6
@@ -2894,7 +2894,7 @@ const getStyles = (colors, isDark, insets) =>
       fontWeight: '700'
     },
     quickPresetChip: {
-      backgroundColor: isDark ? '#262f21' : '#f0f4eb',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       paddingHorizontal: 8,
       paddingVertical: 4,
       borderRadius: 4,
@@ -2910,7 +2910,7 @@ const getStyles = (colors, isDark, insets) =>
     },
     tableHeaderRow: {
       flexDirection: 'row',
-      backgroundColor: isDark ? '#2e3828' : '#e6ede0',
+      backgroundColor: isDark ? '#1F3A3A' : '#E6F3F1',
       borderBottomWidth: 1,
       borderBottomColor: colors.border
     },

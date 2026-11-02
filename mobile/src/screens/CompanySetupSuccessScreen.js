@@ -243,9 +243,9 @@ const getStyles = (colors, isDark) => StyleSheet.create({
   identityCard: {
     borderRadius: 18,
     padding: 18,
-    backgroundColor: isDark ? '#1f2d1b' : '#f0f6ec',
+    backgroundColor: isDark ? '#133333' : '#E6F3F1',
     borderWidth: 1.5,
-    borderColor: isDark ? '#354b2a' : '#cce0c2',
+    borderColor: isDark ? '#1F3A3A' : '#E2E8F0',
     marginBottom: 20,
     elevation: 2
   },
@@ -262,7 +262,7 @@ const getStyles = (colors, isDark) => StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: isDark ? '#304227' : '#d2e4c8',
+    backgroundColor: isDark ? '#1F3A3A' : '#E2E8F0',
     marginVertical: 14
   },
   idBox: {
@@ -303,9 +303,9 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 8,
-    backgroundColor: isDark ? '#2e3e26' : '#e2edd9',
+    backgroundColor: isDark ? '#133333' : '#E6F3F1',
     borderWidth: 1,
-    borderColor: isDark ? '#425737' : '#c7ddbc'
+    borderColor: isDark ? '#1F3A3A' : '#E2E8F0'
   },
   copyBtnText: {
     fontSize: 12,

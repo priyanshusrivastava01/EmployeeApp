@@ -1927,7 +1927,7 @@ export function NotificationsScreen({ onBack }) {
               key={notif.id}
               activeOpacity={0.7}
               onPress={() => handleNotificationPress(notif)}
-              style={[styles.itemCard, notif.unread && { borderColor: colors.primary, backgroundColor: isDark ? '#1a2218' : '#f0f4eb' }]}
+              style={[styles.itemCard, notif.unread && { borderColor: colors.primary, backgroundColor: isDark ? '#133333' : '#E6F3F1' }]}
             >
               <Ionicons
                 name={notif.unread ? 'ellipse' : 'checkmark-done'}
