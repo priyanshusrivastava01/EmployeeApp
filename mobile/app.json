@@ -45,6 +45,12 @@
         }
       ],
       "expo-sharing"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "296236c4-6075-4de4-a587-a23424c57386"
+      }
+    },
+    "owner": "vardhalinks"
   }
 }
