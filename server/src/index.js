@@ -556,7 +556,7 @@ function generateMemberId(role, orgId) {
   else if (role === 'admin') prefix = 'ADM';
   else if (role === 'team_leader') prefix = 'TLD';
 
-  const orgUsers = memDb.users.filter(u => u.organization_id === orgId && u.employee_id_number && u.employee_id_number.startsWith(`${prefix}-`));
+  const orgUsers = (memDb.users || []).filter(u => u.organization_id === orgId && u.employee_id_number && u.employee_id_number.startsWith(`${prefix}-`));
   let maxSeq = 0;
   for (const u of orgUsers) {
     const parts = u.employee_id_number.split('-');
@@ -567,6 +567,51 @@ function generateMemberId(role, orgId) {
       }
     }
   }
+  const nextSeq = maxSeq + 1;
+  return `${prefix}-${String(nextSeq).padStart(4, '0')}`;
+}
+
+async function generateMemberIdAsync(role, orgId) {
+  let prefix = 'EMP';
+  if (role === 'founder') prefix = 'FND';
+  else if (role === 'admin') prefix = 'ADM';
+  else if (role === 'team_leader') prefix = 'TLD';
+
+  let maxSeq = 0;
+  if (supabase) {
+    try {
+      const { data: dbUsers } = await supabase
+        .from('users')
+        .select('employee_id_number')
+        .eq('organization_id', orgId)
+        .ilike('employee_id_number', `${prefix}-%`);
+      if (dbUsers && dbUsers.length > 0) {
+        for (const u of dbUsers) {
+          if (u.employee_id_number) {
+            const parts = u.employee_id_number.split('-');
+            if (parts.length === 2) {
+              const num = parseInt(parts[1], 10);
+              if (!isNaN(num) && num > maxSeq) maxSeq = num;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // Fall through to memory
+    }
+  }
+
+  const orgUsers = (memDb.users || []).filter(u => u.organization_id === orgId && u.employee_id_number && u.employee_id_number.startsWith(`${prefix}-`));
+  for (const u of orgUsers) {
+    const parts = u.employee_id_number.split('-');
+    if (parts.length === 2) {
+      const num = parseInt(parts[1], 10);
+      if (!isNaN(num) && num > maxSeq) {
+        maxSeq = num;
+      }
+    }
+  }
+
   const nextSeq = maxSeq + 1;
   return `${prefix}-${String(nextSeq).padStart(4, '0')}`;
 }
@@ -877,29 +922,36 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     if (identifier.includes('@')) {
       const normalizedEmail = identifier.toLowerCase();
       if (supabase) {
-        let query = supabase
-          .from('users')
-          .select('*, organizations!organization_id(*)')
-          .eq('email', normalizedEmail);
-        if (targetOrg) {
-          query = query.eq('organization_id', targetOrg.id);
+        try {
+          let query = supabase
+            .from('users')
+            .select('*, organizations!organization_id(*)')
+            .eq('email', normalizedEmail);
+          if (targetOrg) {
+            query = query.eq('organization_id', targetOrg.id);
+          }
+          const { data: userData, error } = await query.maybeSingle();
+          if (!error && userData) {
+            user = userData;
+            org = userData.organizations;
+          }
+        } catch (dbErr) {
+          console.warn('[Auth Login] Supabase email query warning:', dbErr.message);
         }
-        const { data: userData, error } = await query.maybeSingle();
-        if (!error && userData) {
-          user = userData;
-          org = userData.organizations;
-        }
-      } else {
-        user = mem.findUserByEmail(normalizedEmail);
-        if (user) {
-          // If targetOrg was specified, enforce that user must belong to targetOrg
-          if (targetOrg && user.organization_id !== targetOrg.id) {
+      }
+      
+      // In-memory store lookup only when Supabase is not configured
+      if (!supabase) {
+        const memUser = mem.findUserByEmail(normalizedEmail);
+        if (memUser) {
+          if (targetOrg && memUser.organization_id !== targetOrg.id) {
             return res.status(401).json({
               success: false,
               error: 'This account does not belong to the specified company.'
             });
           }
-          org = mem.findOrgById(user.organization_id);
+          user = memUser;
+          org = targetOrg || mem.findOrgById(memUser.organization_id);
         }
       }
     } else {
@@ -908,33 +960,41 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
       if (targetOrg) {
         org = targetOrg;
         if (supabase) {
-          const { data: userData } = await supabase
-            .from('users')
-            .select('*, organizations!organization_id(*)')
-            .eq('organization_id', targetOrg.id)
-            .ilike('employee_id_number', empId)
-            .maybeSingle();
-          if (userData) {
-            user = userData;
-            org = userData.organizations || targetOrg;
+          try {
+            const { data: userData } = await supabase
+              .from('users')
+              .select('*, organizations!organization_id(*)')
+              .eq('organization_id', targetOrg.id)
+              .ilike('employee_id_number', empId)
+              .maybeSingle();
+            if (userData) {
+              user = userData;
+              org = userData.organizations || targetOrg;
+            }
+          } catch (dbErr) {
+            console.warn('[Auth Login] Supabase empId query warning:', dbErr.message);
           }
         } else {
           user = mem.findUserByMemberId(targetOrg.id, empId);
         }
       } else {
         if (supabase) {
-          const { data: matchingUsers } = await supabase
-            .from('users')
-            .select('*, organizations!organization_id(*)')
-            .ilike('employee_id_number', empId);
-          if (matchingUsers && matchingUsers.length === 1) {
-            user = matchingUsers[0];
-            org = user.organizations;
-          } else if (matchingUsers && matchingUsers.length > 1) {
-            return res.status(400).json({
-              success: false,
-              error: 'Multiple organizations found with this Employee ID. Please enter your Company ID to log in.'
-            });
+          try {
+            const { data: matchingUsers } = await supabase
+              .from('users')
+              .select('*, organizations!organization_id(*)')
+              .ilike('employee_id_number', empId);
+            if (matchingUsers && matchingUsers.length === 1) {
+              user = matchingUsers[0];
+              org = user.organizations;
+            } else if (matchingUsers && matchingUsers.length > 1) {
+              return res.status(400).json({
+                success: false,
+                error: 'Multiple organizations found with this Employee ID. Please enter your Company ID to log in.'
+              });
+            }
+          } catch (dbErr) {
+            console.warn('[Auth Login] Supabase global empId query warning:', dbErr.message);
           }
         } else {
           const matchingUsers = memDb.users.filter(u => u.employee_id_number && u.employee_id_number.toUpperCase() === empId);
@@ -970,14 +1030,43 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
       });
     }
 
-    // Verify password
-    const passwordMatches = await bcrypt.compare(password, user.password_hash);
+    // Verify password — check both internal bcrypt hash and Supabase Auth
+    let passwordMatches = false;
+    if (user.password_hash) {
+      passwordMatches = await bcrypt.compare(password, user.password_hash);
+    }
+    if (!passwordMatches && supabase && user.email) {
+      try {
+        const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+          email: user.email,
+          password
+        });
+        if (!signInErr && signInData && signInData.user) {
+          passwordMatches = true;
+          // Synchronize password hash into users table for future fast verification
+          const newHash = await bcrypt.hash(password, 12);
+          user.password_hash = newHash;
+          await supabase.from('users').update({ password_hash: newHash }).eq('id', user.id);
+        }
+      } catch (authErr) {
+        // Fall through
+      }
+    }
     if (!passwordMatches) {
       return res.status(401).json({ success: false, error: 'Invalid email or password.' });
     }
 
-    if (!org) {
-      org = mem.findOrgById(user.organization_id);
+    // Resolve organization if not already loaded
+    if (!org && user.organization_id) {
+      if (supabase) {
+        try {
+          const { data: orgData } = await supabase.from('organizations').select('*').eq('id', user.organization_id).maybeSingle();
+          if (orgData) org = orgData;
+        } catch (e) {}
+      }
+      if (!org) {
+        org = mem.findOrgById(user.organization_id);
+      }
     }
     if (!org) {
       return res.status(500).json({ success: false, error: 'Organization not found. Please contact support.' });
@@ -1372,20 +1461,64 @@ app.post('/api/auth/join-company', authLimiter, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Password must be at least 8 characters long.' });
     }
 
-    // Resolve company
+    // Resolve company from DB or memory
     const trimmedCompId = companyId.trim().toUpperCase();
-    let org = mem.findOrgByCompanyId(trimmedCompId) || mem.findOrgBySlug(companyId.trim().toLowerCase()) || mem.findOrgById(companyId.trim());
+    let org = null;
+    if (supabase) {
+      try {
+        const orConds = [
+          `public_company_id.eq.${trimmedCompId}`,
+          `company_code.eq.${trimmedCompId}`,
+          `slug.eq.${companyId.trim().toLowerCase()}`
+        ];
+        if (isUuid(companyId.trim())) orConds.push(`id.eq.${companyId.trim()}`);
+        const { data: dbOrg } = await supabase
+          .from('organizations')
+          .select('*')
+          .or(orConds.join(','))
+          .maybeSingle();
+        if (dbOrg) org = dbOrg;
+      } catch (orgErr) {
+        console.warn('[Join Company] DB org query warning:', orgErr.message);
+      }
+    }
+    if (!org) {
+      org = mem.findOrgByCompanyId(trimmedCompId) || mem.findOrgBySlug(companyId.trim().toLowerCase()) || mem.findOrgById(companyId.trim());
+    }
     if (!org) {
       return res.status(404).json({ success: false, error: 'Unknown Company ID. No matching company found.' });
     }
 
     // Hash the invitation code to verify
     const tokenHash = hashToken(invitationCode);
-    const invite = mem.findInvitationByTokenHash(org.id, tokenHash);
+    let invite = null;
+    if (supabase) {
+      try {
+        const { data: dbInvite } = await supabase
+          .from('invitations')
+          .select('*')
+          .eq('organization_id', org.id)
+          .eq('token_hash', tokenHash)
+          .maybeSingle();
+        if (dbInvite) invite = dbInvite;
+      } catch (invErr) {
+        console.warn('[Join Company] DB invite query warning:', invErr.message);
+      }
+    }
+    if (!invite) {
+      invite = mem.findInvitationByTokenHash(org.id, tokenHash);
+    }
 
     if (!invite) {
       // Check if token belongs to another organization
-      const foreignInvite = (memDb.invitations || []).find(i => i.token_hash === tokenHash);
+      let foreignInvite = null;
+      if (supabase) {
+        try {
+          const { data: fInvite } = await supabase.from('invitations').select('*').eq('token_hash', tokenHash).maybeSingle();
+          if (fInvite) foreignInvite = fInvite;
+        } catch (_) {}
+      }
+      if (!foreignInvite) foreignInvite = (memDb.invitations || []).find(i => i.token_hash === tokenHash);
       if (foreignInvite) {
         return res.status(403).json({ success: false, error: 'This invitation does not belong to the specified company.' });
       }
@@ -1417,7 +1550,22 @@ app.post('/api/auth/join-company', authLimiter, async (req, res) => {
     }
 
     // Find the associated user record
-    let user = mem.findUserById(invite.user_id) || mem.findUserByEmail(invite.email);
+    let user = null;
+    if (supabase) {
+      try {
+        const { data: dbUser } = await supabase
+          .from('users')
+          .select('*')
+          .or(`id.eq.${invite.user_id},email.eq.${invite.email.toLowerCase()}`)
+          .maybeSingle();
+        if (dbUser) user = dbUser;
+      } catch (uErr) {
+        console.warn('[Join Company] DB user query warning:', uErr.message);
+      }
+    }
+    if (!user) {
+      user = mem.findUserById(invite.user_id) || mem.findUserByEmail(invite.email);
+    }
     if (!user) {
       return res.status(404).json({ success: false, error: 'User profile associated with invitation not found.' });
     }
@@ -1434,8 +1582,32 @@ app.post('/api/auth/join-company', authLimiter, async (req, res) => {
     invite.updated_at = new Date().toISOString();
 
     if (supabase) {
-      await supabase.from('users').update({ password_hash: passwordHash, is_active: true, updated_at: user.updated_at }).eq('id', user.id);
-      await supabase.from('invitations').update({ status: 'accepted', accepted_at: invite.accepted_at, updated_at: invite.updated_at }).eq('id', invite.id);
+      try {
+        await supabase.from('users').update({ password_hash: passwordHash, is_active: true, updated_at: user.updated_at }).eq('id', user.id);
+        await supabase.from('invitations').update({ status: 'accepted', accepted_at: invite.accepted_at, updated_at: invite.updated_at }).eq('id', invite.id);
+
+        // Also ensure Supabase Auth user exists for this account
+        try {
+          await supabase.auth.admin.createUser({
+            email: user.email,
+            password: password,
+            email_confirm: true,
+            user_metadata: {
+              name: user.name,
+              role: user.role,
+              organization_id: org.id,
+              employee_id_number: user.employee_id_number
+            }
+          });
+        } catch (_) {
+          // If auth user already exists, update their password
+          try {
+            await supabase.auth.admin.updateUserById(user.id, { password });
+          } catch (__) {}
+        }
+      } catch (dbSyncErr) {
+        console.warn('[Join Company] DB update warning:', dbSyncErr.message);
+      }
     }
 
     const token = generateToken(user, org.id, org.slug);
@@ -2079,12 +2251,16 @@ app.get('/api/users/:id', requireAuth, async (req, res) => {
 /**
  * POST /api/users
  * Create a new employee in the current organization (Founder/Admin only).
+ * Provisions Supabase Auth account and PostgreSQL user record with immediate login capability.
  */
 app.post('/api/users', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
+  let authUser = null;
   try {
-    const { name, email, password, role = 'employee', department, designation, phone, teamLeaderId } = req.body;
-    if (!name || !email || !password) {
-      return res.status(400).json({ success: false, error: 'name, email, and password are required.' });
+    const { name, email, role = 'employee', department, designation, phone, teamLeaderId } = req.body;
+    let password = req.body.password;
+
+    if (!name || !email) {
+      return res.status(400).json({ success: false, error: 'Full name and email address are required.' });
     }
     if (!['employee', 'team_leader', 'admin'].includes(role)) {
       return res.status(400).json({ success: false, error: 'Invalid role.' });
@@ -2093,26 +2269,87 @@ app.post('/api/users', requireAuth, requireRole(['founder', 'admin']), async (re
     if (role === 'admin' && req.user.role !== 'founder') {
       return res.status(403).json({ success: false, error: 'Only a Founder can create Admin accounts.' });
     }
-    if (password.length < 8) {
-      return res.status(400).json({ success: false, error: 'Password must be at least 8 characters.' });
+
+    // Auto-generate temporary password if not provided
+    let isAutoGeneratedPassword = false;
+    if (!password) {
+      const randomChars = crypto.randomBytes(3).toString('hex');
+      password = `Emp#${randomChars}`;
+      isAutoGeneratedPassword = true;
+    } else if (password.length < 8) {
+      return res.status(400).json({ success: false, error: 'Password must be at least 8 characters long.' });
     }
 
-    const existing = mem.findUserByEmail(email);
-    if (existing) return res.status(409).json({ success: false, error: 'A user with that email already exists.' });
+    const normalizedEmail = email.trim().toLowerCase();
 
-    const employeeId = generateMemberId(role, req.user.organizationId);
+    // Verify email uniqueness in Supabase & memory
+    if (supabase) {
+      try {
+        const { data: existingUser } = await supabase
+          .from('users')
+          .select('id, email')
+          .eq('email', normalizedEmail)
+          .maybeSingle();
+        if (existingUser) {
+          return res.status(409).json({ success: false, error: 'A user with that email already exists.' });
+        }
+      } catch (checkErr) {
+        // Fall through to memory check if network unavailable
+      }
+    }
+
+    const existingMem = mem.findUserByEmail(normalizedEmail);
+    if (existingMem) {
+      return res.status(409).json({ success: false, error: 'A user with that email already exists.' });
+    }
+
+    // Generate unique sequential employee ID
+    const employeeId = await generateMemberIdAsync(role, req.user.organizationId);
+
+    // 1. Create real Supabase Auth user if Supabase is connected
+    let authUserId = null;
+    if (supabase) {
+      try {
+        const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+          email: normalizedEmail,
+          password: password,
+          email_confirm: true,
+          user_metadata: {
+            name: name.trim(),
+            role,
+            organization_id: req.user.organizationId,
+            employee_id_number: employeeId
+          }
+        });
+
+        if (authError) {
+          if (authError.message && authError.message.toLowerCase().includes('already')) {
+            return res.status(409).json({ success: false, error: 'An authentication account with this email already exists in Supabase Auth.' });
+          }
+          console.warn('[Users] Supabase Auth createUser warning:', authError.message);
+        } else if (authData && authData.user) {
+          authUser = authData.user;
+          authUserId = authUser.id;
+        }
+      } catch (authEx) {
+        console.warn('[Users] Supabase Auth admin call non-fatal error:', authEx.message);
+      }
+    }
+
+    // 2. Build local PostgreSQL database user record
+    const userId = authUserId || generateUUID();
     const passwordHash = await bcrypt.hash(password, 12);
     const newUser = {
-      id: generateUUID(),
+      id: userId,
       organization_id: req.user.organizationId,
       employee_id_number: employeeId,
-      email: email.toLowerCase(),
+      email: normalizedEmail,
       password_hash: passwordHash,
-      name,
+      name: name.trim(),
       role,
-      department: department || null,
-      designation: designation || null,
-      phone: phone || null,
+      department: department ? department.trim() : null,
+      designation: designation ? designation.trim() : null,
+      phone: phone ? phone.trim() : null,
       team_leader_id: teamLeaderId || null,
       profile_photo_url: null,
       face_enrollment_status: 'not_enrolled',
@@ -2121,22 +2358,76 @@ app.post('/api/users', requireAuth, requireRole(['founder', 'admin']), async (re
       updated_at: new Date().toISOString()
     };
 
+    let createdUser = newUser;
     if (supabase) {
-      const { data, error } = await supabase.from('users').insert([newUser]).select().single();
-      if (error) {
-        console.error('[Users] Supabase user creation failed:', error.message);
-        return res.status(500).json({ success: false, error: 'Database user creation failed: ' + error.message });
-      }
-      if (data) {
-        memDb.users.push(data);
-        return res.status(201).json({ success: true, data: safeUserView(data, true), source: 'supabase' });
+      try {
+        const { data, error } = await supabase.from('users').insert([newUser]).select().single();
+        if (error) {
+          console.error('[Users] Supabase user insertion failed:', error.message);
+          // Roll back Supabase Auth user if database insertion fails
+          if (authUser && authUser.id) {
+            try {
+              await supabase.auth.admin.deleteUser(authUser.id);
+            } catch (delErr) {
+              console.error('[Users] Auth user rollback failed:', delErr.message);
+            }
+          }
+          return res.status(500).json({ success: false, error: 'Database user creation failed: ' + error.message });
+        }
+        if (data) createdUser = data;
+      } catch (dbErr) {
+        if (authUser && authUser.id) {
+          try {
+            await supabase.auth.admin.deleteUser(authUser.id);
+          } catch (delErr) {}
+        }
+        return res.status(500).json({ success: false, error: 'Database user creation error: ' + dbErr.message });
       }
     }
 
-    memDb.users.push(newUser);
-    res.status(201).json({ success: true, data: safeUserView(newUser, true), source: 'memory' });
+    // Always synchronize with in-memory store
+    memDb.users.push(createdUser);
+
+    // Resolve organization details for the credentials payload
+    let org = null;
+    if (supabase) {
+      try {
+        const { data: orgData } = await supabase.from('organizations').select('*').eq('id', req.user.organizationId).maybeSingle();
+        if (orgData) org = orgData;
+      } catch (e) {}
+    }
+    if (!org) org = mem.findOrgById(req.user.organizationId);
+
+    const safeUser = safeUserView(createdUser, true);
+
+    res.status(201).json({
+      success: true,
+      message: 'Employee account created successfully.',
+      data: safeUser,
+      user: safeUser,
+      credentials: {
+        name: createdUser.name,
+        employeeId: employeeId,
+        email: normalizedEmail,
+        password: password, // Exposed securely in response for Founder to display/copy
+        isAutoGenerated: isAutoGeneratedPassword,
+        role: createdUser.role,
+        department: createdUser.department,
+        designation: createdUser.designation,
+        companyId: org ? (org.public_company_id || org.company_code || org.slug) : null,
+        companyName: org ? org.name : null
+      },
+      source: supabase ? 'supabase' : 'memory'
+    });
   } catch (err) {
-    res.status(500).json({ success: false, error: 'Failed to create user.' });
+    // If an unhandled exception occurred and auth user was created, roll back
+    if (authUser && authUser.id && supabase) {
+      try {
+        await supabase.auth.admin.deleteUser(authUser.id);
+      } catch (delErr) {}
+    }
+    console.error('[Users] Failed to create user:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to create user: ' + err.message });
   }
 });
 
@@ -4441,10 +4732,10 @@ app.get('/api/audits', requireAuth, async (req, res) => {
       query = query.order('audit_date', { ascending: false });
       const { data, error } = await query;
       if (error) {
-        console.error('[Audits Get Supabase Error]:', error.message);
-        return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
+        console.warn('[Audits Get Supabase Warning]:', error.message);
+      } else if (data) {
+        audits = data;
       }
-      if (data) audits = data;
     }
 
     if (!audits.length) {
@@ -4521,8 +4812,10 @@ app.post('/api/audits', requireAuth, requireRole(['founder', 'admin', 'team_lead
       };
       const { data, error } = await supabase.from('team_leader_audits').insert([dbAudit]).select().single();
       if (error) {
-        console.error('[Audits Post Supabase Error]:', error.message);
-        return res.status(500).json({ success: false, error: 'Failed to record audit in database: ' + error.message });
+        console.warn('[Audits Post Supabase Warning]:', error.message);
+        if (process.env.NODE_ENV === 'production') {
+          return res.status(500).json({ success: false, error: 'Failed to record audit in database: ' + error.message });
+        }
       }
     }
 

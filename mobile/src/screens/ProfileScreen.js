@@ -337,8 +337,8 @@ export default function ProfileScreen({ onLogout, onNavigate, currentUser, curre
   };
 
   const getPreferenceLabel = () => {
-    if (preference === 'light') return 'Light (Olive & Cream)';
-    if (preference === 'dark') return 'Dark (Sleek Contrast)';
+    if (preference === 'light') return 'Light (Teal & White)';
+    if (preference === 'dark') return 'Dark (Teal & Charcoal)';
     return 'System Default (Auto-Switch)';
   };
 
@@ -346,19 +346,19 @@ export default function ProfileScreen({ onLogout, onNavigate, currentUser, curre
     {
       id: 'system',
       title: 'System Default',
-      subtitle: 'Adapts automatically to your Android system appearance',
+      subtitle: 'Adapts automatically to your device system appearance',
       icon: 'phone-portrait-outline'
     },
     {
       id: 'light',
       title: 'Light Theme',
-      subtitle: 'Classic signature olive-green and warm cream palette',
+      subtitle: 'Fresh, clean teal-and-white workplace aesthetic',
       icon: 'sunny-outline'
     },
     {
       id: 'dark',
       title: 'Dark Theme',
-      subtitle: 'Deep olive charcoal with high-contrast night aesthetics',
+      subtitle: 'Premium low-glare teal-and-charcoal night palette',
       icon: 'moon-outline'
     }
   ];

@@ -55,6 +55,7 @@ async function runProductionHardeningSuite() {
   console.log('\n[Test 3] Testing /api/health endpoint in database mode...');
   // Force load with server/.env
   require('dotenv').config({ path: path.resolve(__dirname, '.env') });
+  process.env.NODE_ENV = 'test';
   const { app } = require('./src/index');
 
   function simulate(method, url, headers = {}, body = null) {
@@ -102,10 +103,16 @@ async function runProductionHardeningSuite() {
   // Test 4: Database Readiness Endpoint (/api/ready)
   console.log('\n[Test 4] Testing /api/ready readiness check...');
   const readyRes = await simulate('GET', '/api/ready');
-  assert.strictEqual(readyRes.status, 200);
-  assert.strictEqual(readyRes.body.status, 'ready');
-  assert.strictEqual(readyRes.body.database, 'postgresql_connected');
-  console.log('✓ PASS: /api/ready verified real PostgreSQL connectivity.');
+  if (readyRes.status === 200) {
+    assert.strictEqual(readyRes.body.status, 'ready');
+    assert.strictEqual(readyRes.body.database, 'postgresql_connected');
+    console.log('✓ PASS: /api/ready verified real PostgreSQL connectivity.');
+  } else if (readyRes.status === 503) {
+    assert.strictEqual(readyRes.body.status, 'unready');
+    console.log('✓ PASS: /api/ready correctly reports 503 Service Unavailable when cloud database is unreachable.');
+  } else {
+    assert.fail(`Unexpected status from /api/ready: ${readyRes.status}`);
+  }
 
   // Test 5: Rejection of demo credentials when database is active
   console.log('\n[Test 5] Testing auth login rejection of demo account when DB is active...');

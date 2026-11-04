@@ -2,6 +2,8 @@
  * Automated Verification: Mobile Login Portals, Scoped Roles & RBAC
  */
 process.env.NODE_ENV = 'test';
+process.env.SUPABASE_URL = '';
+process.env.SUPABASE_SERVICE_ROLE_KEY = '';
 const EventEmitter = require('events');
 const { app } = require('./src/index');
 

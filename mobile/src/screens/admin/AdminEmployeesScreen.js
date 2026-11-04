@@ -32,17 +32,21 @@ export default function AdminEmployeesScreen({ onBack, user, organization }) {
   const [search, setSearch] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('all');
 
-  // Invite Modal State
+  // Create / Invite Modal State
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [creationMode, setCreationMode] = useState('direct'); // 'direct' | 'invite'
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState('employee');
   const [newDepartment, setNewDepartment] = useState('Engineering');
   const [newDesignation, setNewDesignation] = useState('');
   const [newPhone, setNewPhone] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Success Invitation Result Modal
+  // Success Result Modals
+  const [createdCredentialsResult, setCreatedCredentialsResult] = useState(null);
   const [createdInviteResult, setCreatedInviteResult] = useState(null);
 
   // Selected Employee Detail Modal
@@ -80,7 +84,7 @@ export default function AdminEmployeesScreen({ onBack, user, organization }) {
     loadData();
   }, []);
 
-  const handleCreateInvitation = async () => {
+  const handleCreateEmployeeOrInvite = async () => {
     if (!newName.trim() || !newEmail.trim()) {
       Alert.alert('Required Fields', 'Please enter Name and Work Email.');
       return;
@@ -88,25 +92,74 @@ export default function AdminEmployeesScreen({ onBack, user, organization }) {
 
     try {
       setIsSubmitting(true);
-      const res = await api.createInvitation({
-        name: newName.trim(),
-        email: newEmail.trim().toLowerCase(),
-        role: newRole,
-        department: newDepartment.trim() || 'Operations',
-        designation: newDesignation.trim() || (newRole === 'team_leader' ? 'Team Lead' : 'Staff Member'),
-        phone: newPhone.trim() || null
-      });
 
-      if (res.success && res.invitation) {
-        setShowInviteModal(false);
-        setNewName('');
-        setNewEmail('');
-        setNewDesignation('');
-        setNewPhone('');
-        setCreatedInviteResult(res.invitation);
-        loadData();
+      if (creationMode === 'direct') {
+        // Direct Creation Flow: Immediate login capability with generated Employee ID & Password
+        let targetPassword = newPassword.trim();
+        if (!targetPassword) {
+          const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz#$@!';
+          let autoPass = 'Emp#';
+          for (let i = 0; i < 6; i++) {
+            autoPass += chars[Math.floor(Math.random() * chars.length)];
+          }
+          targetPassword = autoPass;
+        }
+
+        const payload = {
+          name: newName.trim(),
+          email: newEmail.trim().toLowerCase(),
+          role: newRole,
+          department: newDepartment.trim() || 'Engineering',
+          designation: newDesignation.trim() || (newRole === 'team_leader' ? 'Team Lead' : 'Staff Member'),
+          phone: newPhone.trim() || null,
+          password: targetPassword
+        };
+
+        const res = await api.createUser(payload);
+
+        if (res.success && (res.credentials || res.data || res.user)) {
+          setShowInviteModal(false);
+          const creds = res.credentials || {
+            name: newName.trim(),
+            employeeId: res.data?.employeeId || res.data?.employee_id_number || 'EMP-NEW',
+            email: newEmail.trim().toLowerCase(),
+            password: targetPassword,
+            companyId: organization?.public_company_id || organization?.company_code || organization?.companyId || 'VAR001',
+            companyName: organization?.name || 'Company'
+          };
+          setCreatedCredentialsResult(creds);
+          setNewName('');
+          setNewEmail('');
+          setNewDesignation('');
+          setNewPhone('');
+          setNewPassword('');
+          loadData();
+        } else {
+          Alert.alert('Creation Failed', res.error || 'Failed to create employee account.');
+        }
       } else {
-        Alert.alert('Error', res.error || 'Failed to create employee invitation.');
+        // Invitation Code Flow
+        const res = await api.createInvitation({
+          name: newName.trim(),
+          email: newEmail.trim().toLowerCase(),
+          role: newRole,
+          department: newDepartment.trim() || 'Operations',
+          designation: newDesignation.trim() || (newRole === 'team_leader' ? 'Team Lead' : 'Staff Member'),
+          phone: newPhone.trim() || null
+        });
+
+        if (res.success && res.invitation) {
+          setShowInviteModal(false);
+          setNewName('');
+          setNewEmail('');
+          setNewDesignation('');
+          setNewPhone('');
+          setNewPassword('');
+          setCreatedInviteResult(res.invitation);
+          loadData();
+        } else {
+          Alert.alert('Error', res.error || 'Failed to create employee invitation.');
+        }
       }
     } catch (err) {
       Alert.alert('Error', err.message);
@@ -508,14 +561,49 @@ export default function AdminEmployeesScreen({ onBack, user, organization }) {
         />
       )}
 
-      {/* ── Invite Employee Modal ── */}
+      {/* ── Add Employee / Invite Modal ── */}
       <Modal visible={showInviteModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Invite Team Member</Text>
+              <Text style={styles.modalTitle}>
+                {creationMode === 'direct' ? 'Add Employee Account' : 'Invite Team Member'}
+              </Text>
               <TouchableOpacity onPress={() => setShowInviteModal(false)}>
                 <Ionicons name="close" size={24} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Mode Switcher */}
+            <View style={styles.creationModeSwitch}>
+              <TouchableOpacity
+                style={[styles.creationModeBtn, creationMode === 'direct' && styles.creationModeBtnActive]}
+                onPress={() => setCreationMode('direct')}
+              >
+                <Ionicons
+                  name="person-add"
+                  size={15}
+                  color={creationMode === 'direct' ? '#ffffff' : colors.textSecondary}
+                  style={{ marginRight: 6 }}
+                />
+                <Text style={[styles.creationModeText, creationMode === 'direct' && styles.creationModeTextActive]}>
+                  Direct Account
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.creationModeBtn, creationMode === 'invite' && styles.creationModeBtnActive]}
+                onPress={() => setCreationMode('invite')}
+              >
+                <Ionicons
+                  name="mail"
+                  size={15}
+                  color={creationMode === 'invite' ? '#ffffff' : colors.textSecondary}
+                  style={{ marginRight: 6 }}
+                />
+                <Text style={[styles.creationModeText, creationMode === 'invite' && styles.creationModeTextActive]}>
+                  Invite Code
+                </Text>
               </TouchableOpacity>
             </View>
 
@@ -587,18 +675,111 @@ export default function AdminEmployeesScreen({ onBack, user, organization }) {
                 onChangeText={setNewPhone}
                 keyboardType="phone-pad"
               />
+
+              {creationMode === 'direct' && (
+                <View>
+                  <Text style={styles.formLabel}>Initial Password (Optional)</Text>
+                  <View style={styles.passwordInputWrap}>
+                    <TextInput
+                      style={[styles.formInput, { flex: 1, marginBottom: 0, paddingRight: 40 }]}
+                      placeholder="Leave blank to auto-generate"
+                      placeholderTextColor={colors.textSecondary}
+                      value={newPassword}
+                      onChangeText={setNewPassword}
+                      secureTextEntry={!showPassword}
+                    />
+                    <TouchableOpacity
+                      style={styles.passwordEyeBtn}
+                      onPress={() => setShowPassword(!showPassword)}
+                    >
+                      <Ionicons
+                        name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                        size={20}
+                        color={colors.textSecondary}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.inputHelperText}>
+                    Min 8 characters. If blank, a secure temporary password will be created automatically.
+                  </Text>
+                </View>
+              )}
             </ScrollView>
 
             <TouchableOpacity
               style={[styles.submitBtn, isSubmitting && styles.submitBtnDisabled]}
-              onPress={handleCreateInvitation}
+              onPress={handleCreateEmployeeOrInvite}
               disabled={isSubmitting}
             >
               {isSubmitting ? (
                 <ActivityIndicator color="#ffffff" size="small" />
               ) : (
-                <Text style={styles.submitBtnText}>Generate Invitation & Employee ID</Text>
+                <Text style={styles.submitBtnText}>
+                  {creationMode === 'direct' ? 'Create Employee & Generate ID' : 'Generate Invitation Code'}
+                </Text>
               )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Direct Employee Credentials Created Modal ── */}
+      <Modal visible={!!createdCredentialsResult} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.detailCard}>
+            <View style={styles.successIconTop}>
+              <Ionicons name="checkmark-circle" size={48} color={colors.primary} />
+            </View>
+            <Text style={styles.inviteSuccessTitle}>Employee Account Active</Text>
+            <Text style={styles.inviteSuccessSubtitle}>
+              The employee account is created and ready for immediate login. Share these credentials:
+            </Text>
+
+            {createdCredentialsResult && (
+              <View style={styles.codeShareBox}>
+                <View style={styles.codeRow}>
+                  <Text style={styles.codeLabel}>Name:</Text>
+                  <Text style={styles.codeVal}>{createdCredentialsResult.name}</Text>
+                </View>
+                <View style={styles.codeRow}>
+                  <Text style={styles.codeLabel}>Company ID:</Text>
+                  <Text style={styles.codeVal}>{createdCredentialsResult.companyId}</Text>
+                </View>
+                <View style={styles.codeRow}>
+                  <Text style={styles.codeLabel}>Employee ID:</Text>
+                  <Text style={[styles.codeVal, { color: colors.primary, fontWeight: '800' }]}>
+                    {createdCredentialsResult.employeeId}
+                  </Text>
+                </View>
+                <View style={styles.codeRow}>
+                  <Text style={styles.codeLabel}>Work Email:</Text>
+                  <Text style={styles.codeVal}>{createdCredentialsResult.email}</Text>
+                </View>
+                <View style={[styles.codeRow, { borderBottomWidth: 0 }]}>
+                  <Text style={styles.codeLabel}>Password:</Text>
+                  <Text style={[styles.codeVal, { color: colors.primary, fontSize: 16, fontWeight: '800' }]}>
+                    {createdCredentialsResult.password}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={styles.shareCopyBtn}
+              onPress={() => {
+                const text = `Welcome to ${createdCredentialsResult?.companyName || 'our company'}!\n\nHere are your EmployeeApp login credentials:\nCompany ID: ${createdCredentialsResult?.companyId}\nEmployee ID: ${createdCredentialsResult?.employeeId}\nEmail: ${createdCredentialsResult?.email}\nPassword: ${createdCredentialsResult?.password}\n\nDownload EmployeeApp, select 'Employee Login', and sign in with your Employee ID or Email and this password.`;
+                copyToClipboard(text, 'Full login credentials copied to clipboard!');
+              }}
+            >
+              <Ionicons name="copy-outline" size={18} color="#ffffff" style={{ marginRight: 6 }} />
+              <Text style={styles.shareCopyBtnText}>Copy All Login Credentials</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.dismissBtn}
+              onPress={() => setCreatedCredentialsResult(null)}
+            >
+              <Text style={styles.dismissBtnText}>Done</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1140,6 +1321,48 @@ const getStyles = (colors, isDark) =>
     },
     modalForm: {
       marginBottom: 16
+    },
+    creationModeSwitch: {
+      flexDirection: 'row',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
+      borderRadius: 12,
+      padding: 4,
+      marginBottom: 14
+    },
+    creationModeBtn: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 8,
+      borderRadius: 10
+    },
+    creationModeBtnActive: {
+      backgroundColor: colors.primary
+    },
+    creationModeText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: colors.textSecondary
+    },
+    creationModeTextActive: {
+      color: '#ffffff'
+    },
+    passwordInputWrap: {
+      position: 'relative',
+      justifyContent: 'center'
+    },
+    passwordEyeBtn: {
+      position: 'absolute',
+      right: 12,
+      height: 44,
+      justifyContent: 'center'
+    },
+    inputHelperText: {
+      fontSize: 11,
+      color: colors.textSecondary,
+      marginTop: 4,
+      marginBottom: 8
     },
     formLabel: {
       fontSize: 12,

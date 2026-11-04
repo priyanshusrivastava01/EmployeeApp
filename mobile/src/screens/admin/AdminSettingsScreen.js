@@ -51,7 +51,7 @@ function formatDisplayTime(time24) {
 }
 
 export default function AdminSettingsScreen({ onBack, onLogout, user, organization }) {
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, preference, setPreference } = useTheme();
   const styles = getStyles(colors, isDark);
 
   const canEdit = user?.role === 'founder' || user?.role === 'admin';
@@ -461,6 +461,50 @@ export default function AdminSettingsScreen({ onBack, onLogout, user, organizati
                 Active: {selectedDays.join(', ')} ({selectedDays.length} day{selectedDays.length > 1 ? 's' : ''} / week)
               </Text>
             )}
+          </View>
+
+          {/* Appearance & Theme System */}
+          <Text style={styles.sectionLabel}>APPEARANCE & THEME</Text>
+          <View style={styles.card}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+              <View style={[styles.profileAvatar, { width: 36, height: 36, borderRadius: 18, marginRight: 10 }]}>
+                <Ionicons name={isDark ? 'moon' : 'sunny'} size={18} color="#ffffff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardTitle}>Color Scheme</Text>
+                <Text style={styles.idCardHelp}>
+                  Choose Light Mode, Dark Mode, or match your device system appearance.
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.themeSelectorRow}>
+              {[
+                { id: 'light', label: 'Light', icon: 'sunny-outline' },
+                { id: 'dark', label: 'Dark', icon: 'moon-outline' },
+                { id: 'system', label: 'System', icon: 'phone-portrait-outline' }
+              ].map((opt) => {
+                const isActive = preference === opt.id;
+                return (
+                  <TouchableOpacity
+                    key={opt.id}
+                    style={[styles.themeOptionBtn, isActive && styles.themeOptionBtnActive]}
+                    onPress={() => setPreference(opt.id)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name={opt.icon}
+                      size={18}
+                      color={isActive ? '#ffffff' : colors.textSecondary}
+                      style={{ marginBottom: 4 }}
+                    />
+                    <Text style={[styles.themeOptionText, isActive && styles.themeOptionTextActive]}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </View>
 
           {/* Save Button */}
@@ -1019,7 +1063,7 @@ const getStyles = (colors, isDark) =>
       width: '14.5%',
       aspectRatio: 1,
       borderRadius: 8,
-      backgroundColor: isDark ? '#263022' : '#f0f3eb',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       justifyContent: 'center',
       alignItems: 'center',
       borderWidth: 1,
@@ -1052,7 +1096,7 @@ const getStyles = (colors, isDark) =>
       width: 26,
       height: 26,
       borderRadius: 6,
-      backgroundColor: isDark ? '#263022' : '#f0f3eb',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       justifyContent: 'center',
       alignItems: 'center',
       borderWidth: 1,
@@ -1074,7 +1118,7 @@ const getStyles = (colors, isDark) =>
       width: '14.5%',
       paddingVertical: 6,
       borderRadius: 8,
-      backgroundColor: isDark ? '#263022' : '#f0f3eb',
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
       justifyContent: 'center',
       alignItems: 'center',
       borderWidth: 1,
@@ -1090,6 +1134,33 @@ const getStyles = (colors, isDark) =>
       color: colors.textPrimary
     },
     minuteChipTextActive: {
+      color: '#ffffff'
+    },
+    themeSelectorRow: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 4
+    },
+    themeOptionBtn: {
+      flex: 1,
+      paddingVertical: 12,
+      borderRadius: 12,
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: isDark ? '#1F3A3A' : '#E2E8F0'
+    },
+    themeOptionBtnActive: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary
+    },
+    themeOptionText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: colors.textSecondary
+    },
+    themeOptionTextActive: {
       color: '#ffffff'
     },
     modalActionRow: {

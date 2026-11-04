@@ -500,18 +500,45 @@ class ApiService {
         body: JSON.stringify(payload)
       });
     } catch (err) {
+      // Re-throw server errors directly
+      if (err.isServerError || err.status) {
+        throw err;
+      }
+      // If genuine network failure and not in local test mode, throw clear network error
+      if (this.baseUrl && !this.baseUrl.includes('localhost')) {
+        throw new Error(err.message || 'Cannot reach EMS server to create employee account. Please verify internet connection.');
+      }
+      // Local dev/test fallback
+      const empId = `EMP-${String((this.store.state.users || []).length + 1).padStart(4, '0')}`;
+      const fallbackPass = payload.password || `Emp#${Math.random().toString(36).slice(-6)}`;
       const newUser = {
         id: `user-${Date.now()}`,
         name: payload.name,
         email: payload.email,
+        employee_id_number: empId,
+        employeeId: empId,
+        password_hash: fallbackPass,
         role: payload.role || 'employee',
         department: payload.department || 'Engineering',
         designation: payload.designation || 'Staff',
+        is_active: true,
         organization_id: this.org?.id || 'org-acme-1'
       };
       this.store.state.users.push(newUser);
       await this.store.persist();
-      return { success: true, data: newUser };
+      return {
+        success: true,
+        data: newUser,
+        user: newUser,
+        credentials: {
+          name: newUser.name,
+          employeeId: empId,
+          email: newUser.email,
+          password: fallbackPass,
+          companyId: this.org?.public_company_id || 'VAR001',
+          companyName: this.org?.name || 'Company'
+        }
+      };
     }
   }
 

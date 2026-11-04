@@ -23,7 +23,7 @@ import AdminSettingsScreen from './AdminSettingsScreen';
 import AdminAuditsScreen from './AdminAuditsScreen';
 
 export default function AdminDashboard({ user, organization, onLogout }) {
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, setPreference } = useTheme();
   const safeInsets = useSafeAppInsets();
   const styles = getStyles(colors, isDark);
 
@@ -105,6 +105,19 @@ export default function AdminDashboard({ user, organization, onLogout }) {
         </View>
 
         <View style={styles.topBarRight}>
+          {/* Quick Light/Dark Mode Switcher */}
+          <TouchableOpacity
+            style={styles.themeToggleBtn}
+            onPress={() => setPreference(isDark ? 'light' : 'dark')}
+            accessibilityLabel={`Switch to ${isDark ? 'Light' : 'Dark'} Mode`}
+          >
+            <Ionicons
+              name={isDark ? 'sunny' : 'moon'}
+              size={20}
+              color={isDark ? '#FBBF24' : colors.primary}
+            />
+          </TouchableOpacity>
+
           {!isTeamLeader && (
             <TouchableOpacity
               style={styles.settingsIconBtn}
@@ -197,6 +210,9 @@ const getStyles = (colors, isDark) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: 12
+    },
+    themeToggleBtn: {
+      padding: 4
     },
     settingsIconBtn: {
       padding: 4

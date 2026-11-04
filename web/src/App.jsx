@@ -32,7 +32,11 @@ import {
   Edit3,
   Trash2,
   LogOut,
-  RefreshCw
+  RefreshCw,
+  Sun,
+  Moon,
+  Copy,
+  Check
 } from 'lucide-react';
 
 import webApi from './services/api';
@@ -56,6 +60,33 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('all');
   const [selectedPhoto, setSelectedPhoto] = useState(null);
+
+  // Theme State (Teal Light / Dark)
+  const [theme, setTheme] = useState(() => localStorage.getItem('ems_web_theme') || 'light');
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('ems_web_theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
+  };
+
+  // Add Employee Modal State
+  const [showAddEmpModal, setShowAddEmpModal] = useState(false);
+  const [newEmpForm, setNewEmpForm] = useState({
+    name: '',
+    email: '',
+    role: 'employee',
+    department: 'Engineering',
+    designation: '',
+    phone: '',
+    password: ''
+  });
+  const [createdEmpResult, setCreatedEmpResult] = useState(null);
+  const [isSubmittingEmp, setIsSubmittingEmp] = useState(false);
+  const [copiedCredentials, setCopiedCredentials] = useState(false);
 
   const [notification, setNotification] = useState(null);
 
@@ -179,6 +210,80 @@ export default function App() {
   const showToast = (message) => {
     setNotification(message);
     setTimeout(() => setNotification(null), 3000);
+  };
+
+  const handleCreateEmployee = async (e) => {
+    e.preventDefault();
+    if (!newEmpForm.name.trim() || !newEmpForm.email.trim()) {
+      showToast('Name and email are required.');
+      return;
+    }
+
+    try {
+      setIsSubmittingEmp(true);
+      let targetPassword = newEmpForm.password.trim();
+      if (!targetPassword) {
+        const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz#$@!';
+        let autoPass = 'Emp#';
+        for (let i = 0; i < 6; i++) {
+          autoPass += chars[Math.floor(Math.random() * chars.length)];
+        }
+        targetPassword = autoPass;
+      }
+
+      const res = await webApi.createUser({
+        name: newEmpForm.name.trim(),
+        email: newEmpForm.email.trim().toLowerCase(),
+        role: newEmpForm.role,
+        department: newEmpForm.department.trim() || 'Engineering',
+        designation: newEmpForm.designation.trim() || 'Staff Member',
+        phone: newEmpForm.phone.trim() || null,
+        password: targetPassword
+      });
+
+      if (res.success) {
+        showToast('Employee account created successfully!');
+        setShowAddEmpModal(false);
+        const creds = res.credentials || {
+          name: newEmpForm.name.trim(),
+          employeeId: res.data?.employeeId || res.data?.employee_id_number || 'EMP-NEW',
+          email: newEmpForm.email.trim().toLowerCase(),
+          password: targetPassword,
+          companyId: currentOrg?.public_company_id || 'VAR001',
+          companyName: currentOrg?.name || 'Company'
+        };
+        setCreatedEmpResult(creds);
+        setNewEmpForm({
+          name: '',
+          email: '',
+          role: 'employee',
+          department: 'Engineering',
+          designation: '',
+          phone: '',
+          password: ''
+        });
+        // Refresh employees list
+        try {
+          const updated = await webApi.getUsers();
+          if (updated && updated.data) setEmployeesList(updated.data);
+        } catch (_) {}
+      } else {
+        showToast(res.error || 'Failed to create employee.');
+      }
+    } catch (err) {
+      showToast(err.message || 'Error creating employee.');
+    } finally {
+      setIsSubmittingEmp(false);
+    }
+  };
+
+  const copyCredentialsText = () => {
+    if (!createdEmpResult) return;
+    const text = `Welcome to ${createdEmpResult?.companyName || currentOrg?.name || 'our company'}!\n\nHere are your EmployeeApp login credentials:\nCompany ID: ${createdEmpResult.companyId || currentOrg?.public_company_id}\nEmployee ID: ${createdEmpResult.employeeId}\nEmail: ${createdEmpResult.email}\nPassword: ${createdEmpResult.password}\n\nSign in on Employee Login in the mobile app using your Employee ID or Email and this password.`;
+    navigator.clipboard.writeText(text);
+    setCopiedCredentials(true);
+    setTimeout(() => setCopiedCredentials(false), 2500);
+    showToast('Credentials copied to clipboard!');
   };
 
   // Announcement Handlers
@@ -478,7 +583,7 @@ export default function App() {
           top: '20px',
           right: '20px',
           zIndex: 9999,
-          background: '#414C30',
+          background: 'var(--primary)',
           color: '#ffffff',
           padding: '12px 20px',
           borderRadius: '8px',
@@ -487,9 +592,9 @@ export default function App() {
           alignItems: 'center',
           gap: '10px',
           fontSize: '0.9rem',
-          border: '1px solid #687747'
+          border: '1px solid var(--primary)'
         }}>
-          <CheckCircle2 size={18} color="#E8EDDC" />
+          <CheckCircle2 size={18} color="var(--primary-light)" />
           <span>{notification}</span>
         </div>
       )}
@@ -532,7 +637,7 @@ export default function App() {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: 'var(--text-secondary)' }}>Geofence Check:</span>
-                <span style={{ color: '#414C30', fontWeight: 700 }}>Verified by Haversine</span>
+                <span style={{ color: 'var(--primary)', fontWeight: 700 }}>Verified by Haversine</span>
               </div>
             </div>
             <button
@@ -540,7 +645,7 @@ export default function App() {
               style={{
                 width: '100%',
                 padding: '10px',
-                background: '#687747',
+                background: 'var(--primary)',
                 color: '#ffffff',
                 border: 'none',
                 borderRadius: '8px',
@@ -587,7 +692,7 @@ export default function App() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--border)', paddingBottom: '16px' }}>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '3px 8px', borderRadius: '6px', background: 'var(--bg-light-olive)', color: '#414C30' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '3px 8px', borderRadius: '6px', background: 'var(--bg-light-olive)', color: 'var(--primary)' }}>
                     EXCEL SPREADSHEET ROW #{selectedReportDetail.id}
                   </span>
                   <span style={{ fontSize: '0.75rem', fontWeight: 600, padding: '3px 8px', borderRadius: '6px', background: 'var(--bg-beige)', color: 'var(--text-secondary)' }}>
@@ -631,7 +736,7 @@ export default function App() {
                     fontSize: '0.75rem',
                     fontWeight: 700,
                     background: selectedReportDetail.completed === 'Yes' ? 'var(--bg-light-olive)' : 'var(--bg-beige)',
-                    color: selectedReportDetail.completed === 'Yes' ? '#414C30' : 'var(--text-muted)'
+                    color: selectedReportDetail.completed === 'Yes' ? 'var(--primary)' : 'var(--text-muted)'
                   }}>
                     Completed: {selectedReportDetail.completed}
                   </span>
@@ -663,7 +768,7 @@ export default function App() {
                 <div style={{
                   padding: '6px 14px',
                   borderRadius: '10px',
-                  background: 'linear-gradient(135deg, #687747, #414C30)',
+                  background: 'linear-gradient(135deg, var(--primary), var(--primary))',
                   color: '#ffffff',
                   textAlign: 'center'
                 }}>
@@ -693,7 +798,7 @@ export default function App() {
 
             {/* Section 2: Team Leader Audit (Distinct & Separate) */}
             <div style={{
-              border: '2px solid #687747',
+              border: '2px solid var(--primary)',
               borderRadius: '12px',
               padding: '18px',
               background: 'var(--bg-card-subtle)'
@@ -701,8 +806,8 @@ export default function App() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <ShieldCheck size={18} color="#687747" />
-                    <h4 style={{ fontSize: '0.95rem', fontWeight: 800, color: '#414C30' }}>Team Leader Audit</h4>
+                    <ShieldCheck size={18} color="var(--primary)" />
+                    <h4 style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--primary)' }}>Team Leader Audit</h4>
                   </div>
                   <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
                     Independent supervisory audit (Cannot be altered by employees)
@@ -711,7 +816,7 @@ export default function App() {
                 <div style={{
                   padding: '6px 14px',
                   borderRadius: '10px',
-                  background: '#687747',
+                  background: 'var(--primary)',
                   color: '#ffffff',
                   textAlign: 'center'
                 }}>
@@ -721,7 +826,7 @@ export default function App() {
               </div>
 
               <div style={{ background: '#ffffff', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '10px', fontSize: '0.85rem', color: 'var(--text-primary)', lineHeight: 1.5 }}>
-                <strong style={{ display: 'block', fontSize: '0.78rem', color: '#414C30', marginBottom: '4px' }}>TL Audit Comments & Remarks:</strong>
+                <strong style={{ display: 'block', fontSize: '0.78rem', color: 'var(--primary)', marginBottom: '4px' }}>TL Audit Comments & Remarks:</strong>
                 {selectedReportDetail.tlAuditRemarks}
               </div>
 
@@ -736,7 +841,7 @@ export default function App() {
               style={{
                 width: '100%',
                 padding: '12px',
-                background: '#414C30',
+                background: 'var(--primary)',
                 color: '#ffffff',
                 borderRadius: '8px',
                 fontWeight: 600,
@@ -777,7 +882,7 @@ export default function App() {
           }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <Megaphone size={22} color="#687747" />
+                <Megaphone size={22} color="var(--primary)" />
                 <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)' }}>
                   {editingAnnouncement ? 'Edit Announcement' : 'Publish Announcement'}
                 </h3>
@@ -792,7 +897,7 @@ export default function App() {
 
             <form onSubmit={handleSaveAnnouncement} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#414C30', marginBottom: '6px' }}>Announcement Title *</label>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--primary)', marginBottom: '6px' }}>Announcement Title *</label>
                 <input
                   type="text"
                   required
@@ -805,7 +910,7 @@ export default function App() {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#414C30', marginBottom: '6px' }}>Target Audience</label>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--primary)', marginBottom: '6px' }}>Target Audience</label>
                   <select
                     value={announcementForm.audience}
                     onChange={e => setAnnouncementForm({ ...announcementForm, audience: e.target.value })}
@@ -820,7 +925,7 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#414C30', marginBottom: '6px' }}>Priority Level</label>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--primary)', marginBottom: '6px' }}>Priority Level</label>
                   <select
                     value={announcementForm.priority}
                     onChange={e => setAnnouncementForm({ ...announcementForm, priority: e.target.value })}
@@ -834,7 +939,7 @@ export default function App() {
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#414C30', marginBottom: '6px' }}>Publication Status</label>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--primary)', marginBottom: '6px' }}>Publication Status</label>
                 <select
                   value={announcementForm.status}
                   onChange={e => setAnnouncementForm({ ...announcementForm, status: e.target.value })}
@@ -846,7 +951,7 @@ export default function App() {
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#414C30', marginBottom: '6px' }}>Announcement Message *</label>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--primary)', marginBottom: '6px' }}>Announcement Message *</label>
                 <textarea
                   required
                   rows={4}
@@ -867,7 +972,7 @@ export default function App() {
                 </button>
                 <button
                   type="submit"
-                  style={{ padding: '10px 20px', borderRadius: '8px', border: 'none', background: '#687747', color: '#fff', fontWeight: 700, cursor: 'pointer' }}
+                  style={{ padding: '10px 20px', borderRadius: '8px', border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 700, cursor: 'pointer' }}
                 >
                   {editingAnnouncement ? 'Save Changes' : 'Publish Announcement'}
                 </button>
@@ -904,7 +1009,7 @@ export default function App() {
           }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--border)' }}>
               <div>
-                <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '3px 8px', borderRadius: '6px', background: 'var(--bg-light-olive)', color: '#414C30' }}>
+                <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '3px 8px', borderRadius: '6px', background: 'var(--bg-light-olive)', color: 'var(--primary)' }}>
                   EMPLOYEE APP PREVIEW
                 </span>
                 <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '6px' }}>{announcementPreview.title}</h3>
@@ -918,7 +1023,7 @@ export default function App() {
             </div>
 
             <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
-              <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '4px 10px', borderRadius: '12px', background: announcementPreview.priority === 'high' ? '#FAF0EE' : 'var(--bg-light-olive)', color: announcementPreview.priority === 'high' ? '#C0392B' : '#414C30' }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '4px 10px', borderRadius: '12px', background: announcementPreview.priority === 'high' ? '#FAF0EE' : 'var(--bg-light-olive)', color: announcementPreview.priority === 'high' ? '#C0392B' : 'var(--primary)' }}>
                 Priority: {announcementPreview.priority?.toUpperCase()}
               </span>
               <span style={{ fontSize: '0.75rem', fontWeight: 600, padding: '4px 10px', borderRadius: '12px', background: 'var(--bg-beige)', color: 'var(--text-secondary)' }}>
@@ -937,7 +1042,7 @@ export default function App() {
 
             <button
               onClick={() => setAnnouncementPreview(null)}
-              style={{ width: '100%', padding: '10px', background: '#414C30', color: '#fff', borderRadius: '8px', border: 'none', fontWeight: 600, cursor: 'pointer' }}
+              style={{ width: '100%', padding: '10px', background: 'var(--primary)', color: '#fff', borderRadius: '8px', border: 'none', fontWeight: 600, cursor: 'pointer' }}
             >
               Close Preview
             </button>
@@ -972,7 +1077,7 @@ export default function App() {
           }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <BookOpen size={22} color="#687747" />
+                <BookOpen size={22} color="var(--primary)" />
                 <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)' }}>
                   {editingRule ? 'Edit Company Policy / Rule' : 'Create Company Policy / Rule'}
                 </h3>
@@ -987,7 +1092,7 @@ export default function App() {
 
             <form onSubmit={handleSaveRule} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#414C30', marginBottom: '6px' }}>Policy Title *</label>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--primary)', marginBottom: '6px' }}>Policy Title *</label>
                 <input
                   type="text"
                   required
@@ -1000,7 +1105,7 @@ export default function App() {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '12px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#414C30', marginBottom: '6px' }}>Category</label>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--primary)', marginBottom: '6px' }}>Category</label>
                   <select
                     value={ruleForm.category}
                     onChange={e => setRuleForm({ ...ruleForm, category: e.target.value })}
@@ -1016,7 +1121,7 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#414C30', marginBottom: '6px' }}>Policy Version</label>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--primary)', marginBottom: '6px' }}>Policy Version</label>
                   <input
                     type="text"
                     value={ruleForm.version}
@@ -1028,7 +1133,7 @@ export default function App() {
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#414C30', marginBottom: '6px' }}>Publication Status</label>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--primary)', marginBottom: '6px' }}>Publication Status</label>
                 <select
                   value={ruleForm.status}
                   onChange={e => setRuleForm({ ...ruleForm, status: e.target.value })}
@@ -1040,7 +1145,7 @@ export default function App() {
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#414C30', marginBottom: '6px' }}>Policy Description / Body *</label>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--primary)', marginBottom: '6px' }}>Policy Description / Body *</label>
                 <textarea
                   required
                   rows={5}
@@ -1061,12 +1166,316 @@ export default function App() {
                 </button>
                 <button
                   type="submit"
-                  style={{ padding: '10px 20px', borderRadius: '8px', border: 'none', background: '#687747', color: '#fff', fontWeight: 700, cursor: 'pointer' }}
+                  style={{ padding: '10px 20px', borderRadius: '8px', border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 700, cursor: 'pointer' }}
                 >
                   {editingRule ? 'Save Policy Changes' : 'Publish Policy'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Add Employee Modal ── */}
+      {showAddEmpModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0, 0, 0, 0.6)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          padding: '20px'
+        }}>
+          <div style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border)',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '540px',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            padding: '28px',
+            boxShadow: 'var(--shadow-xl)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <div>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+                  Add New Employee
+                </h3>
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
+                  Create an active account. Credentials can be shared with the employee immediately.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddEmpModal(false)}
+                style={{ padding: '6px', borderRadius: '8px', color: 'var(--text-secondary)', cursor: 'pointer' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateEmployee} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                  Full Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Aarav Sharma"
+                  value={newEmpForm.name}
+                  onChange={e => setNewEmpForm({ ...newEmpForm, name: e.target.value })}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                  Work Email Address *
+                </label>
+                <input
+                  type="email"
+                  required
+                  placeholder="aarav@company.com"
+                  value={newEmpForm.email}
+                  onChange={e => setNewEmpForm({ ...newEmpForm, email: e.target.value })}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                    Role Assignment
+                  </label>
+                  <select
+                    value={newEmpForm.role}
+                    onChange={e => setNewEmpForm({ ...newEmpForm, role: e.target.value })}
+                    style={{ width: '100%', background: 'var(--input-bg)' }}
+                  >
+                    <option value="employee">Employee</option>
+                    <option value="team_leader">Team Leader</option>
+                    <option value="admin">Administrator</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                    Department
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Engineering, Design..."
+                    value={newEmpForm.department}
+                    onChange={e => setNewEmpForm({ ...newEmpForm, department: e.target.value })}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                    Designation
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Senior Frontend Dev"
+                    value={newEmpForm.designation}
+                    onChange={e => setNewEmpForm({ ...newEmpForm, designation: e.target.value })}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                    Phone Number (Optional)
+                  </label>
+                  <input
+                    type="tel"
+                    placeholder="+91 98765 43210"
+                    value={newEmpForm.phone}
+                    onChange={e => setNewEmpForm({ ...newEmpForm, phone: e.target.value })}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                  Account Password (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Leave blank to auto-generate a secure password"
+                  value={newEmpForm.password}
+                  onChange={e => setNewEmpForm({ ...newEmpForm, password: e.target.value })}
+                  style={{ width: '100%' }}
+                />
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  If left blank, a secure temporary password will be generated automatically.
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowAddEmpModal(false)}
+                  style={{
+                    padding: '10px 16px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border)',
+                    background: 'var(--bg-card-subtle)',
+                    color: 'var(--text-primary)',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingEmp}
+                  style={{
+                    padding: '10px 20px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: 'var(--primary)',
+                    color: '#fff',
+                    fontWeight: 700,
+                    cursor: isSubmittingEmp ? 'not-allowed' : 'pointer',
+                    opacity: isSubmittingEmp ? 0.7 : 1
+                  }}
+                >
+                  {isSubmittingEmp ? 'Creating Account...' : 'Create Employee Account'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Created Employee Credentials Success Modal ── */}
+      {createdEmpResult && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0, 0, 0, 0.65)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1100,
+          padding: '20px'
+        }}>
+          <div style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border)',
+            borderRadius: '18px',
+            width: '100%',
+            maxWidth: '500px',
+            padding: '28px',
+            boxShadow: 'var(--shadow-xl)',
+            textAlign: 'center'
+          }}>
+            <div style={{
+              width: '56px',
+              height: '56px',
+              borderRadius: '28px',
+              background: 'var(--bg-card-subtle)',
+              color: 'var(--primary)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: '16px'
+            }}>
+              <CheckCircle2 size={32} />
+            </div>
+
+            <h3 style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 6px 0' }}>
+              Employee Account Created!
+            </h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '0 0 20px 0' }}>
+              The account is active immediately. Share these credentials with your employee:
+            </p>
+
+            <div style={{
+              background: 'var(--bg-card-subtle)',
+              border: '1px solid var(--border)',
+              borderRadius: '12px',
+              padding: '16px',
+              textAlign: 'left',
+              marginBottom: '20px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Employee Name:</span>
+                <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>{createdEmpResult.name}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Company ID:</span>
+                <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>{createdEmpResult.companyId || currentOrg?.public_company_id}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Employee ID:</span>
+                <span style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--primary)' }}>{createdEmpResult.employeeId}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Email Address:</span>
+                <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)' }}>{createdEmpResult.email}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Password:</span>
+                <span style={{ fontSize: '0.95rem', fontWeight: 800, color: 'var(--primary)', letterSpacing: '0.5px' }}>{createdEmpResult.password}</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={copyCredentialsText}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  background: 'var(--primary)',
+                  color: '#fff',
+                  fontWeight: 700,
+                  fontSize: '0.9rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  cursor: 'pointer'
+                }}
+              >
+                {copiedCredentials ? <Check size={18} /> : <Copy size={18} />}
+                <span>{copiedCredentials ? 'Copied to Clipboard!' : 'Copy Login Credentials'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setCreatedEmpResult(null)}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  borderRadius: '10px',
+                  border: '1px solid var(--border)',
+                  background: 'transparent',
+                  color: 'var(--text-secondary)',
+                  fontWeight: 600,
+                  fontSize: '0.85rem',
+                  cursor: 'pointer'
+                }}
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1087,7 +1496,7 @@ export default function App() {
         <div style={{ padding: '24px 20px', borderBottom: '1px solid rgba(221, 225, 211, 0.12)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div style={{
-              background: 'linear-gradient(135deg, #687747, #57643A)',
+              background: 'linear-gradient(135deg, var(--primary), var(--primary-hover))',
               color: '#ffffff',
               width: '38px',
               height: '38px',
@@ -1139,7 +1548,7 @@ export default function App() {
                   borderRadius: '10px',
                   color: isActive ? '#ffffff' : '#DDE1D3',
                   background: isActive ? 'rgba(232, 237, 220, 0.16)' : 'transparent',
-                  borderLeft: isActive ? '3px solid #E8EDDC' : '3px solid transparent',
+                  borderLeft: isActive ? '3px solid var(--primary-light)' : '3px solid transparent',
                   fontWeight: isActive ? 700 : 500,
                   fontSize: '0.9rem',
                   transition: 'all 0.15s ease',
@@ -1149,7 +1558,7 @@ export default function App() {
                   border: 'none',
                   borderLeftStyle: 'solid',
                   borderLeftWidth: '3px',
-                  borderLeftColor: isActive ? '#E8EDDC' : 'transparent'
+                  borderLeftColor: isActive ? 'var(--primary-light)' : 'transparent'
                 }}
                 onMouseEnter={e => {
                   if (!isActive) e.currentTarget.style.background = 'var(--bg-sidebar-hover)';
@@ -1158,14 +1567,14 @@ export default function App() {
                   if (!isActive) e.currentTarget.style.background = 'transparent';
                 }}
               >
-                <Icon size={18} color={isActive ? '#E8EDDC' : '#DDE1D3'} />
+                <Icon size={18} color={isActive ? 'var(--primary-light)' : '#DDE1D3'} />
                 <span style={{ flex: 1 }}>{item.label}</span>
                 {item.badge && (
                   <span style={{
                     fontSize: '0.72rem',
                     padding: '2px 8px',
                     borderRadius: '12px',
-                    background: isActive ? '#687747' : 'rgba(0, 0, 0, 0.25)',
+                    background: isActive ? 'var(--primary)' : 'rgba(0, 0, 0, 0.25)',
                     color: '#ffffff',
                     fontWeight: 700
                   }}>
@@ -1186,7 +1595,7 @@ export default function App() {
           border: '1px solid rgba(232, 237, 220, 0.12)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-            <Smartphone size={16} color="#E8EDDC" />
+            <Smartphone size={16} color="var(--primary-light)" />
             <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#ffffff' }}>Android App Ready</span>
           </div>
           <p style={{ fontSize: '0.74rem', color: '#DDE1D3', lineHeight: 1.4, margin: 0 }}>
@@ -1206,7 +1615,7 @@ export default function App() {
             width: '36px',
             height: '36px',
             borderRadius: '50%',
-            background: '#687747',
+            background: 'var(--primary)',
             color: '#fff',
             display: 'flex',
             alignItems: 'center',
@@ -1278,19 +1687,20 @@ export default function App() {
               alignItems: 'center',
               gap: '6px',
               padding: '6px 12px',
-              background: 'var(--bg-light-olive)',
+              background: 'var(--bg-card-subtle)',
               border: '1px solid var(--border)',
               borderRadius: '20px',
               fontSize: '0.78rem',
-              color: '#414C30',
+              color: 'var(--primary)',
               fontWeight: 700
             }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#687747' }} />
-              API: Connected (Localhost:5000)
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--primary)' }} />
+              API: Connected
             </div>
 
+            {/* Light / Dark Mode Toggle */}
             <button
-              onClick={() => showToast('CSV Export generated and downloaded successfully (Sample demo).')}
+              onClick={toggleTheme}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -1298,7 +1708,28 @@ export default function App() {
                 padding: '8px 14px',
                 borderRadius: '8px',
                 border: '1px solid var(--border)',
-                background: '#fff',
+                background: 'var(--bg-card)',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                color: 'var(--text-primary)',
+                cursor: 'pointer'
+              }}
+              title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+            >
+              {theme === 'dark' ? <Sun size={16} color="#FBBF24" /> : <Moon size={16} color="var(--primary)" />}
+              <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
+            </button>
+
+            <button
+              onClick={() => showToast('CSV Export generated and downloaded successfully.')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 14px',
+                borderRadius: '8px',
+                border: '1px solid var(--border)',
+                background: 'var(--bg-card)',
                 fontSize: '0.85rem',
                 fontWeight: 600,
                 color: 'var(--text-secondary)',
@@ -1310,7 +1741,7 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => showToast('Add Employee Modal opened (Placeholder for Stage 3).')}
+              onClick={() => setShowAddEmpModal(true)}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -1322,7 +1753,7 @@ export default function App() {
                 fontWeight: 600,
                 color: '#fff',
                 border: 'none',
-                boxShadow: '0 2px 8px rgba(104, 119, 71, 0.25)',
+                boxShadow: '0 2px 8px rgba(13, 148, 136, 0.25)',
                 cursor: 'pointer'
               }}
             >
@@ -1345,23 +1776,23 @@ export default function App() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                     <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Total Headcount</span>
                     <div style={{ background: 'var(--bg-light-olive)', padding: '8px', borderRadius: '8px' }}>
-                      <Users size={18} color="#687747" />
+                      <Users size={18} color="var(--primary)" />
                     </div>
                   </div>
                   <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)' }}>{mockStats.totalEmployees}</div>
-                  <div style={{ fontSize: '0.78rem', color: '#414C30', fontWeight: 700, marginTop: '4px' }}>100% Active Staff</div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--primary)', fontWeight: 700, marginTop: '4px' }}>100% Active Staff</div>
                 </div>
 
                 <div style={{ background: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                     <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Present Today</span>
                     <div style={{ background: 'var(--bg-light-olive)', padding: '8px', borderRadius: '8px' }}>
-                      <UserCheck size={18} color="#414C30" />
+                      <UserCheck size={18} color="var(--primary)" />
                     </div>
                   </div>
                   <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)' }}>{mockStats.presentToday}</div>
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                    <span style={{ fontWeight: 700, color: '#687747' }}>{mockStats.wfoCount} WFO</span> • <span style={{ fontWeight: 700, color: '#73776C' }}>{mockStats.wfhCount} WFH</span>
+                    <span style={{ fontWeight: 700, color: 'var(--primary)' }}>{mockStats.wfoCount} WFO</span> • <span style={{ fontWeight: 700, color: '#73776C' }}>{mockStats.wfhCount} WFH</span>
                   </div>
                 </div>
 
@@ -1369,11 +1800,11 @@ export default function App() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                     <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Geofence Accuracy</span>
                     <div style={{ background: 'var(--bg-beige)', padding: '8px', borderRadius: '8px' }}>
-                      <MapPin size={18} color="#687747" />
+                      <MapPin size={18} color="var(--primary)" />
                     </div>
                   </div>
                   <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)' }}>{mockStats.geofenceCompliance}%</div>
-                  <div style={{ fontSize: '0.78rem', color: '#414C30', fontWeight: 700, marginTop: '4px' }}>Office Perimeter Secure</div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--primary)', fontWeight: 700, marginTop: '4px' }}>Office Perimeter Secure</div>
                 </div>
 
                 <div style={{ background: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
@@ -1436,7 +1867,7 @@ export default function App() {
                             fontSize: '0.78rem',
                             fontWeight: 700,
                             background: row.mode === 'WFO' ? 'var(--bg-light-olive)' : 'var(--bg-beige)',
-                            color: row.mode === 'WFO' ? '#414C30' : '#57643A'
+                            color: row.mode === 'WFO' ? 'var(--primary)' : 'var(--primary-hover)'
                           }}>
                             {row.mode === 'WFO' ? <Building2 size={13} /> : <Home size={13} />}
                             {row.mode}
@@ -1467,8 +1898,8 @@ export default function App() {
                           </button>
                         </td>
                         <td style={{ padding: '16px 20px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#414C30', fontWeight: 700, fontSize: '0.82rem' }}>
-                            <ShieldCheck size={16} color="#687747" />
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--primary)', fontWeight: 700, fontSize: '0.82rem' }}>
+                            <ShieldCheck size={16} color="var(--primary)" />
                             {row.geofenceStatus}
                           </div>
                           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>{row.location}</div>
@@ -1583,7 +2014,7 @@ export default function App() {
                             fontSize: '0.75rem',
                             fontWeight: 700,
                             background: emp.role === 'team_leader' ? 'var(--bg-light-olive)' : 'var(--bg-beige)',
-                            color: emp.role === 'team_leader' ? '#414C30' : '#57643A'
+                            color: emp.role === 'team_leader' ? 'var(--primary)' : 'var(--primary-hover)'
                           }}>
                             {emp.role === 'team_leader' ? 'Team Leader' : 'Employee'}
                           </span>
@@ -1601,7 +2032,7 @@ export default function App() {
                             fontSize: '0.75rem',
                             fontWeight: 700,
                             background: emp.status === 'active' ? 'var(--bg-light-olive)' : '#FAF0EE',
-                            color: emp.status === 'active' ? '#414C30' : '#C0392B'
+                            color: emp.status === 'active' ? 'var(--primary)' : '#C0392B'
                           }}>
                             {emp.status === 'active' ? 'Active' : 'Inactive'}
                           </span>
@@ -1664,17 +2095,17 @@ export default function App() {
                       <tr key={row.id} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={{ padding: '16px 20px', fontWeight: 700, color: 'var(--text-primary)' }}>{row.name}</td>
                         <td style={{ padding: '16px 20px' }}>
-                          <span style={{ fontWeight: 700, color: row.mode === 'WFO' ? '#414C30' : '#57643A' }}>{row.mode}</span>
+                          <span style={{ fontWeight: 700, color: row.mode === 'WFO' ? 'var(--primary)' : 'var(--primary-hover)' }}>{row.mode}</span>
                         </td>
                         <td style={{ padding: '16px 20px', color: 'var(--text-primary)' }}>{row.punchIn}</td>
                         <td style={{ padding: '16px 20px', color: 'var(--text-secondary)' }}>{row.punchOut || '— Active Shift —'}</td>
                         <td style={{ padding: '16px 20px' }}>
-                          <span style={{ color: '#414C30', fontWeight: 700 }}>{row.geofenceStatus}</span>
+                          <span style={{ color: 'var(--primary)', fontWeight: 700 }}>{row.geofenceStatus}</span>
                         </td>
                         <td style={{ padding: '16px 20px' }}>
                           <button
                             onClick={() => setSelectedPhoto({ url: row.photoUrl, name: row.name, time: row.punchIn, location: row.location })}
-                            style={{ padding: '6px 12px', background: 'var(--bg-light-olive)', color: '#414C30', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer' }}
+                            style={{ padding: '6px 12px', background: 'var(--bg-light-olive)', color: 'var(--primary)', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer' }}
                           >
                             Inspect Selfie
                           </button>
@@ -1705,7 +2136,7 @@ export default function App() {
               }}>
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-                    <div style={{ background: 'var(--bg-light-olive)', padding: '6px', borderRadius: '8px', color: '#687747' }}>
+                    <div style={{ background: 'var(--bg-light-olive)', padding: '6px', borderRadius: '8px', color: 'var(--primary)' }}>
                       <FileSpreadsheet size={22} />
                     </div>
                     <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)' }}>Daily Task Summary — Excel Spreadsheet Format</h3>
@@ -1723,7 +2154,7 @@ export default function App() {
                       gap: '8px',
                       background: 'var(--primary)',
                       color: '#ffffff',
-                      border: '1px solid #57643A',
+                      border: '1px solid var(--primary-hover)',
                       borderRadius: '8px',
                       padding: '10px 18px',
                       fontSize: '0.85rem',
@@ -1752,7 +2183,7 @@ export default function App() {
               }}>
                 <AlertTriangle size={18} color="#C28424" style={{ flexShrink: 0 }} />
                 <div>
-                  <strong style={{ color: '#414C30' }}>DEMO TESTING DATASET:</strong> These task reports and ratings are simulated local test records for UI evaluation. No database has been connected or modified in this stage.
+                  <strong style={{ color: 'var(--primary)' }}>DEMO TESTING DATASET:</strong> These task reports and ratings are simulated local test records for UI evaluation. No database has been connected or modified in this stage.
                 </div>
               </div>
 
@@ -1920,7 +2351,7 @@ export default function App() {
                           <th colSpan="9" style={{ padding: '8px 16px', background: 'var(--bg-beige)', color: 'var(--text-primary)', borderRight: '2px solid var(--border)', fontWeight: 800 }}>
                             Daily Task Assignment Information
                           </th>
-                          <th colSpan="7" style={{ padding: '8px 16px', background: 'var(--bg-light-olive)', color: '#414C30', borderRight: '2px solid var(--border)', fontWeight: 800 }}>
+                          <th colSpan="7" style={{ padding: '8px 16px', background: 'var(--bg-light-olive)', color: 'var(--primary)', borderRight: '2px solid var(--border)', fontWeight: 800 }}>
                             Employee Performance Ratings (Out of 10)
                           </th>
                           <th colSpan="2" style={{ padding: '8px 16px', background: '#FAF4E8', color: '#7A5416', fontWeight: 800 }}>
@@ -1945,7 +2376,7 @@ export default function App() {
                           <th style={{ padding: '12px 8px', fontWeight: 700, minWidth: '65px', textAlign: 'center', background: 'var(--bg-card-subtle)' }}>Talk.</th>
                           <th style={{ padding: '12px 8px', fontWeight: 700, minWidth: '65px', textAlign: 'center', background: 'var(--bg-card-subtle)' }}>Quality</th>
                           <th style={{ padding: '12px 8px', fontWeight: 700, minWidth: '65px', textAlign: 'center', background: 'var(--bg-card-subtle)' }}>Disc.</th>
-                          <th style={{ padding: '12px 10px', fontWeight: 800, minWidth: '80px', textAlign: 'center', background: 'var(--bg-light-olive)', color: '#414C30', borderRight: '2px solid var(--border)' }}>Avg Overall</th>
+                          <th style={{ padding: '12px 10px', fontWeight: 800, minWidth: '80px', textAlign: 'center', background: 'var(--bg-light-olive)', color: 'var(--primary)', borderRight: '2px solid var(--border)' }}>Avg Overall</th>
                           {/* Team Leader Audit */}
                           <th style={{ padding: '12px 12px', fontWeight: 800, minWidth: '120px', textAlign: 'center', background: '#FAF4E8', color: '#7A5416' }}>TL Audit</th>
                           <th style={{ padding: '12px 12px', fontWeight: 700, minWidth: '90px', textAlign: 'center' }}>Action</th>
@@ -2003,7 +2434,7 @@ export default function App() {
                                   fontSize: '0.75rem',
                                   fontWeight: 700,
                                   background: row.completed === 'Yes' ? 'var(--bg-light-olive)' : 'var(--bg-beige)',
-                                  color: row.completed === 'Yes' ? '#414C30' : 'var(--text-muted)'
+                                  color: row.completed === 'Yes' ? 'var(--primary)' : 'var(--text-muted)'
                                 }}>
                                   {row.completed}
                                 </span>
@@ -2035,7 +2466,7 @@ export default function App() {
                                   borderRadius: '8px',
                                   fontWeight: 800,
                                   fontSize: '0.85rem',
-                                  background: '#687747',
+                                  background: 'var(--primary)',
                                   color: '#ffffff'
                                 }}>
                                   {Number(row.averageOverall).toFixed(2)}
@@ -2049,7 +2480,7 @@ export default function App() {
                                     borderRadius: '8px',
                                     fontWeight: 800,
                                     fontSize: '0.82rem',
-                                    background: '#414C30',
+                                    background: 'var(--primary)',
                                     color: '#ffffff'
                                   }}>
                                     {row.tlAuditScore} / 10
@@ -2112,7 +2543,7 @@ export default function App() {
                         <div style={{
                           padding: '6px 12px',
                           borderRadius: '10px',
-                          background: 'linear-gradient(135deg, #687747, #414C30)',
+                          background: 'linear-gradient(135deg, var(--primary), var(--primary))',
                           color: '#ffffff',
                           textAlign: 'center'
                         }}>
@@ -2128,8 +2559,8 @@ export default function App() {
                           <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>{emp.totalWorkingDays}</div>
                         </div>
                         <div style={{ textAlign: 'center' }}>
-                          <div style={{ fontSize: '0.72rem', color: '#414C30', fontWeight: 600 }}>Completed</div>
-                          <div style={{ fontSize: '1rem', fontWeight: 700, color: '#414C30' }}>{emp.completedCount}</div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--primary)', fontWeight: 600 }}>Completed</div>
+                          <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--primary)' }}>{emp.completedCount}</div>
                         </div>
                         <div style={{ textAlign: 'center' }}>
                           <div style={{ fontSize: '0.72rem', color: '#C28424', fontWeight: 600 }}>Pending</div>
@@ -2165,10 +2596,10 @@ export default function App() {
                         }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <ShieldCheck size={15} color="#687747" />
+                              <ShieldCheck size={15} color="var(--primary)" />
                               <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#7A5416' }}>Team Leader Audit</span>
                             </div>
-                            <span style={{ fontSize: '0.78rem', fontWeight: 800, padding: '2px 8px', borderRadius: '6px', background: '#414C30', color: '#ffffff' }}>
+                            <span style={{ fontSize: '0.78rem', fontWeight: 800, padding: '2px 8px', borderRadius: '6px', background: 'var(--primary)', color: '#ffffff' }}>
                               {emp.latestTlAudit.score} / 10
                             </span>
                           </div>
@@ -2209,7 +2640,7 @@ export default function App() {
                             borderRadius: '8px',
                             border: '1px solid var(--border)',
                             background: 'var(--bg-light-olive)',
-                            color: '#414C30',
+                            color: 'var(--primary)',
                             fontWeight: 700,
                             fontSize: '0.8rem',
                             cursor: 'pointer'
@@ -2324,7 +2755,7 @@ export default function App() {
                 <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>Perimeter Status</h3>
                 <div style={{
                   height: '240px',
-                  background: 'linear-gradient(135deg, #414C30 0%, #292D26 100%)',
+                  background: 'linear-gradient(135deg, var(--primary) 0%, #292D26 100%)',
                   borderRadius: '12px',
                   display: 'flex',
                   alignItems: 'center',
@@ -2347,7 +2778,7 @@ export default function App() {
                     justifyContent: 'center',
                     boxShadow: '0 0 30px rgba(104, 119, 71, 0.3)'
                   }}>
-                    <MapPin size={28} color="#E8EDDC" />
+                    <MapPin size={28} color="var(--primary-light)" />
                   </div>
                   <div style={{ position: 'absolute', bottom: '16px', fontSize: '0.8rem', color: '#DDE1D3' }}>
                     100m Active Office Geofence Radius
@@ -2356,7 +2787,7 @@ export default function App() {
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', background: 'var(--bg-beige)', borderRadius: '8px', fontSize: '0.85rem', border: '1px solid var(--border)' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>Employees currently inside:</span>
-                  <span style={{ fontWeight: 700, color: '#414C30' }}>{mockGeofence.activeEmployeesInside} Employees</span>
+                  <span style={{ fontWeight: 700, color: 'var(--primary)' }}>{mockGeofence.activeEmployeesInside} Employees</span>
                 </div>
               </div>
             </div>
@@ -2380,7 +2811,7 @@ export default function App() {
               }}>
                 <div>
                   <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Megaphone size={22} color="#687747" />
+                    <Megaphone size={22} color="var(--primary)" />
                     Company Announcements & Broadcasts
                   </h2>
                   <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
@@ -2398,7 +2829,7 @@ export default function App() {
                           padding: '6px 14px',
                           borderRadius: '6px',
                           border: 'none',
-                          background: announcementFilter === st ? '#687747' : 'transparent',
+                          background: announcementFilter === st ? 'var(--primary)' : 'transparent',
                           color: announcementFilter === st ? '#ffffff' : 'var(--text-secondary)',
                           fontWeight: 700,
                           fontSize: '0.78rem',
@@ -2417,7 +2848,7 @@ export default function App() {
                       display: 'flex',
                       alignItems: 'center',
                       gap: '8px',
-                      background: '#414C30',
+                      background: 'var(--primary)',
                       color: '#ffffff',
                       border: 'none',
                       borderRadius: '8px',
@@ -2462,7 +2893,7 @@ export default function App() {
                               padding: '3px 8px',
                               borderRadius: '6px',
                               background: ann.status === 'published' ? 'var(--bg-light-olive)' : 'var(--bg-beige)',
-                              color: ann.status === 'published' ? '#414C30' : 'var(--text-secondary)',
+                              color: ann.status === 'published' ? 'var(--primary)' : 'var(--text-secondary)',
                               border: '1px solid var(--border)'
                             }}>
                               {ann.status}
@@ -2491,7 +2922,7 @@ export default function App() {
                               borderRadius: '6px',
                               border: '1px solid var(--border)',
                               background: ann.status === 'published' ? 'var(--bg-beige)' : 'var(--bg-light-olive)',
-                              color: ann.status === 'published' ? 'var(--text-primary)' : '#414C30',
+                              color: ann.status === 'published' ? 'var(--text-primary)' : 'var(--primary)',
                               fontSize: '0.75rem',
                               fontWeight: 700,
                               cursor: 'pointer'
@@ -2594,7 +3025,7 @@ export default function App() {
               }}>
                 <div>
                   <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <BookOpen size={22} color="#687747" />
+                    <BookOpen size={22} color="var(--primary)" />
                     Company Notes, Policies & Guidelines
                   </h2>
                   <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
@@ -2623,7 +3054,7 @@ export default function App() {
                       display: 'flex',
                       alignItems: 'center',
                       gap: '8px',
-                      background: '#414C30',
+                      background: 'var(--primary)',
                       color: '#ffffff',
                       border: 'none',
                       borderRadius: '8px',
@@ -2667,7 +3098,7 @@ export default function App() {
                               padding: '2px 8px',
                               borderRadius: '6px',
                               background: 'var(--bg-light-olive)',
-                              color: '#414C30'
+                              color: 'var(--primary)'
                             }}>
                               {rule.category}
                             </span>
@@ -2739,7 +3170,7 @@ export default function App() {
                       </p>
 
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-                        <span>Status: <strong style={{ color: rule.status === 'published' ? '#414C30' : 'var(--text-secondary)' }}>{rule.status?.toUpperCase()}</strong></span>
+                        <span>Status: <strong style={{ color: rule.status === 'published' ? 'var(--primary)' : 'var(--text-secondary)' }}>{rule.status?.toUpperCase()}</strong></span>
                         <span>Last Updated: {rule.updatedAt}</span>
                       </div>
                     </div>

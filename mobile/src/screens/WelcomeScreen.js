@@ -33,7 +33,7 @@ export default function WelcomeScreen({
   onJoinCompany,
   onSelectOption // for backward compatibility if called as selector
 }) {
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, setPreference } = useTheme();
   const styles = getStyles(colors, isDark);
 
   // Portal selection: 'employee' (default) or 'management'
@@ -212,6 +212,22 @@ export default function WelcomeScreen({
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        {/* Top Action Row: Theme Switcher */}
+        <View style={styles.topHeaderActionRow}>
+          <TouchableOpacity
+            style={styles.themeToggleFloatingBtn}
+            onPress={() => setPreference(isDark ? 'light' : 'dark')}
+            accessibilityRole="button"
+            accessibilityLabel={`Switch to ${isDark ? 'Light' : 'Dark'} Mode`}
+          >
+            <Ionicons
+              name={isDark ? 'sunny' : 'moon'}
+              size={20}
+              color={isDark ? '#FBBF24' : colors.primary}
+            />
+          </TouchableOpacity>
+        </View>
+
         {/* ── 1. App Branding ── */}
         <View style={styles.brandContainer}>
           <View style={styles.logoBadge}>
@@ -714,6 +730,21 @@ const getStyles = (colors, isDark) =>
       paddingHorizontal: 22,
       paddingTop: 16,
       paddingBottom: 40
+    },
+    topHeaderActionRow: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      marginBottom: 8
+    },
+    themeToggleFloatingBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: isDark ? '#133333' : '#E6F3F1',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: isDark ? '#1F3A3A' : '#E2E8F0'
     },
     // Branding
     brandContainer: {
