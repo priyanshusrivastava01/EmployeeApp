@@ -14,12 +14,14 @@ import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { useTheme } from '../theme/ThemeContext';
+import { useResponsiveLayout } from '../utils/responsive';
 import { mockDailyTaskSpreadsheet } from '../data/mockEmployeeData';
 import api from '../services/api';
 
 export default function TaskReportScreen({ currentUser }) {
   const { colors, isDark } = useTheme();
-  const styles = getStyles(colors, isDark);
+  const layout = useResponsiveLayout();
+  const styles = getStyles(colors, isDark, layout);
 
   // Employee and Month selection
   const employeeName = currentUser?.name || mockDailyTaskSpreadsheet.employeeName;
@@ -1257,14 +1259,18 @@ export default function TaskReportScreen({ currentUser }) {
   );
 }
 
-const getStyles = (colors, isDark) => StyleSheet.create({
+const getStyles = (colors, isDark, layout = {}) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background
   },
   content: {
-    padding: 18,
-    paddingBottom: 110
+    paddingHorizontal: layout?.screenPadding || 18,
+    paddingTop: 16,
+    paddingBottom: 110,
+    maxWidth: layout?.isTablet ? 760 : '100%',
+    alignSelf: 'center',
+    width: '100%'
   },
   feedbackBanner: {
     flexDirection: 'row',
@@ -2319,7 +2325,10 @@ const getStyles = (colors, isDark) => StyleSheet.create({
   modalContent: {
     backgroundColor: colors.card,
     borderRadius: 18,
-    padding: 20,
+    padding: layout?.isVerySmallMobile ? 14 : 20,
+    maxWidth: 520,
+    alignSelf: 'center',
+    width: '100%',
     borderWidth: 1,
     borderColor: colors.border,
     shadowColor: '#000',
@@ -2427,7 +2436,10 @@ const getStyles = (colors, isDark) => StyleSheet.create({
   historicalModalContent: {
     backgroundColor: colors.card,
     borderRadius: 18,
-    padding: 18,
+    padding: layout?.isVerySmallMobile ? 14 : 18,
+    maxWidth: 520,
+    alignSelf: 'center',
+    width: '100%',
     borderWidth: 1,
     borderColor: colors.border,
     shadowColor: '#000',
@@ -2512,7 +2524,8 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     fontSize: 11,
     color: colors.textSecondary,
     fontWeight: '600',
-    width: '48%'
+    flexBasis: '47%',
+    flexGrow: 1
   },
   histRatingAverage: {
     fontSize: 13,

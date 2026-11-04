@@ -11,6 +11,7 @@ import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeContext';
 import { useSafeAppInsets } from '../../utils/safeAreaHelper';
+import { useResponsiveLayout } from '../../utils/responsive';
 
 import AdminHomeScreen from './AdminHomeScreen';
 import AdminEmployeesScreen from './AdminEmployeesScreen';
@@ -25,7 +26,8 @@ import AdminAuditsScreen from './AdminAuditsScreen';
 export default function AdminDashboard({ user, organization, onLogout }) {
   const { colors, isDark, setPreference } = useTheme();
   const safeInsets = useSafeAppInsets();
-  const styles = getStyles(colors, isDark);
+  const layout = useResponsiveLayout();
+  const styles = getStyles(colors, isDark, layout);
 
   const [activeScreen, setActiveScreen] = useState('home');
 
@@ -167,7 +169,7 @@ export default function AdminDashboard({ user, organization, onLogout }) {
   );
 }
 
-const getStyles = (colors, isDark) =>
+const getStyles = (colors, isDark, layout = {}) =>
   StyleSheet.create({
     container: {
       flex: 1,
@@ -177,7 +179,7 @@ const getStyles = (colors, isDark) =>
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      paddingHorizontal: 16,
+      paddingHorizontal: layout?.screenPadding || 16,
       paddingBottom: 10,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
@@ -186,7 +188,9 @@ const getStyles = (colors, isDark) =>
     topBarLeft: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 10
+      gap: 10,
+      flex: 1,
+      minWidth: 0
     },
     logoBadge: {
       width: 28,
@@ -194,10 +198,11 @@ const getStyles = (colors, isDark) =>
       borderRadius: 8,
       backgroundColor: colors.primary,
       justifyContent: 'center',
-      alignItems: 'center'
+      alignItems: 'center',
+      flexShrink: 0
     },
     topBarOrg: {
-      fontSize: 13,
+      fontSize: layout?.isVerySmallMobile ? 12 : 13,
       fontWeight: '700',
       color: colors.textPrimary
     },
@@ -209,7 +214,8 @@ const getStyles = (colors, isDark) =>
     topBarRight: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 12
+      gap: 12,
+      flexShrink: 0
     },
     themeToggleBtn: {
       padding: 4
@@ -221,7 +227,10 @@ const getStyles = (colors, isDark) =>
       padding: 4
     },
     body: {
-      flex: 1
+      flex: 1,
+      width: '100%',
+      maxWidth: layout?.isTablet ? 900 : '100%',
+      alignSelf: 'center'
     },
     bottomBar: {
       flexDirection: 'row',
@@ -229,7 +238,10 @@ const getStyles = (colors, isDark) =>
       borderTopWidth: 1,
       borderTopColor: colors.border,
       paddingVertical: 8,
-      paddingBottom: 14
+      paddingBottom: 14,
+      maxWidth: layout?.isTablet ? 600 : '100%',
+      alignSelf: 'center',
+      width: '100%'
     },
     tabBtn: {
       flex: 1,
@@ -238,7 +250,7 @@ const getStyles = (colors, isDark) =>
       gap: 3
     },
     tabLabel: {
-      fontSize: 10,
+      fontSize: layout?.isVerySmallMobile ? 9 : 10,
       fontWeight: '600',
       color: colors.textSecondary
     },

@@ -26,18 +26,21 @@ import {
   mockProfile
 } from '../data/mockEmployeeData';
 import { getProfilePhoto } from '../services/profilePhotoService';
+import { useResponsiveLayout } from '../utils/responsive';
 import api from '../services/api';
 
 function useScreenStyles() {
   const { colors, isDark } = useTheme();
-  const styles = getStyles(colors, isDark);
-  return { colors, isDark, styles };
+  const layout = useResponsiveLayout();
+  const styles = getStyles(colors, isDark, layout);
+  return { colors, isDark, layout, styles };
 }
 
 // Common Sub-Screen Header with Back Navigation
 export function SubScreenHeader({ title, subtitle, onBack, badge }) {
   const { colors, isDark } = useTheme();
-  const headerStyles = getHeaderStyles(colors, isDark);
+  const layout = useResponsiveLayout();
+  const headerStyles = getHeaderStyles(colors, isDark, layout);
   return (
     <View style={headerStyles.header}>
       <TouchableOpacity style={headerStyles.backBtn} onPress={onBack} activeOpacity={0.7}>
@@ -320,25 +323,25 @@ export function AdvancePaymentScreen({ onBack, currentUser }) {
             Advance Summary & Balances
           </Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-            <View style={{ flex: 1, minWidth: '45%', padding: 10, borderRadius: 8, backgroundColor: isDark ? '#1e293b' : '#f8fafc', borderWidth: 1, borderColor: colors.border }}>
+            <View style={{ flex: 1, minWidth: 120, flexBasis: '46%', padding: 10, borderRadius: 8, backgroundColor: isDark ? '#1e293b' : '#f8fafc', borderWidth: 1, borderColor: colors.border }}>
               <Text style={{ fontSize: 10, color: colors.textSecondary, fontWeight: '600' }}>Total Disbursed (Paid)</Text>
               <Text style={{ fontSize: 15, fontWeight: '800', color: '#10b981', marginTop: 2 }}>
                 ₹{totalPaid.toLocaleString('en-IN')}
               </Text>
             </View>
-            <View style={{ flex: 1, minWidth: '45%', padding: 10, borderRadius: 8, backgroundColor: isDark ? '#1e293b' : '#f8fafc', borderWidth: 1, borderColor: colors.border }}>
+            <View style={{ flex: 1, minWidth: 120, flexBasis: '46%', padding: 10, borderRadius: 8, backgroundColor: isDark ? '#1e293b' : '#f8fafc', borderWidth: 1, borderColor: colors.border }}>
               <Text style={{ fontSize: 10, color: colors.textSecondary, fontWeight: '600' }}>Outstanding Balance</Text>
               <Text style={{ fontSize: 15, fontWeight: '800', color: remainingDebt > 0 ? '#ef4444' : colors.textPrimary, marginTop: 2 }}>
                 ₹{remainingDebt.toLocaleString('en-IN')}
               </Text>
             </View>
-            <View style={{ flex: 1, minWidth: '45%', padding: 10, borderRadius: 8, backgroundColor: isDark ? '#1e293b' : '#f8fafc', borderWidth: 1, borderColor: colors.border }}>
+            <View style={{ flex: 1, minWidth: 120, flexBasis: '46%', padding: 10, borderRadius: 8, backgroundColor: isDark ? '#1e293b' : '#f8fafc', borderWidth: 1, borderColor: colors.border }}>
               <Text style={{ fontSize: 10, color: colors.textSecondary, fontWeight: '600' }}>Total Deducted/Repaid</Text>
               <Text style={{ fontSize: 15, fontWeight: '800', color: colors.textPrimary, marginTop: 2 }}>
                 ₹{totalRepaid.toLocaleString('en-IN')}
               </Text>
             </View>
-            <View style={{ flex: 1, minWidth: '45%', padding: 10, borderRadius: 8, backgroundColor: isDark ? '#1e293b' : '#f8fafc', borderWidth: 1, borderColor: colors.border }}>
+            <View style={{ flex: 1, minWidth: 120, flexBasis: '46%', padding: 10, borderRadius: 8, backgroundColor: isDark ? '#1e293b' : '#f8fafc', borderWidth: 1, borderColor: colors.border }}>
               <Text style={{ fontSize: 10, color: colors.textSecondary, fontWeight: '600' }}>Awaiting Disbursement</Text>
               <Text style={{ fontSize: 15, fontWeight: '800', color: awaitingPayment > 0 ? '#f59e0b' : colors.textSecondary, marginTop: 2 }}>
                 ₹{awaitingPayment.toLocaleString('en-IN')}
@@ -1948,11 +1951,11 @@ export function NotificationsScreen({ onBack }) {
   );
 }
 
-const getHeaderStyles = (colors, isDark) => StyleSheet.create({
+const getHeaderStyles = (colors, isDark, layout = {}) => StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: layout?.screenPadding || 16,
     paddingTop: 16,
     paddingBottom: 14,
     backgroundColor: colors.card,
@@ -1968,15 +1971,16 @@ const getHeaderStyles = (colors, isDark) => StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    flexShrink: 0
   },
   title: {
-    fontSize: 17,
+    fontSize: layout?.isVerySmallMobile ? 15.5 : 17,
     fontWeight: '800',
     color: colors.text
   },
   subtitle: {
-    fontSize: 12,
+    fontSize: layout?.isVerySmallMobile ? 10.5 : 12,
     color: colors.textSecondary
   },
   demoBadge: {
@@ -2012,14 +2016,18 @@ const getBannerStyles = (colors, isDark) => StyleSheet.create({
   }
 });
 
-const getStyles = (colors, isDark) => StyleSheet.create({
+const getStyles = (colors, isDark, layout = {}) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background
   },
   scrollContent: {
-    padding: 16,
-    paddingBottom: 36
+    paddingHorizontal: layout?.screenPadding || 16,
+    paddingTop: 16,
+    paddingBottom: 36,
+    maxWidth: layout?.isTablet ? 760 : '100%',
+    alignSelf: 'center',
+    width: '100%'
   },
   highlightCard: {
     backgroundColor: colors.card,

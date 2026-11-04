@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
+import { useResponsiveLayout } from '../utils/responsive';
 import api from '../services/api';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -45,7 +46,8 @@ export default function CompanyVerificationScreen({
   onScanComplete
 }) {
   const { colors, isDark } = useTheme();
-  const styles = getStyles(colors, isDark);
+  const layout = useResponsiveLayout();
+  const styles = getStyles(colors, isDark, layout);
 
   const [companyCode, setCompanyCode] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
@@ -656,15 +658,18 @@ const getScannerStyles = (colors, isDark) => StyleSheet.create({
   }
 });
 
-const getStyles = (colors, isDark) => StyleSheet.create({
+const getStyles = (colors, isDark, layout = {}) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background
   },
   scrollContent: {
-    paddingHorizontal: 22,
+    paddingHorizontal: layout?.screenPadding || 20,
     paddingTop: 16,
-    paddingBottom: 40
+    paddingBottom: 40,
+    maxWidth: layout?.isTablet ? 480 : '100%',
+    alignSelf: 'center',
+    width: '100%'
   },
   // Branding
   brandHeader: {

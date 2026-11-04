@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
+import { useResponsiveLayout } from '../utils/responsive';
 import api from '../services/api';
 
 /**
@@ -34,7 +35,8 @@ export default function WelcomeScreen({
   onSelectOption // for backward compatibility if called as selector
 }) {
   const { colors, isDark, setPreference } = useTheme();
-  const styles = getStyles(colors, isDark);
+  const layout = useResponsiveLayout();
+  const styles = getStyles(colors, isDark, layout);
 
   // Portal selection: 'employee' (default) or 'management'
   const [portal, setPortal] = useState(initialPortal);
@@ -720,16 +722,19 @@ export default function WelcomeScreen({
   );
 }
 
-const getStyles = (colors, isDark) =>
+const getStyles = (colors, isDark, layout = {}) =>
   StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: colors.background
     },
     scrollContent: {
-      paddingHorizontal: 22,
+      paddingHorizontal: layout?.screenPadding || 20,
       paddingTop: 16,
-      paddingBottom: 40
+      paddingBottom: 40,
+      maxWidth: layout?.isTablet ? 480 : '100%',
+      alignSelf: 'center',
+      width: '100%'
     },
     topHeaderActionRow: {
       flexDirection: 'row',
@@ -752,8 +757,8 @@ const getStyles = (colors, isDark) =>
       marginBottom: 16
     },
     logoBadge: {
-      width: 58,
-      height: 58,
+      width: layout?.isVerySmallMobile ? 50 : 58,
+      height: layout?.isVerySmallMobile ? 50 : 58,
       borderRadius: 18,
       backgroundColor: colors.primary,
       alignItems: 'center',
@@ -766,13 +771,13 @@ const getStyles = (colors, isDark) =>
       shadowRadius: 6
     },
     brandTitle: {
-      fontSize: 24,
+      fontSize: layout?.isVerySmallMobile ? 21 : 24,
       fontWeight: '800',
       color: colors.text,
       letterSpacing: -0.4
     },
     brandSubtitle: {
-      fontSize: 13,
+      fontSize: layout?.isVerySmallMobile ? 12 : 13,
       color: colors.textSecondary,
       fontWeight: '500',
       marginTop: 2
@@ -792,7 +797,8 @@ const getStyles = (colors, isDark) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      paddingVertical: 11,
+      paddingVertical: layout?.isVerySmallMobile ? 9 : 11,
+      paddingHorizontal: layout?.isVerySmallMobile ? 4 : 8,
       borderRadius: 10,
       gap: 6
     },
@@ -805,7 +811,7 @@ const getStyles = (colors, isDark) =>
       shadowRadius: 3
     },
     segmentText: {
-      fontSize: 13,
+      fontSize: layout?.isVerySmallMobile ? 11.5 : 13,
       fontWeight: '600',
       color: colors.textSecondary
     },
@@ -834,7 +840,7 @@ const getStyles = (colors, isDark) =>
     card: {
       backgroundColor: colors.surface,
       borderRadius: 18,
-      padding: 20,
+      padding: layout?.isVerySmallMobile ? 14 : 20,
       borderWidth: 1,
       borderColor: colors.border,
       elevation: 3,
@@ -844,7 +850,7 @@ const getStyles = (colors, isDark) =>
       shadowRadius: 8
     },
     cardHeading: {
-      fontSize: 19,
+      fontSize: layout?.isVerySmallMobile ? 17 : 19,
       fontWeight: '700',
       color: colors.text,
       marginBottom: 3

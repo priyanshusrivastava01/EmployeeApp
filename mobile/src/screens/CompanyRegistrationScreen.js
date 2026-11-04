@@ -16,12 +16,14 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '../theme/ThemeContext';
+import { useResponsiveLayout } from '../utils/responsive';
 import api from '../services/api';
 import LocationPickerModal from '../components/LocationPickerModal';
 
 export default function CompanyRegistrationScreen({ onBack, onRegistrationSuccess }) {
   const { colors, isDark } = useTheme();
-  const styles = getStyles(colors, isDark);
+  const layout = useResponsiveLayout();
+  const styles = getStyles(colors, isDark, layout);
 
   // Founder details
   const [fullName, setFullName] = useState('');
@@ -649,15 +651,18 @@ export default function CompanyRegistrationScreen({ onBack, onRegistrationSucces
   );
 }
 
-const getStyles = (colors, isDark) => StyleSheet.create({
+const getStyles = (colors, isDark, layout = {}) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background
   },
   scrollContent: {
-    paddingHorizontal: 20,
+    paddingHorizontal: layout?.screenPadding || 20,
     paddingTop: 16,
-    paddingBottom: 40
+    paddingBottom: 40,
+    maxWidth: layout?.isTablet ? 600 : '100%',
+    alignSelf: 'center',
+    width: '100%'
   },
   topBar: {
     flexDirection: 'row',

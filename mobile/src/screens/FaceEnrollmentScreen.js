@@ -12,6 +12,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useTheme } from '../theme/ThemeContext';
+import { useResponsiveLayout } from '../utils/responsive';
 import {
   getRegistrationStatus,
   saveRegistration,
@@ -20,7 +21,8 @@ import {
 
 export default function FaceEnrollmentScreen({ onBack, onRegistrationComplete }) {
   const { colors, isDark } = useTheme();
-  const styles = getStyles(colors, isDark);
+  const layout = useResponsiveLayout();
+  const styles = getStyles(colors, isDark, layout);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const cameraRef = useRef(null);
 
@@ -693,7 +695,7 @@ export default function FaceEnrollmentScreen({ onBack, onRegistrationComplete })
   );
 }
 
-const getStyles = (colors, isDark) => StyleSheet.create({
+const getStyles = (colors, isDark, layout = {}) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background
@@ -751,8 +753,12 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     color: colors.darkOlive
   },
   scrollContent: {
-    padding: 16,
-    paddingBottom: 40
+    paddingHorizontal: layout?.screenPadding || 16,
+    paddingTop: 16,
+    paddingBottom: 40,
+    maxWidth: layout?.isTablet ? 600 : '100%',
+    alignSelf: 'center',
+    width: '100%'
   },
   card: {
     backgroundColor: colors.card,
@@ -905,7 +911,7 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     color: colors.textSecondary
   },
   cameraBox: {
-    height: 340,
+    height: Math.min(340, Math.max(260, (layout?.height || 700) * 0.4)),
     backgroundColor: colors.cameraBackdrop || '#0B1414',
     borderRadius: 16,
     overflow: 'hidden',

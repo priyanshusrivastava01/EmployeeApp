@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
 import { mockProfile, mockOfficeGeofence } from '../data/mockEmployeeData';
 import { getProfilePhoto } from '../services/profilePhotoService';
+import { useResponsiveLayout, getGridCardWidth, getFeatureCardColumns } from '../utils/responsive';
 
 export default function HomeScreen({
   attendanceState,
@@ -20,7 +21,10 @@ export default function HomeScreen({
   currentOrg
 }) {
   const { colors, isDark } = useTheme();
-  const styles = getStyles(colors, isDark);
+  const layout = useResponsiveLayout();
+  const columns = getFeatureCardColumns(layout.width);
+  const cardWidth = getGridCardWidth(layout.contentWidth, columns, 10);
+  const styles = getStyles(colors, isDark, { ...layout, columns, cardWidth });
   const [profileAvatarUri, setProfileAvatarUri] = useState(null);
 
   useEffect(() => {
@@ -224,8 +228,8 @@ export default function HomeScreen({
           <View style={styles.cardIconBox}>
             <Ionicons name="calendar-outline" size={22} color={colors.primary} />
           </View>
-          <Text style={styles.cardTitle}>Public Holidays</Text>
-          <Text style={styles.cardSubtitle}>2026 Calendar</Text>
+          <Text style={styles.cardTitle} numberOfLines={2}>Public Holidays</Text>
+          <Text style={styles.cardSubtitle} numberOfLines={1} ellipsizeMode="tail">2026 Calendar</Text>
         </TouchableOpacity>
 
         {/* Card 2: Daily Task Spreadsheet */}
@@ -237,8 +241,8 @@ export default function HomeScreen({
           <View style={styles.cardIconBox}>
             <Ionicons name="document-text-outline" size={22} color={colors.primary} />
           </View>
-          <Text style={styles.cardTitle}>Daily Tasks</Text>
-          <Text style={styles.cardSubtitle}>Task Reports & Sheet</Text>
+          <Text style={styles.cardTitle} numberOfLines={2}>Daily Tasks</Text>
+          <Text style={styles.cardSubtitle} numberOfLines={1} ellipsizeMode="tail">Task Reports</Text>
         </TouchableOpacity>
 
         {/* Card 3: View Punch In-Out History */}
@@ -250,12 +254,12 @@ export default function HomeScreen({
           <View style={styles.cardIconBox}>
             <Ionicons name="time-outline" size={22} color={colors.primary} />
           </View>
-          <Text style={styles.cardTitle}>Punch History</Text>
-          <Text style={styles.cardSubtitle}>Verified Logs</Text>
+          <Text style={styles.cardTitle} numberOfLines={2}>Punch History</Text>
+          <Text style={styles.cardSubtitle} numberOfLines={1} ellipsizeMode="tail">Verified Logs</Text>
         </TouchableOpacity>
       </View>
 
-      {/* 6. EXTRA FEATURES SECTION (2-Column Grid for Services & Tools) */}
+      {/* 6. EXTRA FEATURES SECTION (Content-Aware Adaptive Grid) */}
       <View style={styles.sectionHeaderRow}>
         <Text style={styles.sectionHeading}>Company Services & Tools</Text>
         <Text style={styles.sectionSubBadge}>7 Tools</Text>
@@ -272,10 +276,10 @@ export default function HomeScreen({
             <Ionicons name="cash-outline" size={20} color={colors.warning} />
           </View>
           <View style={styles.gridTextWrap}>
-            <Text style={styles.gridTitle}>Advance Payment</Text>
-            <Text style={styles.gridDesc}>Salary advance & history</Text>
+            <Text style={styles.gridTitle} numberOfLines={1} ellipsizeMode="tail">Advance Payment</Text>
+            <Text style={styles.gridDesc} numberOfLines={1} ellipsizeMode="tail">Salary advance & history</Text>
           </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} />
+          <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} style={{ flexShrink: 0 }} />
         </TouchableOpacity>
 
         {/* Co-workers */}
@@ -288,10 +292,10 @@ export default function HomeScreen({
             <Ionicons name="people-outline" size={20} color={colors.primary} />
           </View>
           <View style={styles.gridTextWrap}>
-            <Text style={styles.gridTitle}>Co-workers</Text>
-            <Text style={styles.gridDesc}>Staff contact directory</Text>
+            <Text style={styles.gridTitle} numberOfLines={1} ellipsizeMode="tail">Co-workers</Text>
+            <Text style={styles.gridDesc} numberOfLines={1} ellipsizeMode="tail">Staff contact directory</Text>
           </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} />
+          <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} style={{ flexShrink: 0 }} />
         </TouchableOpacity>
 
         {/* Leave Application */}
@@ -304,10 +308,10 @@ export default function HomeScreen({
             <Ionicons name="airplane-outline" size={20} color={colors.primary} />
           </View>
           <View style={styles.gridTextWrap}>
-            <Text style={styles.gridTitle}>Leave Application</Text>
-            <Text style={styles.gridDesc}>Apply & balance tracking</Text>
+            <Text style={styles.gridTitle} numberOfLines={1} ellipsizeMode="tail">Leave Application</Text>
+            <Text style={styles.gridDesc} numberOfLines={1} ellipsizeMode="tail">Apply & balance tracking</Text>
           </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} />
+          <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} style={{ flexShrink: 0 }} />
         </TouchableOpacity>
 
         {/* Add Timesheet */}
@@ -320,10 +324,10 @@ export default function HomeScreen({
             <Ionicons name="timer-outline" size={20} color={colors.primary} />
           </View>
           <View style={styles.gridTextWrap}>
-            <Text style={styles.gridTitle}>Add Timesheet</Text>
-            <Text style={styles.gridDesc}>Daily project hours log</Text>
+            <Text style={styles.gridTitle} numberOfLines={1} ellipsizeMode="tail">Add Timesheet</Text>
+            <Text style={styles.gridDesc} numberOfLines={1} ellipsizeMode="tail">Daily project hours log</Text>
           </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} />
+          <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} style={{ flexShrink: 0 }} />
         </TouchableOpacity>
 
         {/* Announcements */}
@@ -336,10 +340,10 @@ export default function HomeScreen({
             <Ionicons name="megaphone-outline" size={20} color={colors.warning} />
           </View>
           <View style={styles.gridTextWrap}>
-            <Text style={styles.gridTitle}>Announcements</Text>
-            <Text style={styles.gridDesc}>Official company notices</Text>
+            <Text style={styles.gridTitle} numberOfLines={1} ellipsizeMode="tail">Announcements</Text>
+            <Text style={styles.gridDesc} numberOfLines={1} ellipsizeMode="tail">Official company notices</Text>
           </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} />
+          <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} style={{ flexShrink: 0 }} />
         </TouchableOpacity>
 
         {/* Notes / Rules */}
@@ -352,10 +356,10 @@ export default function HomeScreen({
             <Ionicons name="shield-checkmark-outline" size={20} color={colors.primary} />
           </View>
           <View style={styles.gridTextWrap}>
-            <Text style={styles.gridTitle}>Notes / Rules</Text>
-            <Text style={styles.gridDesc}>Work policies & conduct</Text>
+            <Text style={styles.gridTitle} numberOfLines={1} ellipsizeMode="tail">Notes / Rules</Text>
+            <Text style={styles.gridDesc} numberOfLines={1} ellipsizeMode="tail">Work policies & conduct</Text>
           </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} />
+          <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} style={{ flexShrink: 0 }} />
         </TouchableOpacity>
 
         {/* Celebrations */}
@@ -368,10 +372,10 @@ export default function HomeScreen({
             <Ionicons name="gift-outline" size={20} color={colors.primary} />
           </View>
           <View style={styles.gridTextWrap}>
-            <Text style={styles.gridTitle}>Celebrations</Text>
-            <Text style={styles.gridDesc}>Birthdays & milestones</Text>
+            <Text style={styles.gridTitle} numberOfLines={1} ellipsizeMode="tail">Celebrations</Text>
+            <Text style={styles.gridDesc} numberOfLines={1} ellipsizeMode="tail">Birthdays & milestones</Text>
           </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} />
+          <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} style={{ flexShrink: 0 }} />
         </TouchableOpacity>
       </View>
 
@@ -392,16 +396,19 @@ export default function HomeScreen({
   );
 }
 
-const getStyles = (colors, isDark) =>
+const getStyles = (colors, isDark, layout = {}) =>
   StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: colors.background
     },
     content: {
-      paddingHorizontal: 16,
+      paddingHorizontal: layout?.screenPadding || 16,
       paddingTop: 8,
       paddingBottom: 110,
+      maxWidth: layout?.isTablet ? 840 : '100%',
+      alignSelf: 'center',
+      width: '100%'
     },
     header: {
       flexDirection: 'row',
@@ -679,39 +686,42 @@ const getStyles = (colors, isDark) =>
     },
     attendanceRow: {
       flexDirection: 'row',
-      gap: 10,
+      gap: layout?.isVerySmallMobile ? 6 : layout?.isNarrowMobile ? 8 : 10,
       marginBottom: 20
     },
     attendanceCard: {
       flex: 1,
       backgroundColor: colors.card,
       borderRadius: 14,
-      padding: 12,
+      paddingVertical: layout?.isVerySmallMobile ? 8 : 10,
+      paddingHorizontal: layout?.isVerySmallMobile ? 4 : 6,
       alignItems: 'center',
       borderWidth: 1,
       borderColor: colors.border,
       shadowColor: '#000',
       shadowOpacity: isDark ? 0.15 : 0.02,
       shadowRadius: 4,
-      elevation: 1
+      elevation: 1,
+      minWidth: 0
     },
     cardIconBox: {
-      width: 42,
-      height: 42,
-      borderRadius: 12,
+      width: layout?.isVerySmallMobile ? 32 : layout?.isNarrowMobile ? 36 : 40,
+      height: layout?.isVerySmallMobile ? 32 : layout?.isNarrowMobile ? 36 : 40,
+      borderRadius: 10,
       backgroundColor: colors.lightOlive,
       alignItems: 'center',
       justifyContent: 'center',
-      marginBottom: 8
+      marginBottom: 6
     },
     cardTitle: {
-      fontSize: 11,
+      fontSize: layout?.isVerySmallMobile ? 9.5 : layout?.isNarrowMobile ? 10.5 : 11,
       fontWeight: '800',
       color: colors.text,
-      textAlign: 'center'
+      textAlign: 'center',
+      lineHeight: layout?.isVerySmallMobile ? 13 : layout?.isNarrowMobile ? 14 : 15
     },
     cardSubtitle: {
-      fontSize: 9,
+      fontSize: layout?.isVerySmallMobile ? 8 : layout?.isNarrowMobile ? 8.5 : 9,
       color: colors.textSecondary,
       marginTop: 2,
       textAlign: 'center'
@@ -723,39 +733,45 @@ const getStyles = (colors, isDark) =>
       marginBottom: 16
     },
     gridCard: {
-      width: '48.5%',
+      width: layout?.cardWidth || (layout?.isNarrowMobile ? '100%' : '48.5%'),
       backgroundColor: colors.card,
       borderRadius: 14,
-      padding: 12,
+      paddingVertical: layout?.columns === 1 ? 12 : 10,
+      paddingHorizontal: layout?.columns === 1 ? 14 : 10,
       flexDirection: 'row',
       alignItems: 'center',
       borderWidth: 1,
       borderColor: colors.border,
-      gap: 10,
+      gap: layout?.columns === 1 ? 12 : 8,
       shadowColor: '#000',
       shadowOpacity: isDark ? 0.15 : 0.02,
       shadowRadius: 4,
-      elevation: 1
+      elevation: 1,
+      minHeight: layout?.columns === 1 ? 58 : 54
     },
     gridIconCircle: {
-      width: 36,
-      height: 36,
+      width: layout?.columns === 1 ? 38 : 34,
+      height: layout?.columns === 1 ? 38 : 34,
       borderRadius: 10,
       alignItems: 'center',
-      justifyContent: 'center'
+      justifyContent: 'center',
+      flexShrink: 0
     },
     gridTextWrap: {
-      flex: 1
+      flex: 1,
+      minWidth: 0,
+      justifyContent: 'center'
     },
     gridTitle: {
-      fontSize: 12,
+      fontSize: layout?.columns === 1 ? 13 : 12,
       fontWeight: '700',
-      color: colors.text
+      color: colors.textPrimary || colors.text,
+      letterSpacing: -0.1
     },
     gridDesc: {
-      fontSize: 10,
+      fontSize: layout?.columns === 1 ? 11 : 10,
       color: colors.textSecondary,
-      marginTop: 1
+      marginTop: 2
     },
     geofenceCard: {
       flexDirection: 'row',

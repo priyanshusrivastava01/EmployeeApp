@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
+import { useResponsiveLayout } from '../utils/responsive';
 import api from '../services/api';
 
 // In-memory cache for time-limited signed URLs
@@ -108,7 +109,8 @@ function SecureSelfie({ photoPath, style, placeholderIcon = 'camera', placeholde
 
 export default function HistoryScreen({ attendanceHistory = [] }) {
   const { colors, isDark } = useTheme();
-  const styles = getStyles(colors, isDark);
+  const layout = useResponsiveLayout();
+  const styles = getStyles(colors, isDark, layout);
   const shiftsCount = attendanceHistory.length;
 
   // Calculate dynamic stats from real history records
@@ -390,14 +392,18 @@ export default function HistoryScreen({ attendanceHistory = [] }) {
   );
 }
 
-const getStyles = (colors, isDark) => StyleSheet.create({
+const getStyles = (colors, isDark, layout = {}) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background
   },
   content: {
-    padding: 20,
-    paddingBottom: 110
+    paddingHorizontal: layout?.screenPadding || 16,
+    paddingTop: 16,
+    paddingBottom: 110,
+    maxWidth: layout?.isTablet ? 720 : '100%',
+    alignSelf: 'center',
+    width: '100%'
   },
   header: {
     marginBottom: 20

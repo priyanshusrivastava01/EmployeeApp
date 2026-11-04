@@ -15,11 +15,13 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeContext';
+import { useResponsiveLayout } from '../../utils/responsive';
 import api from '../../services/api';
 
 export default function AdminEmployeesScreen({ onBack, user, organization }) {
   const { colors, isDark } = useTheme();
-  const styles = getStyles(colors, isDark);
+  const layout = useResponsiveLayout();
+  const styles = getStyles(colors, isDark, layout);
 
   const isTeamLeader = user?.role === 'team_leader';
   const isFounder = user?.role === 'founder';
@@ -918,7 +920,7 @@ export default function AdminEmployeesScreen({ onBack, user, organization }) {
   );
 }
 
-const getStyles = (colors, isDark) =>
+const getStyles = (colors, isDark, layout = {}) =>
   StyleSheet.create({
     container: {
       flex: 1,
@@ -927,7 +929,7 @@ const getStyles = (colors, isDark) =>
     header: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: 16,
+      paddingHorizontal: layout?.screenPadding || 16,
       paddingTop: 16,
       paddingBottom: 12,
       borderBottomWidth: 1,
@@ -1128,8 +1130,11 @@ const getStyles = (colors, isDark) =>
       textAlign: 'center'
     },
     listContent: {
-      paddingHorizontal: 16,
-      paddingBottom: 110
+      paddingHorizontal: layout?.screenPadding || 16,
+      paddingBottom: 110,
+      maxWidth: layout?.isTablet ? 840 : '100%',
+      alignSelf: 'center',
+      width: '100%'
     },
     employeeCard: {
       flexDirection: 'row',
@@ -1305,8 +1310,11 @@ const getStyles = (colors, isDark) =>
     modalContent: {
       backgroundColor: colors.surface,
       borderRadius: 20,
-      padding: 20,
-      maxHeight: '85%'
+      padding: layout?.isVerySmallMobile ? 14 : 20,
+      maxHeight: '85%',
+      maxWidth: 480,
+      width: '100%',
+      alignSelf: 'center'
     },
     modalHeader: {
       flexDirection: 'row',

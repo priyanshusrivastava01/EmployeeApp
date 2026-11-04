@@ -26,12 +26,14 @@ import {
   takeProfilePhotoWithCamera
 } from '../services/profilePhotoService';
 import api from '../services/api';
+import { useResponsiveLayout } from '../utils/responsive';
 
 const NOTIF_PREF_KEY = '@ems_notifications_enabled';
 
 export default function ProfileScreen({ onLogout, onNavigate, currentUser, currentOrg }) {
   const { colors, isDark, preference, setPreference } = useTheme();
-  const styles = getStyles(colors, isDark);
+  const layout = useResponsiveLayout();
+  const styles = getStyles(colors, isDark, layout);
 
   // Appearance & Settings Modals
   const [appearanceModalVisible, setAppearanceModalVisible] = useState(false);
@@ -1205,14 +1207,18 @@ export default function ProfileScreen({ onLogout, onNavigate, currentUser, curre
   );
 }
 
-const getStyles = (colors, isDark) => StyleSheet.create({
+const getStyles = (colors, isDark, layout = {}) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background
   },
   content: {
-    padding: 16,
-    paddingBottom: 110
+    paddingHorizontal: layout?.screenPadding || 16,
+    paddingTop: 16,
+    paddingBottom: 110,
+    maxWidth: layout?.isTablet ? 720 : '100%',
+    alignSelf: 'center',
+    width: '100%'
   },
   headerCard: {
     backgroundColor: colors.card,
@@ -1406,17 +1412,23 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border
+    borderBottomColor: colors.border,
+    gap: 10
   },
   detailLabel: {
     fontSize: 12,
     color: colors.textSecondary,
-    fontWeight: '500'
+    fontWeight: '500',
+    flexShrink: 0
   },
   detailValue: {
     fontSize: 13,
     color: colors.text,
-    fontWeight: '600'
+    fontWeight: '600',
+    flex: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    textAlign: 'right'
   },
   statusBadge: {
     paddingHorizontal: 8,

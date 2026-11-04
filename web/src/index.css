@@ -321,3 +321,302 @@ input::placeholder, textarea::placeholder {
   color: var(--text-secondary);
   border: 1px solid var(--border);
 }
+
+/* ==========================================================================
+   Responsive Breakpoints & Layout Utility Classes
+   Supports: 320px, 360px, 375px, 390px, 412px, 432px, 480px,
+             600px, 768px, 900px, 1024px, 1280px, 1440px, 1920px
+   ========================================================================== */
+
+/* Main layout wrapper */
+.ems-app-layout {
+  display: flex;
+  min-height: 100vh;
+  background-color: var(--bg-main);
+  position: relative;
+  overflow-x: hidden;
+  width: 100%;
+}
+
+/* Responsive Sidebar Navigation */
+.ems-sidebar {
+  width: 260px;
+  background: var(--bg-sidebar);
+  color: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  border-right: 1px solid rgba(221, 225, 211, 0.15);
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease;
+  z-index: 50;
+  flex-shrink: 0;
+}
+
+/* Sidebar Backdrop for Mobile/Tablet Drawer */
+.ems-sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  z-index: 45;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.ems-sidebar-backdrop.active {
+  display: block;
+  opacity: 1;
+}
+
+/* Main Content Area */
+.ems-main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+/* Responsive Top Header */
+.ems-header {
+  height: 70px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  gap: 16px;
+  transition: padding 0.2s ease;
+}
+
+.ems-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.ems-header-menu-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+/* Fluid responsive grid utilities */
+.grid-fluid-kpi {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.grid-fluid-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  gap: 20px;
+}
+
+.grid-fluid-cards-sm {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 16px;
+}
+
+/* Responsive Modals */
+.modal-overlay-responsive {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.modal-card-responsive {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: var(--shadow-xl);
+  border: 1px solid var(--border);
+  animation: fadeIn 0.2s ease-out forwards;
+}
+
+.modal-body-scrollable {
+  padding: 24px;
+  overflow-y: auto;
+  max-height: calc(90vh - 130px);
+}
+
+/* Responsive Content Container */
+.ems-page-content {
+  padding: 32px;
+  max-width: 1600px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* ==========================================================================
+   Breakpoints
+   ========================================================================== */
+
+/* Large Desktop (> 1440px) */
+@media (min-width: 1441px) {
+  .ems-page-content {
+    padding: 36px 48px;
+  }
+}
+
+/* Tablet Landscape / Small Laptop (<= 1024px) */
+@media (max-width: 1024px) {
+  .ems-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    transform: translateX(-100%);
+    box-shadow: none;
+    z-index: 50;
+  }
+
+  .ems-sidebar.mobile-open {
+    transform: translateX(0);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35);
+  }
+
+  .ems-header-menu-btn {
+    display: inline-flex;
+  }
+
+  .ems-header {
+    padding: 0 20px;
+  }
+
+  .ems-page-content {
+    padding: 24px 20px;
+  }
+}
+
+/* Tablet Portrait & Large Mobile (<= 768px) */
+@media (max-width: 768px) {
+  .ems-header {
+    height: auto;
+    min-height: 64px;
+    padding: 12px 16px;
+    flex-wrap: wrap;
+  }
+
+  .ems-header-title-col {
+    flex: 1;
+    min-width: 180px;
+  }
+
+  .ems-header-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+
+  .ems-page-content {
+    padding: 16px 14px;
+  }
+
+  .grid-fluid-kpi {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+
+  .grid-fluid-cards,
+  .grid-fluid-cards-sm {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .modal-card-responsive {
+    max-width: 100%;
+    border-radius: var(--radius-md);
+  }
+
+  .modal-body-scrollable {
+    padding: 16px;
+  }
+}
+
+/* Mobile Small & Very Small (<= 480px, including 320px, 360px, 375px) */
+@media (max-width: 480px) {
+  .ems-header {
+    padding: 10px 12px;
+  }
+
+  .ems-header-actions button,
+  .ems-header-actions div {
+    font-size: 0.78rem !important;
+    padding: 6px 10px !important;
+  }
+
+  .grid-fluid-kpi {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .ems-page-content {
+    padding: 12px 10px;
+  }
+
+  .table-styled th,
+  .table-styled td {
+    padding: 10px 12px;
+    font-size: 0.8rem;
+  }
+
+  .badge-pill {
+    padding: 2px 7px;
+    font-size: 0.68rem;
+  }
+}
+
+/* Very Small Mobile (<= 340px, e.g. 320px) */
+@media (max-width: 340px) {
+  .ems-header {
+    padding: 8px 8px;
+  }
+
+  .ems-page-content {
+    padding: 10px 6px;
+  }
+
+  .table-styled th,
+  .table-styled td {
+    padding: 8px 8px;
+    font-size: 0.75rem;
+  }
+}

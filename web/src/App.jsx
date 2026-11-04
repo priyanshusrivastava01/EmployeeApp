@@ -36,7 +36,8 @@ import {
   Sun,
   Moon,
   Copy,
-  Check
+  Check,
+  Menu
 } from 'lucide-react';
 
 import webApi from './services/api';
@@ -60,6 +61,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('all');
   const [selectedPhoto, setSelectedPhoto] = useState(null);
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
   // Theme State (Teal Light / Dark)
   const [theme, setTheme] = useState(() => localStorage.getItem('ems_web_theme') || 'light');
@@ -575,7 +577,7 @@ export default function App() {
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-main)' }}>
+    <div className="ems-app-layout">
       {/* Toast Notification */}
       {notification && (
         <div style={{
@@ -1480,20 +1482,16 @@ export default function App() {
         </div>
       )}
 
+      {/* Sidebar Backdrop for Mobile Drawer */}
+      <div
+        className={`ems-sidebar-backdrop ${isMobileNavOpen ? 'active' : ''}`}
+        onClick={() => setIsMobileNavOpen(false)}
+      />
+
       {/* Sidebar Navigation */}
-      <aside style={{
-        width: '260px',
-        background: 'var(--bg-sidebar)',
-        color: '#f8fafc',
-        display: 'flex',
-        flexDirection: 'column',
-        position: 'sticky',
-        top: 0,
-        height: '100vh',
-        borderRight: '1px solid rgba(221, 225, 211, 0.15)'
-      }}>
+      <aside className={`ems-sidebar ${isMobileNavOpen ? 'mobile-open' : ''}`}>
         {/* Brand */}
-        <div style={{ padding: '24px 20px', borderBottom: '1px solid rgba(221, 225, 211, 0.12)' }}>
+        <div style={{ padding: '24px 20px', borderBottom: '1px solid rgba(221, 225, 211, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div style={{
               background: 'linear-gradient(135deg, var(--primary), var(--primary-hover))',
@@ -1520,6 +1518,15 @@ export default function App() {
               </span>
             </div>
           </div>
+          {/* Mobile close button */}
+          <button
+            onClick={() => setIsMobileNavOpen(false)}
+            className="ems-header-menu-btn"
+            style={{ display: isMobileNavOpen ? 'inline-flex' : 'none', color: '#ffffff', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)' }}
+            aria-label="Close menu"
+          >
+            <X size={18} />
+          </button>
         </div>
 
         {/* Navigation links */}
@@ -1539,7 +1546,10 @@ export default function App() {
             return (
               <button
                 key={item.id}
-                onClick={() => setActiveTab(item.id)}
+                onClick={() => {
+                  setActiveTab(item.id);
+                  setIsMobileNavOpen(false);
+                }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -1653,35 +1663,36 @@ export default function App() {
       </aside>
 
       {/* Main Content Area */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      <main className="ems-main-area">
         {/* Top Header */}
-        <header style={{
-          height: '70px',
-          background: '#ffffff',
-          borderBottom: '1px solid var(--border)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '0 32px',
-          position: 'sticky',
-          top: 0,
-          zIndex: 10
-        }}>
-          <div>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)', textTransform: 'capitalize' }}>
-              {activeTab === 'overview' && 'Founder Command Dashboard'}
-              {activeTab === 'employees' && 'Staff & Team Directory'}
-              {activeTab === 'attendance' && 'Daily Attendance & Geofence Logs'}
-              {activeTab === 'reports' && 'Daily Work & EOD Reports'}
-              {activeTab === 'audits' && 'Team Leader Performance Audits'}
-              {activeTab === 'geofence' && 'Office Geofencing Perimeter'}
-            </h2>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-              Thursday, Oct 22, 2026 • Real-Time Enterprise Session
+        <header className="ems-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <button
+              className="ems-header-menu-btn"
+              onClick={() => setIsMobileNavOpen(prev => !prev)}
+              aria-label="Toggle navigation menu"
+              title="Toggle Menu"
+            >
+              <Menu size={20} />
+            </button>
+            <div className="ems-header-title-col">
+              <h2 style={{ fontSize: 'clamp(1.05rem, 2.5vw, 1.25rem)', fontWeight: 800, color: 'var(--text-primary)', textTransform: 'capitalize', margin: 0 }}>
+                {activeTab === 'overview' && 'Founder Command Dashboard'}
+                {activeTab === 'employees' && 'Staff & Team Directory'}
+                {activeTab === 'attendance' && 'Daily Attendance & Geofence Logs'}
+                {activeTab === 'reports' && 'Daily Work & EOD Reports'}
+                {activeTab === 'audits' && 'Team Leader Performance Audits'}
+                {activeTab === 'geofence' && 'Office Geofencing Perimeter'}
+                {activeTab === 'announcements' && 'Announcements & Broadcasts'}
+                {activeTab === 'rules' && 'Company Notes & Rules'}
+              </h2>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                Thursday, Oct 22, 2026 • Real-Time Enterprise Session
+              </div>
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div className="ems-header-actions">
             <div style={{
               display: 'flex',
               alignItems: 'center',
@@ -1764,15 +1775,15 @@ export default function App() {
         </header>
 
         {/* Tab Content */}
-        <div style={{ padding: '32px', flex: 1 }}>
+        <div className="ems-page-content" style={{ flex: 1 }}>
           {/* ========================================================================= */}
           {/* TAB 1: OVERVIEW */}
           {/* ========================================================================= */}
           {activeTab === 'overview' && (
             <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
               {/* Stat Metric Cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px' }}>
-                <div style={{ background: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
+              <div className="grid-fluid-kpi">
+                <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                     <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Total Headcount</span>
                     <div style={{ background: 'var(--bg-light-olive)', padding: '8px', borderRadius: '8px' }}>
@@ -1783,7 +1794,7 @@ export default function App() {
                   <div style={{ fontSize: '0.78rem', color: 'var(--primary)', fontWeight: 700, marginTop: '4px' }}>100% Active Staff</div>
                 </div>
 
-                <div style={{ background: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
+                <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                     <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Present Today</span>
                     <div style={{ background: 'var(--bg-light-olive)', padding: '8px', borderRadius: '8px' }}>
@@ -1792,11 +1803,11 @@ export default function App() {
                   </div>
                   <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)' }}>{mockStats.presentToday}</div>
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                    <span style={{ fontWeight: 700, color: 'var(--primary)' }}>{mockStats.wfoCount} WFO</span> • <span style={{ fontWeight: 700, color: '#73776C' }}>{mockStats.wfhCount} WFH</span>
+                    <span style={{ fontWeight: 700, color: 'var(--primary)' }}>{mockStats.wfoCount} WFO</span> • <span style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>{mockStats.wfhCount} WFH</span>
                   </div>
                 </div>
 
-                <div style={{ background: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
+                <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                     <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Geofence Accuracy</span>
                     <div style={{ background: 'var(--bg-beige)', padding: '8px', borderRadius: '8px' }}>
@@ -1807,20 +1818,20 @@ export default function App() {
                   <div style={{ fontSize: '0.78rem', color: 'var(--primary)', fontWeight: 700, marginTop: '4px' }}>Office Perimeter Secure</div>
                 </div>
 
-                <div style={{ background: '#fff', padding: '20px', borderRadius: '12px', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
+                <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                     <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Pending Audits</span>
-                    <div style={{ background: '#FAF4E8', padding: '8px', borderRadius: '8px' }}>
-                      <Award size={18} color="#C28424" />
+                    <div style={{ background: 'var(--bg-card-subtle)', padding: '8px', borderRadius: '8px' }}>
+                      <Award size={18} color="var(--warning)" />
                     </div>
                   </div>
                   <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)' }}>{mockStats.pendingAudits}</div>
-                  <div style={{ fontSize: '0.78rem', color: '#C28424', fontWeight: 700, marginTop: '4px' }}>Awaiting Team Leader Review</div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--warning)', fontWeight: 700, marginTop: '4px' }}>Awaiting Team Leader Review</div>
                 </div>
               </div>
 
               {/* Live Attendance Table */}
-              <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
+              <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
                 <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)' }}>Today's Live Attendance Feed</h3>
@@ -2517,12 +2528,12 @@ export default function App() {
 
               {/* VIEW 2: EMPLOYEE SUMMARY CARDS VIEW */}
               {reportViewMode === 'summary' && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '20px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 320px), 1fr))', gap: '20px' }}>
                   {employeeWiseReports.map((emp) => (
                     <div
                       key={emp.employeeName}
                       style={{
-                        background: '#ffffff',
+                        background: 'var(--bg-card)',
                         borderRadius: '14px',
                         border: '1px solid var(--border)',
                         padding: '22px',
@@ -2705,8 +2716,8 @@ export default function App() {
           {/* TAB 6: GEOFENCE CONFIGURATION */}
           {/* ========================================================================= */}
           {activeTab === 'geofence' && (
-            <div className="animate-fade-in" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-              <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid var(--border)', padding: '24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            <div className="animate-fade-in" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))', gap: '24px' }}>
+              <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border)', padding: '24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
                 <div>
                   <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '4px', color: 'var(--text-primary)' }}>Office Geofence Parameters</h3>
                   <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: 0 }}>Verified by Haversine formula on the backend server</p>
@@ -3072,14 +3083,14 @@ export default function App() {
               </div>
 
               {/* Policy Cards Grid */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(440px, 1fr))', gap: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 320px), 1fr))', gap: '16px' }}>
                 {companyRules
                   .filter(r => ruleCategoryFilter === 'all' || r.category === ruleCategoryFilter)
                   .map(rule => (
                     <div
                       key={rule.id}
                       style={{
-                        background: '#ffffff',
+                        background: 'var(--bg-card)',
                         borderRadius: '12px',
                         border: '1px solid var(--border)',
                         padding: '22px',

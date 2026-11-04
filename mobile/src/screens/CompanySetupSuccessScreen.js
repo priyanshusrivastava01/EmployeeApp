@@ -12,10 +12,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
+import { useResponsiveLayout } from '../utils/responsive';
 
 export default function CompanySetupSuccessScreen({ setupData, onContinueToLogin, onContinueToDashboard }) {
   const { colors, isDark } = useTheme();
-  const styles = getStyles(colors, isDark);
+  const layout = useResponsiveLayout();
+  const styles = getStyles(colors, isDark, layout);
 
   const [copiedField, setCopiedField] = useState(null);
 
@@ -198,15 +200,18 @@ export default function CompanySetupSuccessScreen({ setupData, onContinueToLogin
   );
 }
 
-const getStyles = (colors, isDark) => StyleSheet.create({
+const getStyles = (colors, isDark, layout = {}) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background
   },
   scrollContent: {
-    paddingHorizontal: 20,
+    paddingHorizontal: layout?.screenPadding || 20,
     paddingTop: 16,
-    paddingBottom: 40
+    paddingBottom: 40,
+    maxWidth: layout?.isTablet ? 600 : '100%',
+    alignSelf: 'center',
+    width: '100%'
   },
   header: {
     alignItems: 'center',

@@ -19,10 +19,12 @@ import * as Location from 'expo-location';
 
 import { evaluateGeofence } from '../utils/geofence';
 import { useTheme } from '../theme/ThemeContext';
+import { useResponsiveLayout } from '../utils/responsive';
 
 export default function PunchScreen({ attendanceState, onPunchSuccess, currentOrg }) {
   const { colors, isDark } = useTheme();
-  const styles = getStyles(colors, isDark);
+  const layout = useResponsiveLayout();
+  const styles = getStyles(colors, isDark, layout);
 
   const isPunchedIn = attendanceState.isPunchedIn;
 
@@ -718,14 +720,18 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
   );
 }
 
-const getStyles = (colors, isDark) => StyleSheet.create({
+const getStyles = (colors, isDark, layout = {}) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background
   },
   content: {
-    padding: 16,
-    paddingBottom: 110
+    paddingHorizontal: layout?.screenPadding || 16,
+    paddingTop: 16,
+    paddingBottom: 110,
+    maxWidth: layout?.isTablet ? 720 : '100%',
+    alignSelf: 'center',
+    width: '100%'
   },
   sessionStatusBanner: {
     flexDirection: 'row',
@@ -829,7 +835,7 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     marginBottom: 16
   },
   cameraFrame: {
-    height: 350,
+    height: Math.min(350, Math.max(260, (layout?.height || 700) * 0.4)),
     width: '100%',
     position: 'relative',
     borderRadius: 16,
@@ -863,10 +869,10 @@ const getStyles = (colors, isDark) => StyleSheet.create({
   },
   faceOvalGuide: {
     position: 'absolute',
-    width: 180,
-    height: 230,
-    borderRadius: 90,
-    top: 40,
+    width: layout?.isVerySmallMobile ? 144 : 176,
+    height: layout?.isVerySmallMobile ? 186 : 220,
+    borderRadius: layout?.isVerySmallMobile ? 72 : 88,
+    top: layout?.isVerySmallMobile ? 22 : 36,
     alignSelf: 'center'
   },
   cameraOverlayTop: {

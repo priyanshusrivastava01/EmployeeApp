@@ -10,11 +10,15 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeContext';
+import { useResponsiveLayout, getGridCardWidth, getActionCardColumns } from '../../utils/responsive';
 import api from '../../services/api';
 
 export default function AdminHomeScreen({ onNavigate, user, organization }) {
   const { colors, isDark } = useTheme();
-  const styles = getStyles(colors, isDark);
+  const layout = useResponsiveLayout();
+  const actionCols = getActionCardColumns(layout.width);
+  const actionCardWidth = getGridCardWidth(layout.contentWidth, actionCols, 10);
+  const styles = getStyles(colors, isDark, { ...layout, actionCardWidth });
 
   const [stats, setStats] = useState(null);
   const [recentAttendance, setRecentAttendance] = useState([]);
@@ -355,15 +359,19 @@ export default function AdminHomeScreen({ onNavigate, user, organization }) {
   );
 }
 
-const getStyles = (colors, isDark) =>
+const getStyles = (colors, isDark, layout = {}) =>
   StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: colors.background
     },
     content: {
-      padding: 16,
-      paddingBottom: 40
+      paddingHorizontal: layout?.screenPadding || 16,
+      paddingTop: 16,
+      paddingBottom: 40,
+      maxWidth: layout?.isTablet ? 840 : '100%',
+      alignSelf: 'center',
+      width: '100%'
     },
     loadingContainer: {
       flex: 1,
@@ -462,7 +470,7 @@ const getStyles = (colors, isDark) =>
     },
     kpiCard: {
       flex: 1,
-      minWidth: '47%',
+      minWidth: layout?.isNarrowMobile ? '100%' : '47%',
       backgroundColor: colors.surface,
       borderRadius: 14,
       padding: 14,
@@ -515,7 +523,7 @@ const getStyles = (colors, isDark) =>
       marginBottom: 24
     },
     actionCard: {
-      width: '31%',
+      width: layout?.actionCardWidth || (layout?.isNarrowMobile ? '47%' : '31%'),
       backgroundColor: colors.surface,
       borderRadius: 14,
       paddingVertical: 14,

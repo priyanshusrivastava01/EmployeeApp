@@ -14,11 +14,13 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
+import { useResponsiveLayout } from '../utils/responsive';
 import api from '../services/api';
 
 export default function LoginScreen({ onLoginSuccess, onBack, initialPortal = 'management' }) {
   const { colors, isDark } = useTheme();
-  const styles = getStyles(colors, isDark);
+  const layout = useResponsiveLayout();
+  const styles = getStyles(colors, isDark, layout);
 
   // Two primary login choices: 'management' vs 'employee'
   const [portal, setPortal] = useState(initialPortal);
@@ -621,16 +623,19 @@ export default function LoginScreen({ onLoginSuccess, onBack, initialPortal = 'm
   );
 }
 
-const getStyles = (colors, isDark) =>
+const getStyles = (colors, isDark, layout = {}) =>
   StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: colors.background
     },
     scrollContent: {
-      paddingHorizontal: 20,
+      paddingHorizontal: layout?.screenPadding || 20,
       paddingTop: 20,
-      paddingBottom: 40
+      paddingBottom: 40,
+      maxWidth: layout?.isTablet ? 480 : '100%',
+      alignSelf: 'center',
+      width: '100%'
     },
     topBar: {
       flexDirection: 'row',

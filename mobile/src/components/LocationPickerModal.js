@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import { useResponsiveLayout } from '../utils/responsive';
 
 /**
  * LocationPickerModal — Zero-cost location picker using expo-location.
@@ -28,7 +29,8 @@ export default function LocationPickerModal({
   colors,
   isDark
 }) {
-  const styles = getStyles(colors, isDark);
+  const layout = useResponsiveLayout();
+  const styles = getStyles(colors, isDark, layout);
 
   const [latitude, setLatitude] = useState(initialLatitude || null);
   const [longitude, setLongitude] = useState(initialLongitude || null);
@@ -306,7 +308,7 @@ export default function LocationPickerModal({
   );
 }
 
-const getStyles = (colors, isDark) => StyleSheet.create({
+const getStyles = (colors, isDark, layout = {}) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background
@@ -315,7 +317,7 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingHorizontal: layout?.screenPadding || 16,
     paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) + 12 : 50,
     paddingBottom: 12,
     backgroundColor: colors.surface,
@@ -354,8 +356,11 @@ const getStyles = (colors, isDark) => StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 16
+    paddingHorizontal: layout?.screenPadding || 20,
+    paddingTop: 16,
+    maxWidth: layout?.isTablet ? 600 : '100%',
+    alignSelf: 'center',
+    width: '100%'
   },
   errorBox: {
     flexDirection: 'row',
@@ -518,12 +523,15 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     textAlignVertical: 'top'
   },
   bottomBar: {
-    paddingHorizontal: 20,
+    paddingHorizontal: layout?.screenPadding || 20,
     paddingVertical: 12,
     paddingBottom: Platform.OS === 'ios' ? 28 : 16,
     backgroundColor: colors.surface,
     borderTopWidth: 1,
-    borderTopColor: colors.border
+    borderTopColor: colors.border,
+    maxWidth: layout?.isTablet ? 600 : '100%',
+    alignSelf: 'center',
+    width: '100%'
   },
   confirmBtn: {
     flexDirection: 'row',

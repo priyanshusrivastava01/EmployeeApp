@@ -90,32 +90,34 @@ export default function LoginView({ onLoginSuccess }) {
       justifyContent: 'center',
       backgroundColor: 'var(--bg-main)',
       fontFamily: 'var(--font-sans)',
-      padding: '20px',
-      position: 'relative'
+      padding: 'clamp(12px, 3vw, 24px)',
+      position: 'relative',
+      boxSizing: 'border-box'
     }}>
       {/* Theme Toggle Button */}
       <button
         onClick={toggleTheme}
         style={{
           position: 'absolute',
-          top: '20px',
-          right: '20px',
+          top: '16px',
+          right: '16px',
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
-          padding: '8px 14px',
+          padding: '6px 12px',
           borderRadius: '20px',
           backgroundColor: 'var(--bg-card)',
           border: '1px solid var(--border)',
           color: 'var(--text-primary)',
-          fontSize: '13px',
+          fontSize: '12px',
           fontWeight: 600,
           boxShadow: 'var(--shadow-sm)',
-          cursor: 'pointer'
+          cursor: 'pointer',
+          zIndex: 10
         }}
       >
-        {isDark ? <Sun size={16} color="#FBBF24" /> : <Moon size={16} color="var(--primary)" />}
-        <span>{isDark ? 'Light Mode' : 'Dark Mode'}</span>
+        {isDark ? <Sun size={15} color="#FBBF24" /> : <Moon size={15} color="var(--primary)" />}
+        <span>{isDark ? 'Light' : 'Dark'}</span>
       </button>
 
       <div style={{
@@ -123,30 +125,31 @@ export default function LoginView({ onLoginSuccess }) {
         maxWidth: '440px',
         backgroundColor: 'var(--bg-card)',
         borderRadius: '20px',
-        padding: '36px',
+        padding: 'clamp(20px, 5vw, 36px)',
         boxShadow: 'var(--shadow-lg)',
-        border: '1px solid var(--border)'
+        border: '1px solid var(--border)',
+        boxSizing: 'border-box'
       }}>
         {/* Brand */}
-        <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '24px' }}>
           <div style={{
-            width: '60px',
-            height: '60px',
-            borderRadius: '16px',
+            width: '54px',
+            height: '54px',
+            borderRadius: '14px',
             backgroundColor: 'var(--primary)',
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
             color: '#ffffff',
-            marginBottom: '14px',
+            marginBottom: '12px',
             boxShadow: '0 4px 12px rgba(13, 148, 136, 0.25)'
           }}>
-            <ShieldCheck size={32} />
+            <ShieldCheck size={28} />
           </div>
-          <h1 style={{ fontSize: '22px', fontWeight: '800', color: 'var(--text-primary)', margin: '0 0 6px 0' }}>
+          <h1 style={{ fontSize: 'clamp(19px, 4vw, 22px)', fontWeight: '800', color: 'var(--text-primary)', margin: '0 0 6px 0' }}>
             EMS Admin Portal
           </h1>
-          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0 }}>
+          <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', margin: 0 }}>
             Multi-Organization Management Platform
           </p>
         </div>
@@ -156,7 +159,7 @@ export default function LoginView({ onLoginSuccess }) {
           <div style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-secondary)', letterSpacing: '0.5px', marginBottom: '8px' }}>
             SELECT PRELOADED CREDENTIALS:
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px' }}>
             {PRESETS.map((p) => {
               const active = selectedPreset === p.role;
               return (

@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
 import { useSafeAppInsets } from './src/utils/safeAreaHelper';
+import { useResponsiveLayout } from './src/utils/responsive';
 import CompanyVerificationScreen from './src/screens/CompanyVerificationScreen';
 import WelcomeScreen from './src/screens/WelcomeScreen';
 import CompanyRegistrationScreen from './src/screens/CompanyRegistrationScreen';
@@ -68,7 +69,8 @@ function MainApp() {
   const safeInsets = useSafeAppInsets();
   // Ensure Android status bar height is accounted for with fallback to safe area insets
   const topPadding = Platform.OS === 'android' ? Math.max(StatusBar.currentHeight || 0, safeInsets.top) : safeInsets.top;
-  const styles = getStyles(colors, isDark);
+  const layout = useResponsiveLayout();
+  const styles = getStyles(colors, isDark, layout);
 
   const [isInitializing, setIsInitializing] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
@@ -675,7 +677,7 @@ export default function App() {
   );
 }
 
-const getStyles = (colors, isDark) => StyleSheet.create({
+const getStyles = (colors, isDark, layout = {}) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background
@@ -687,7 +689,10 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     backgroundColor: colors.background
   },
   screenContainer: {
-    flex: 1
+    flex: 1,
+    width: '100%',
+    maxWidth: layout?.isTablet ? 900 : '100%',
+    alignSelf: 'center'
   },
   tabContentContainer: {
     flex: 1
@@ -696,15 +701,19 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     position: 'relative',
     width: '100%',
     overflow: 'visible',
-    zIndex: 10
+    zIndex: 10,
+    backgroundColor: colors.surface
   },
   bottomNavContainer: {
     backgroundColor: colors.surface,
     borderTopWidth: 1,
     borderTopColor: colors.border,
-    paddingTop: 5,
-    paddingBottom: Platform.OS === 'ios' ? 22 : 6,
-    height: Platform.OS === 'ios' ? 76 : 54,
+    paddingTop: 6,
+    paddingBottom: Platform.OS === 'ios' ? 22 : 8,
+    height: Platform.OS === 'ios' ? 76 : 60,
+    maxWidth: layout?.isTablet ? 600 : '100%',
+    alignSelf: 'center',
+    width: '100%',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: isDark ? 0.25 : 0.05,
@@ -721,13 +730,15 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    height: '100%'
+    height: '100%',
+    paddingHorizontal: 2
   },
   bottomNavLabel: {
-    fontSize: 10,
+    fontSize: layout?.isVerySmallMobile ? 9 : 10,
     marginTop: 2,
     color: colors.textSecondary,
-    fontWeight: '600'
+    fontWeight: '600',
+    textAlign: 'center'
   },
   bottomNavLabelActive: {
     color: colors.primary,
@@ -741,13 +752,14 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     paddingBottom: 2
   },
   punchSlotLabel: {
-    fontSize: 9.5,
+    fontSize: layout?.isVerySmallMobile ? 8.5 : 9.5,
     fontWeight: '600',
-    color: colors.textSecondary
+    color: colors.textSecondary,
+    textAlign: 'center'
   },
   raisedPunchAnchor: {
     position: 'absolute',
-    top: -16,
+    top: -18,
     left: 0,
     right: 0,
     alignItems: 'center',
@@ -762,9 +774,9 @@ const getStyles = (colors, isDark) => StyleSheet.create({
     elevation: 10
   },
   raisedPunchCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: layout?.isVerySmallMobile ? 44 : 48,
+    height: layout?.isVerySmallMobile ? 44 : 48,
+    borderRadius: layout?.isVerySmallMobile ? 22 : 24,
     backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
