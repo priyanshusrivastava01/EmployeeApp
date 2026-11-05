@@ -1,111 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  Image,
   TouchableOpacity,
   Modal,
-  Platform,
-  ActivityIndicator
+  Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeContext';
 import { useResponsiveLayout } from '../utils/responsive';
-import api from '../services/api';
-
-// In-memory cache for time-limited signed URLs
-const signedUrlCache = new Map();
-
-function SecureSelfie({ photoPath, style, placeholderIcon = 'camera', placeholderText = 'Photo Logged' }) {
-  const { colors } = useTheme();
-  const [resolvedUrl, setResolvedUrl] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState(false);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    if (!photoPath || typeof photoPath !== 'string') {
-      setResolvedUrl(null);
-      setLoading(false);
-      return;
-    }
-
-    // Direct HTTP(S) or base64 data URI
-    if (photoPath.startsWith('http://') || photoPath.startsWith('https://') || photoPath.startsWith('data:image/')) {
-      setResolvedUrl(photoPath);
-      setLoading(false);
-      return;
-    }
-
-    // Check signed URL cache
-    const cached = signedUrlCache.get(photoPath);
-    if (cached && cached.expiresAt > Date.now()) {
-      setResolvedUrl(cached.url);
-      setLoading(false);
-      return;
-    }
-
-    // Fetch signed URL via authenticated API
-    setLoading(true);
-    setLoadError(false);
-
-    api.getStorageSignedUrl({ bucket: 'attendance-selfies', filePath: photoPath, expiresIn: 3600 })
-      .then(res => {
-        if (!isMounted) return;
-        const signedUrl = res?.data?.signedUrl || res?.signedUrl;
-        if (signedUrl) {
-          // Cache URL for 50 minutes (expires in 60 mins)
-          signedUrlCache.set(photoPath, {
-            url: signedUrl,
-            expiresAt: Date.now() + 50 * 60 * 1000
-          });
-          setResolvedUrl(signedUrl);
-        } else {
-          setLoadError(true);
-        }
-      })
-      .catch(() => {
-        if (isMounted) setLoadError(true);
-      })
-      .finally(() => {
-        if (isMounted) setLoading(false);
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [photoPath]);
-
-  if (loading) {
-    return (
-      <View style={[style, { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.lightOlive || '#f1f5f9' }]}>
-        <ActivityIndicator size="small" color={colors.primary} />
-      </View>
-    );
-  }
-
-  if (resolvedUrl && !loadError) {
-    return (
-      <Image
-        source={{ uri: resolvedUrl }}
-        style={style}
-        onError={() => setLoadError(true)}
-      />
-    );
-  }
-
-  return (
-    <View style={[style, { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.lightOlive || '#f1f5f9' }]}>
-      <Ionicons name={placeholderIcon} size={style?.width && style.width < 50 ? 14 : 22} color={colors.primary || '#64748b'} />
-      {placeholderText && style?.height && style.height > 60 ? (
-        <Text style={{ fontSize: 10, color: colors.textSecondary, marginTop: 4 }}>{placeholderText}</Text>
-      ) : null}
-    </View>
-  );
-}
+import SecureSelfie from '../components/SecureSelfie';
 
 export default function HistoryScreen({ attendanceHistory = [] }) {
   const { colors, isDark } = useTheme();
@@ -189,15 +95,37 @@ export default function HistoryScreen({ attendanceHistory = [] }) {
                   />
                   <Text style={styles.dateText}>{item.date}</Text>
                 </View>
-                <View style={[styles.modeBadge, item.mode === 'WFO' ? styles.modeWfo : styles.modeWfh]}>
-                  <Ionicons
-                    name={item.mode === 'WFO' ? 'business' : 'home'}
-                    size={12}
-                    color={item.mode === 'WFO' ? colors.darkOlive : colors.primary}
-                  />
-                  <Text style={[styles.modeText, item.mode === 'WFO' ? styles.modeTextWfo : styles.modeTextWfh]}>
-                    {item.mode}
-                  </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  {Boolean(item.attendance_status || item.attendanceStatus) && (
+                    <View style={[
+                      styles.statusPill,
+                      (item.attendance_status || item.attendanceStatus) === 'Full Day' && styles.statusPillFull,
+                      (item.attendance_status || item.attendanceStatus) === 'Half Day' && styles.statusPillHalf,
+                      (item.attendance_status || item.attendanceStatus) === 'Absent' && styles.statusPillAbsent,
+                      (item.attendance_status || item.attendanceStatus) === 'Shift In Progress' && styles.statusPillProgress,
+                      (item.attendance_status || item.attendanceStatus) === 'In Progress' && styles.statusPillProgress
+                    ]}>
+                      <Text style={[
+                        styles.statusPillText,
+                        (item.attendance_status || item.attendanceStatus) === 'Full Day' && styles.statusPillTextFull,
+                        (item.attendance_status || item.attendanceStatus) === 'Half Day' && styles.statusPillTextHalf,
+                        (item.attendance_status || item.attendanceStatus) === 'Absent' && styles.statusPillTextAbsent,
+                        ((item.attendance_status || item.attendanceStatus) === 'Shift In Progress' || (item.attendance_status || item.attendanceStatus) === 'In Progress') && styles.statusPillTextProgress
+                      ]}>
+                        {item.attendance_status || item.attendanceStatus}
+                      </Text>
+                    </View>
+                  )}
+                  <View style={[styles.modeBadge, item.mode === 'WFO' ? styles.modeWfo : styles.modeWfh]}>
+                    <Ionicons
+                      name={item.mode === 'WFO' ? 'business' : 'home'}
+                      size={12}
+                      color={item.mode === 'WFO' ? colors.darkOlive : colors.primary}
+                    />
+                    <Text style={[styles.modeText, item.mode === 'WFO' ? styles.modeTextWfo : styles.modeTextWfh]}>
+                      {item.mode}
+                    </Text>
+                  </View>
                 </View>
               </View>
 
@@ -262,15 +190,36 @@ export default function HistoryScreen({ attendanceHistory = [] }) {
             <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
               {/* Work Mode Badge & Status */}
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                <View style={[styles.modeBadge, selectedRecord?.mode === 'WFO' ? styles.modeWfo : styles.modeWfh]}>
-                  <Ionicons
-                    name={selectedRecord?.mode === 'WFO' ? 'business' : 'home'}
-                    size={13}
-                    color={selectedRecord?.mode === 'WFO' ? colors.darkOlive : colors.primary}
-                  />
-                  <Text style={[styles.modeText, selectedRecord?.mode === 'WFO' ? styles.modeTextWfo : styles.modeTextWfh]}>
-                    Work Mode: {selectedRecord?.mode || 'WFO'}
-                  </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <View style={[styles.modeBadge, selectedRecord?.mode === 'WFO' ? styles.modeWfo : styles.modeWfh]}>
+                    <Ionicons
+                      name={selectedRecord?.mode === 'WFO' ? 'business' : 'home'}
+                      size={13}
+                      color={selectedRecord?.mode === 'WFO' ? colors.darkOlive : colors.primary}
+                    />
+                    <Text style={[styles.modeText, selectedRecord?.mode === 'WFO' ? styles.modeTextWfo : styles.modeTextWfh]}>
+                      {selectedRecord?.mode || 'WFO'}
+                    </Text>
+                  </View>
+                  {Boolean(selectedRecord?.attendance_status || selectedRecord?.attendanceStatus) && (
+                    <View style={[
+                      styles.statusPill,
+                      (selectedRecord?.attendance_status || selectedRecord?.attendanceStatus) === 'Full Day' && styles.statusPillFull,
+                      (selectedRecord?.attendance_status || selectedRecord?.attendanceStatus) === 'Half Day' && styles.statusPillHalf,
+                      (selectedRecord?.attendance_status || selectedRecord?.attendanceStatus) === 'Absent' && styles.statusPillAbsent,
+                      ((selectedRecord?.attendance_status || selectedRecord?.attendanceStatus) === 'Shift In Progress' || (selectedRecord?.attendance_status || selectedRecord?.attendanceStatus) === 'In Progress') && styles.statusPillProgress
+                    ]}>
+                      <Text style={[
+                        styles.statusPillText,
+                        (selectedRecord?.attendance_status || selectedRecord?.attendanceStatus) === 'Full Day' && styles.statusPillTextFull,
+                        (selectedRecord?.attendance_status || selectedRecord?.attendanceStatus) === 'Half Day' && styles.statusPillTextHalf,
+                        (selectedRecord?.attendance_status || selectedRecord?.attendanceStatus) === 'Absent' && styles.statusPillTextAbsent,
+                        ((selectedRecord?.attendance_status || selectedRecord?.attendanceStatus) === 'Shift In Progress' || (selectedRecord?.attendance_status || selectedRecord?.attendanceStatus) === 'In Progress') && styles.statusPillTextProgress
+                      ]}>
+                        {selectedRecord?.attendance_status || selectedRecord?.attendanceStatus}
+                      </Text>
+                    </View>
+                  )}
                 </View>
                 <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary }}>
                   Duration: {selectedRecord?.duration || selectedRecord?.totalHours || '8h 15m'}
@@ -516,6 +465,44 @@ const getStyles = (colors, isDark, layout = {}) => StyleSheet.create({
   },
   modeTextWfh: {
     color: colors.text
+  },
+  statusPill: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1
+  },
+  statusPillFull: {
+    backgroundColor: isDark ? 'rgba(5, 150, 105, 0.2)' : '#ECFDF5',
+    borderColor: isDark ? '#059669' : '#A7F3D0'
+  },
+  statusPillHalf: {
+    backgroundColor: isDark ? 'rgba(217, 119, 6, 0.2)' : '#FFFBEB',
+    borderColor: isDark ? '#D97706' : '#FDE68A'
+  },
+  statusPillAbsent: {
+    backgroundColor: isDark ? 'rgba(220, 38, 38, 0.2)' : '#FEF2F2',
+    borderColor: isDark ? '#DC2626' : '#FECACA'
+  },
+  statusPillProgress: {
+    backgroundColor: isDark ? 'rgba(13, 148, 136, 0.2)' : '#F0FDFA',
+    borderColor: isDark ? '#0D9488' : '#CCFBF1'
+  },
+  statusPillText: {
+    fontSize: 10,
+    fontWeight: '800'
+  },
+  statusPillTextFull: {
+    color: isDark ? '#34D399' : '#059669'
+  },
+  statusPillTextHalf: {
+    color: isDark ? '#FBBF24' : '#D97706'
+  },
+  statusPillTextAbsent: {
+    color: isDark ? '#F87171' : '#DC2626'
+  },
+  statusPillTextProgress: {
+    color: isDark ? '#2DD4BF' : '#0D9488'
   },
   punchTimesRow: {
     flexDirection: 'row',

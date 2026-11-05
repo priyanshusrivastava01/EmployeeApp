@@ -7,7 +7,8 @@ import {
   StatusBar,
   Platform,
   BackHandler,
-  ActivityIndicator
+  ActivityIndicator,
+  AppState
 } from 'react-native';
 import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
@@ -144,9 +145,18 @@ function MainApp() {
       if (res && res.success) {
         const rec = res.data;
         if (rec) {
+          const isPunchedIn = Boolean(rec.punch_in_time && !rec.punch_out_time);
+          const isPunchedOut = Boolean(rec.punch_out_time);
+          const rawStatus = rec.attendance_status || (isPunchedOut ? 'Full Day' : (isPunchedIn ? 'Shift In Progress' : 'Not Punched In'));
+
           setAttendanceState({
-            isPunchedIn: Boolean(rec.punch_in_time && !rec.punch_out_time),
-            isPunchedOut: Boolean(rec.punch_out_time),
+            isPunchedIn,
+            isPunchedOut,
+            attendanceStatus: rawStatus,
+            attendance_status: rawStatus,
+            totalMinutes: rec.total_minutes ?? null,
+            total_minutes: rec.total_minutes ?? null,
+            liveDurationMinutes: rec.liveDurationMinutes ?? null,
             lastPunchOutTime: rec.punch_out_time ? new Date(rec.punch_out_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null,
             mode: rec.work_mode || rec.mode || 'WFO',
             punchInTime: rec.punch_in_time ? new Date(rec.punch_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null,
@@ -157,19 +167,40 @@ function MainApp() {
               longitude: Number(rec.punch_in_longitude ?? rec.punch_in_lng),
               accuracy: Number(rec.punch_in_accuracy ?? 10)
             } : null,
-            punchInGeofence: rec.punch_in_verified ? { verified: true } : null
+            punchInGeofence: rec.punch_in_verified ? { verified: true } : null,
+            punchOutTime: rec.punch_out_time ? new Date(rec.punch_out_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null,
+            punchOutDate: rec.punch_out_time ? formatCalendarDate(rec.punch_out_time) : null,
+            punchOutPhotoUri: rec.punch_out_photo_path,
+            punchOutCoords: (rec.punch_out_lat != null || rec.punch_out_latitude != null) ? {
+              latitude: Number(rec.punch_out_latitude ?? rec.punch_out_lat),
+              longitude: Number(rec.punch_out_longitude ?? rec.punch_out_lng),
+              accuracy: Number(rec.punch_out_accuracy ?? 10)
+            } : null,
+            punchOutGeofence: rec.punch_out_verified ? { verified: true } : null,
+            record: rec
           });
         } else {
           setAttendanceState({
             isPunchedIn: false,
             isPunchedOut: false,
+            attendanceStatus: 'Not Punched In',
+            attendance_status: 'Not Punched In',
+            totalMinutes: null,
+            total_minutes: null,
+            liveDurationMinutes: null,
             lastPunchOutTime: null,
             mode: 'WFO',
             punchInTime: null,
             punchInDate: null,
             punchInPhotoUri: null,
             punchInCoords: null,
-            punchInGeofence: null
+            punchInGeofence: null,
+            punchOutTime: null,
+            punchOutDate: null,
+            punchOutPhotoUri: null,
+            punchOutCoords: null,
+            punchOutGeofence: null,
+            record: null
           });
         }
       }
@@ -191,6 +222,10 @@ function MainApp() {
           punchOut: item.punch_out_time ? new Date(item.punch_out_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : (item.punchOut || 'In Progress'),
           duration: item.total_minutes ? `${Math.floor(item.total_minutes / 60)}h ${item.total_minutes % 60}m` : (item.duration || item.totalHours || '—'),
           totalHours: item.total_minutes ? `${Math.floor(item.total_minutes / 60)}h ${item.total_minutes % 60}m` : (item.totalHours || '—'),
+          total_minutes: item.total_minutes ?? null,
+          totalMinutes: item.total_minutes ?? null,
+          attendance_status: item.attendance_status || (item.punch_out_time ? 'Full Day' : 'In Progress'),
+          attendanceStatus: item.attendance_status || (item.punch_out_time ? 'Full Day' : 'In Progress'),
           status: item.punch_in_verified !== false ? 'Verified Session' : 'Pending Verification',
           isVerified: item.punch_in_verified !== false,
           verified: item.punch_in_verified !== false,
@@ -214,6 +249,17 @@ function MainApp() {
       console.warn('[App] History fetch error:', e.message);
     }
   };
+
+  // Re-fetch today's attendance on app foregrounding
+  useEffect(() => {
+    const appStateSub = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active' && currentUser) {
+        fetchTodayAttendance();
+        fetchAttendanceHistory();
+      }
+    });
+    return () => appStateSub.remove();
+  }, [currentUser]);
 
   // Consistent BackHandler for Android
   useEffect(() => {
@@ -258,6 +304,9 @@ function MainApp() {
     if (['home', 'punch', 'history', 'tasks', 'profile'].includes(key)) {
       setActiveTab(key);
       setActiveSubScreen(null);
+      if (['punch', 'home', 'history'].includes(key)) {
+        fetchTodayAttendance();
+      }
     } else {
       setActiveSubScreen(key);
     }
@@ -525,6 +574,7 @@ function MainApp() {
               attendanceState={attendanceState}
               onPunchSuccess={handlePunchSuccess}
               currentOrg={currentOrg}
+              onNavigate={handleNavigate}
             />
           </View>
         )}

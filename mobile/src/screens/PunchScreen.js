@@ -20,17 +20,76 @@ import * as Location from 'expo-location';
 import { evaluateGeofence } from '../utils/geofence';
 import { useTheme } from '../theme/ThemeContext';
 import { useResponsiveLayout } from '../utils/responsive';
+import SecureSelfie from '../components/SecureSelfie';
 
-export default function PunchScreen({ attendanceState, onPunchSuccess, currentOrg }) {
+function formatDuration(totalMins) {
+  if (totalMins == null || isNaN(totalMins) || totalMins < 0) return '0h 00m';
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  return `${h}h ${String(m).padStart(2, '0')}m`;
+}
+
+export default function PunchScreen({ attendanceState = {}, onPunchSuccess, currentOrg, onNavigate }) {
   const { colors, isDark } = useTheme();
   const layout = useResponsiveLayout();
   const styles = getStyles(colors, isDark, layout);
 
-  const isPunchedIn = attendanceState.isPunchedIn;
+  const isPunchedIn = Boolean(attendanceState.isPunchedIn);
+  const isPunchedOut = Boolean(attendanceState.isPunchedOut);
+
+  // Live working duration counter for State B (Shift in progress)
+  const [liveElapsedMinutes, setLiveElapsedMinutes] = useState(
+    attendanceState?.liveDurationMinutes ?? 0
+  );
+
+  useEffect(() => {
+    if (!isPunchedIn || isPunchedOut) return;
+    const calcMinutes = () => {
+      const punchInRaw = attendanceState?.record?.punch_in_time || attendanceState?.rawRecord?.punch_in_time;
+      if (punchInRaw) {
+        const ms = Date.now() - new Date(punchInRaw).getTime();
+        setLiveElapsedMinutes(Math.max(0, Math.floor(ms / 60000)));
+      } else if (attendanceState?.liveDurationMinutes != null) {
+        setLiveElapsedMinutes(attendanceState.liveDurationMinutes);
+      }
+    };
+    calcMinutes();
+    const interval = setInterval(calcMinutes, 30000);
+    return () => clearInterval(interval);
+  }, [isPunchedIn, isPunchedOut, attendanceState?.record?.punch_in_time, attendanceState?.liveDurationMinutes]);
+
+  // Attendance classification status & badge styling
+  const rawStatus = attendanceState?.attendanceStatus || attendanceState?.attendance_status || (attendanceState?.totalMinutes >= 480 ? 'Full Day' : (attendanceState?.totalMinutes >= 240 ? 'Half Day' : 'Absent'));
+  const isFullDay = rawStatus === 'Full Day';
+  const isHalfDay = rawStatus === 'Half Day';
+
+  const statusBadgeColor = isFullDay
+    ? (isDark ? '#34D399' : '#059669')
+    : isHalfDay
+    ? (isDark ? '#FBBF24' : '#D97706')
+    : (isDark ? '#F87171' : '#DC2626');
+
+  const statusBadgeBg = isFullDay
+    ? (isDark ? 'rgba(5, 150, 105, 0.2)' : '#ECFDF5')
+    : isHalfDay
+    ? (isDark ? 'rgba(217, 119, 6, 0.2)' : '#FFFBEB')
+    : (isDark ? 'rgba(220, 38, 38, 0.2)' : '#FEF2F2');
+
+  const statusBadgeBorder = isFullDay
+    ? (isDark ? '#059669' : '#A7F3D0')
+    : isHalfDay
+    ? (isDark ? '#D97706' : '#FDE68A')
+    : (isDark ? '#DC2626' : '#FECACA');
+
+  const statusBadgeIcon = isFullDay
+    ? 'checkmark-circle'
+    : isHalfDay
+    ? 'time'
+    : 'close-circle';
 
   // Selected work mode (defaults to existing mode if shift active, else WFO)
   const [selectedMode, setSelectedMode] = useState(
-    isPunchedIn ? attendanceState.mode : 'WFO'
+    isPunchedIn ? (attendanceState.mode || 'WFO') : 'WFO'
   );
 
   // Derive real company office geofence from authenticated organization
@@ -74,6 +133,15 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
     }
   }, [isPunchedIn, attendanceState.mode]);
 
+  // Web video element ref callback to guarantee immediate stream binding on mount/remount
+  const attachWebVideo = (videoEl) => {
+    webVideoRef.current = videoEl;
+    if (videoEl && webStreamRef.current && videoEl.srcObject !== webStreamRef.current) {
+      videoEl.srcObject = webStreamRef.current;
+      videoEl.play().catch(pErr => console.warn('[Web Camera] Autoplay wait:', pErr));
+    }
+  };
+
   // Web camera initialization with getUserMedia
   const startWebCamera = async () => {
     try {
@@ -99,7 +167,9 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
           console.warn('[Web Camera] Autoplay wait:', pErr);
         }
       }
-      setIsCameraReady(true);
+      if (webVideoRef.current && webVideoRef.current.readyState >= 2) {
+        setIsCameraReady(true);
+      }
     } catch (err) {
       console.warn('[Web Camera] Failed to open front camera:', err.message);
       setCameraError(err.message || 'Unable to open front camera in browser.');
@@ -273,8 +343,8 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
       let photoUri = null;
       if (Platform.OS === 'web') {
         const video = webVideoRef.current;
-        if (!video || !video.videoWidth || !video.videoHeight) {
-          throw new Error('Camera stream is still warming up. Please tap again in a moment.');
+        if (!video || !video.videoWidth || !video.videoHeight || video.readyState < 2) {
+          throw new Error('Front camera stream is warming up. Please wait for the live preview and try again.');
         }
         const canvas = document.createElement('canvas');
         canvas.width = video.videoWidth;
@@ -317,6 +387,7 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
    * Discards captured image and resumes live camera stream
    */
   const handleRetakePhoto = () => {
+    setIsCameraReady(false);
     setCapturedPhotoUri(null);
     if (Platform.OS === 'web') {
       if (webVideoRef.current && webStreamRef.current) {
@@ -499,6 +570,172 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
   const ovalBorderColor = isCameraLive ? colors.primary : 'rgba(255, 255, 255, 0.45)';
   const ovalBorderStyle = isCameraLive ? 'solid' : 'dashed';
 
+  // STATE C: Shift Completed (Punch Out already recorded today)
+  if (isPunchedOut) {
+    return (
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Session Status Banner */}
+        <View
+          style={[
+            styles.sessionStatusBanner,
+            {
+              backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ECFDF5',
+              borderColor: '#10B981'
+            }
+          ]}
+        >
+          <Ionicons name="checkmark-circle" size={16} color="#10B981" />
+          <Text style={[styles.sessionStatusText, { color: isDark ? '#34D399' : '#065F46' }]}>
+            Shift Completed Today • Great work!
+          </Text>
+        </View>
+
+        {/* Screen Title */}
+        <View style={styles.header}>
+          <Text style={styles.title}>Shift Completed</Text>
+          <Text style={styles.subtitle}>
+            Your shift attendance has been recorded with verified photos, GPS, and duration.
+          </Text>
+        </View>
+
+        {/* Comprehensive Summary Card */}
+        <View style={styles.summaryCard}>
+          {/* Status Badge & Mode Header */}
+          <View style={styles.summaryStatusHeader}>
+            <View style={[styles.attendanceStatusPill, { backgroundColor: statusBadgeBg, borderColor: statusBadgeBorder }]}>
+              <Ionicons name={statusBadgeIcon} size={14} color={statusBadgeColor} />
+              <Text style={[styles.attendanceStatusPillText, { color: statusBadgeColor }]}>
+                {rawStatus}
+              </Text>
+            </View>
+            <View style={[styles.modeBadge, (attendanceState.mode || 'WFO') === 'WFO' ? styles.modeWfo : styles.modeWfh]}>
+              <Ionicons
+                name={(attendanceState.mode || 'WFO') === 'WFO' ? 'business' : 'home'}
+                size={12}
+                color={(attendanceState.mode || 'WFO') === 'WFO' ? colors.darkOlive : colors.primary}
+              />
+              <Text style={[styles.modeText, (attendanceState.mode || 'WFO') === 'WFO' ? styles.modeTextWfo : styles.modeTextWfh]}>
+                {attendanceState.mode || 'WFO'}
+              </Text>
+            </View>
+          </View>
+
+          {/* 3-Column Timings Grid */}
+          <View style={styles.summaryMetricsGrid}>
+            <View style={styles.summaryMetricCol}>
+              <Text style={styles.summaryMetricLabel}>PUNCH IN</Text>
+              <Text style={styles.summaryMetricValue}>
+                {attendanceState.punchInTime || '—'}
+              </Text>
+              <Text style={styles.summaryMetricSub}>Shift Start</Text>
+            </View>
+
+            <View style={styles.summaryMetricDivider} />
+
+            <View style={styles.summaryMetricCol}>
+              <Text style={styles.summaryMetricLabel}>PUNCH OUT</Text>
+              <Text style={styles.summaryMetricValue}>
+                {attendanceState.punchOutTime || attendanceState.lastPunchOutTime || '—'}
+              </Text>
+              <Text style={styles.summaryMetricSub}>Shift End</Text>
+            </View>
+
+            <View style={styles.summaryMetricDivider} />
+
+            <View style={styles.summaryMetricCol}>
+              <Text style={styles.summaryMetricLabel}>TOTAL DURATION</Text>
+              <Text style={[styles.summaryMetricValue, { color: statusBadgeColor }]}>
+                {formatDuration(attendanceState.totalMinutes)}
+              </Text>
+              <Text style={styles.summaryMetricSub}>{rawStatus}</Text>
+            </View>
+          </View>
+
+          {/* Verified Selfie Proof Row */}
+          <View style={styles.summarySection}>
+            <Text style={styles.summarySectionTitle}>Verified Selfie Proof</Text>
+            <View style={styles.summarySelfieRow}>
+              {/* Punch In Selfie */}
+              <View style={styles.summarySelfieCard}>
+                <SecureSelfie
+                  photoPath={attendanceState.punchInPhotoUri}
+                  style={styles.summarySelfieImg}
+                  placeholderIcon="camera"
+                  placeholderText="Punch In Selfie"
+                />
+                <View style={styles.summarySelfieBadge}>
+                  <Ionicons name="log-in-outline" size={12} color={colors.primary} />
+                  <Text style={styles.summarySelfieBadgeText}>Punch In</Text>
+                </View>
+                <Text style={styles.summarySelfieTime}>{attendanceState.punchInTime || 'Logged'}</Text>
+              </View>
+
+              {/* Punch Out Selfie */}
+              <View style={styles.summarySelfieCard}>
+                <SecureSelfie
+                  photoPath={attendanceState.punchOutPhotoUri}
+                  style={styles.summarySelfieImg}
+                  placeholderIcon="camera"
+                  placeholderText="Punch Out Selfie"
+                />
+                <View style={[styles.summarySelfieBadge, { backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEE2E2' }]}>
+                  <Ionicons name="log-out-outline" size={12} color="#EF4444" />
+                  <Text style={[styles.summarySelfieBadgeText, { color: '#EF4444' }]}>Punch Out</Text>
+                </View>
+                <Text style={styles.summarySelfieTime}>{attendanceState.punchOutTime || attendanceState.lastPunchOutTime || 'Logged'}</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* GPS Verification Audit Section */}
+          <View style={styles.summarySection}>
+            <Text style={styles.summarySectionTitle}>GPS & Geofence Verification</Text>
+            <View style={styles.summaryGpsBox}>
+              <View style={styles.summaryGpsRow}>
+                <Ionicons name="shield-checkmark" size={16} color="#10B981" />
+                <Text style={styles.summaryGpsText}>
+                  Punch In: {(attendanceState.mode || 'WFO') === 'WFO' ? 'Office Geofence Verified' : 'WFH Location Logged'}
+                  {attendanceState.punchInCoords ? ` (${attendanceState.punchInCoords.latitude.toFixed(4)}°, ${attendanceState.punchInCoords.longitude.toFixed(4)}°)` : ''}
+                </Text>
+              </View>
+              <View style={[styles.summaryGpsRow, { marginTop: 6 }]}>
+                <Ionicons name="shield-checkmark" size={16} color="#10B981" />
+                <Text style={styles.summaryGpsText}>
+                  Punch Out: {(attendanceState.mode || 'WFO') === 'WFO' ? 'Office Geofence Verified' : 'WFH Location Logged'}
+                  {attendanceState.punchOutCoords ? ` (${attendanceState.punchOutCoords.latitude.toFixed(4)}°, ${attendanceState.punchOutCoords.longitude.toFixed(4)}°)` : ''}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Locked notice */}
+          <View style={styles.lockedNoticeBox}>
+            <Ionicons name="lock-closed-outline" size={16} color={colors.textSecondary} />
+            <Text style={styles.lockedNoticeText}>
+              Attendance is locked for today. You will be able to punch in again on your next working day.
+            </Text>
+          </View>
+
+          {/* Navigate to History Button */}
+          {onNavigate && (
+            <TouchableOpacity
+              style={styles.viewHistoryBtn}
+              onPress={() => onNavigate('history')}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="time-outline" size={18} color="#ffffff" />
+              <Text style={styles.viewHistoryBtnText}>View in Attendance History</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </ScrollView>
+    );
+  }
+
   return (
     <ScrollView
       style={styles.container}
@@ -530,9 +767,7 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
         >
           {isPunchedIn
             ? `Shift in Progress • Punched In at ${attendanceState.punchInTime || 'Earlier'}`
-            : (attendanceState.isPunchedOut
-                ? `Shift Completed Today (${attendanceState.lastPunchOutTime || 'Logged'})`
-                : 'Not Punched In Today • Ready to Start Shift')}
+            : 'Not Punched In Today • Ready to Start Shift'}
         </Text>
       </View>
 
@@ -546,10 +781,26 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
         </Text>
       </View>
 
+      {/* State B: Live Working Duration Banner */}
+      {isPunchedIn && (
+        <View style={styles.liveDurationCard}>
+          <View style={styles.liveDurationPulse}>
+            <View style={styles.liveDurationPulseDot} />
+            <Text style={styles.liveDurationLabel}>SHIFT IN PROGRESS</Text>
+          </View>
+          <Text style={styles.liveDurationTime}>
+            {formatDuration(liveElapsedMinutes)}
+          </Text>
+          <Text style={styles.liveDurationSub}>
+            Punched in at {attendanceState.punchInTime || 'earlier'} • {selectedMode} Mode
+          </Text>
+        </View>
+      )}
+
       {/* Mode Selector (WFO vs WFH) */}
       <View style={styles.modeContainer}>
         <Text style={styles.sectionLabel}>
-          Work Mode: {isPunchedIn ? '(Active Shift)' : '(Select Mode)'}
+          Work Mode: {isPunchedIn ? '(Locked to active shift)' : '(Select Mode)'}
         </Text>
         <View style={styles.modeToggleRow}>
           <TouchableOpacity
@@ -615,9 +866,9 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
 
       {/* Front-Facing Camera Viewport (Strictly front camera only) */}
       <View style={styles.cameraBox}>
-        <View style={[styles.cameraFrame, isCameraReady && !capturedPhotoUri && { backgroundColor: 'transparent' }]}>
+        <View style={styles.cameraFrame}>
           {capturedPhotoUri ? (
-            <View style={StyleSheet.absoluteFillObject}>
+            <View style={styles.previewContainer}>
               <Image
                 source={{ uri: capturedPhotoUri }}
                 style={styles.capturedPhotoPreview}
@@ -653,15 +904,19 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
               </TouchableOpacity>
             </View>
           ) : (
-            <>
+            <View style={styles.cameraContainer}>
               {/* Web Native Video / Native Expo CameraView */}
               {Platform.OS === 'web' ? (
-                <View style={styles.liveCameraView}>
+                <View style={styles.webVideoContainer}>
                   <video
-                    ref={webVideoRef}
+                    ref={attachWebVideo}
                     autoPlay
                     playsInline
                     muted
+                    onLoadedMetadata={() => {
+                      setIsCameraReady(true);
+                      setCameraError(null);
+                    }}
                     style={{
                       width: '100%',
                       height: '100%',
@@ -673,7 +928,7 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
               ) : (
                 <CameraView
                   ref={cameraRef}
-                  style={styles.liveCameraView}
+                  style={styles.camera}
                   facing="front"
                   mode="picture"
                   onCameraReady={() => {
@@ -690,7 +945,7 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
 
               {/* Initializing indicator overlay (non-blocking, transparent pill so preview can appear) */}
               {!isCameraReady && !cameraError && (
-                <View style={styles.cameraLoadingOverlay}>
+                <View style={styles.cameraLoadingOverlay} pointerEvents="none">
                   <ActivityIndicator size="small" color="#ffffff" />
                   <Text style={styles.cameraLoadingText}>Starting front camera...</Text>
                 </View>
@@ -730,7 +985,7 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
               />
 
               {/* Live Front Camera Overlay Indicator */}
-              <View style={styles.cameraOverlayTop}>
+              <View style={styles.cameraOverlayTop} pointerEvents="box-none">
                 <View style={styles.liveIndicator}>
                   <View style={[styles.liveDot, { backgroundColor: isCameraLive ? '#10b981' : '#f59e0b' }]} />
                   <Text style={styles.liveText}>FRONT CAMERA</Text>
@@ -738,7 +993,7 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
               </View>
 
               {/* Shutter Capture Button - Tapping snaps photo into review state */}
-              <View style={styles.cameraOverlayBottom}>
+              <View style={styles.cameraOverlayBottom} pointerEvents="box-none">
                 <TouchableOpacity
                   style={[
                     styles.shutterBtn,
@@ -760,7 +1015,7 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
                     : (isCameraLive ? 'Tap circle to capture selfie' : 'Starting camera preview...')}
                 </Text>
               </View>
-            </>
+            </View>
           )}
         </View>
 
@@ -1051,20 +1306,34 @@ const getStyles = (colors, isDark, layout = {}) => StyleSheet.create({
     width: '100%',
     position: 'relative',
     borderRadius: 16,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: colors.border,
-    backgroundColor: colors.cameraBackdrop || '#0B1414',
-    overflow: Platform.OS === 'ios' ? 'hidden' : 'visible'
+    backgroundColor: '#000000',
+    overflow: 'hidden'
   },
-  liveCameraView: {
+  cameraContainer: {
+    flex: 1,
+    width: '100%',
+    position: 'relative'
+  },
+  camera: {
+    flex: 1,
+    width: '100%'
+  },
+  webVideoContainer: {
+    flex: 1,
+    width: '100%',
+    height: '100%'
+  },
+  previewContainer: {
+    flex: 1,
     width: '100%',
     height: '100%',
-    borderRadius: 16
+    position: 'relative'
   },
   capturedPhotoPreview: {
     width: '100%',
-    height: '100%',
-    borderRadius: 16
+    height: '100%'
   },
   reviewBadge: {
     position: 'absolute',
@@ -1443,5 +1712,240 @@ const getStyles = (colors, isDark, layout = {}) => StyleSheet.create({
     color: '#ffffff',
     fontSize: 13,
     fontWeight: '800'
+  },
+  // State C: Summary Card Styles
+  summaryCard: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: 20
+  },
+  summaryStatusHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border
+  },
+  attendanceStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1
+  },
+  attendanceStatusPillText: {
+    fontSize: 12,
+    fontWeight: '800'
+  },
+  summaryMetricsGrid: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.beige,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  summaryMetricCol: {
+    flex: 1,
+    alignItems: 'center'
+  },
+  summaryMetricDivider: {
+    width: 1,
+    height: 36,
+    backgroundColor: colors.border
+  },
+  summaryMetricLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.textSecondary,
+    letterSpacing: 0.5,
+    marginBottom: 4
+  },
+  summaryMetricValue: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.text
+  },
+  summaryMetricSub: {
+    fontSize: 10,
+    color: colors.textSecondary,
+    marginTop: 2
+  },
+  summarySection: {
+    marginBottom: 16
+  },
+  summarySectionTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 10
+  },
+  summarySelfieRow: {
+    flexDirection: 'row',
+    gap: 12
+  },
+  summarySelfieCard: {
+    flex: 1,
+    backgroundColor: colors.beige,
+    borderRadius: 14,
+    padding: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  summarySelfieImg: {
+    width: '100%',
+    height: 120,
+    borderRadius: 10,
+    backgroundColor: colors.lightOlive
+  },
+  summarySelfieBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: isDark ? 'rgba(13, 148, 136, 0.15)' : '#CCFBF1',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    marginTop: 8
+  },
+  summarySelfieBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.primary
+  },
+  summarySelfieTime: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.text,
+    marginTop: 4
+  },
+  summaryGpsBox: {
+    backgroundColor: colors.beige,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  summaryGpsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
+  },
+  summaryGpsText: {
+    fontSize: 11,
+    color: colors.text,
+    flex: 1
+  },
+  lockedNoticeBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: isDark ? 'rgba(100, 116, 139, 0.15)' : '#F1F5F9',
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  lockedNoticeText: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    flex: 1,
+    lineHeight: 16
+  },
+  viewHistoryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: colors.primary,
+    paddingVertical: 14,
+    borderRadius: 12,
+    shadowColor: colors.primary,
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3
+  },
+  viewHistoryBtnText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '800'
+  },
+  // State B: Live Working Duration Card
+  liveDurationCard: {
+    backgroundColor: colors.card,
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: 16,
+    alignItems: 'center'
+  },
+  liveDurationPulse: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4
+  },
+  liveDurationPulseDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#10B981'
+  },
+  liveDurationLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#10B981',
+    letterSpacing: 0.8
+  },
+  liveDurationTime: {
+    fontSize: 26,
+    fontWeight: '900',
+    color: colors.text,
+    letterSpacing: 0.5
+  },
+  liveDurationSub: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginTop: 2
+  },
+  modeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6
+  },
+  modeWfo: {
+    backgroundColor: isDark ? 'rgba(13, 148, 136, 0.15)' : '#E6F4F1'
+  },
+  modeWfh: {
+    backgroundColor: isDark ? 'rgba(20, 184, 166, 0.15)' : '#E0F2FE'
+  },
+  modeText: {
+    fontSize: 11,
+    fontWeight: '700'
+  },
+  modeTextWfo: {
+    color: colors.primary
+  },
+  modeTextWfh: {
+    color: '#0284C7'
   }
 });

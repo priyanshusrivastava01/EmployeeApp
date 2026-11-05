@@ -74,8 +74,9 @@ CREATE TABLE IF NOT EXISTS attendance_records (
     punch_out_verified BOOLEAN,
     punch_out_distance_meters NUMERIC(10, 2),
     
-    -- Duration metrics
+    -- Duration & classification metrics
     total_minutes INTEGER,
+    attendance_status VARCHAR(50) DEFAULT 'In Progress',
     
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),

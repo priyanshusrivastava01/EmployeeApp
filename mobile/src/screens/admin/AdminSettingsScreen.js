@@ -68,6 +68,9 @@ export default function AdminSettingsScreen({ onBack, onLogout, user, organizati
   const [lateThreshold, setLateThreshold] = useState('15');
   const [selectedDays, setSelectedDays] = useState(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']);
   const [timezone, setTimezone] = useState('Asia/Kolkata');
+  const [fullDayHours, setFullDayHours] = useState('8');
+  const [halfDayHours, setHalfDayHours] = useState('4');
+  const [minHoursAction, setMinHoursAction] = useState('Absent');
 
   // Time Picker Modal State
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -98,6 +101,9 @@ export default function AdminSettingsScreen({ onBack, onLogout, user, organizati
           }
         }
         if (s.timezone) setTimezone(s.timezone);
+        if (s.full_day_minutes) setFullDayHours(String(s.full_day_minutes / 60));
+        if (s.half_day_minutes) setHalfDayHours(String(s.half_day_minutes / 60));
+        if (s.min_hours_action) setMinHoursAction(s.min_hours_action);
       }
     } catch (e) {
       console.warn('[AdminSettings] Load error:', e);
@@ -214,6 +220,18 @@ export default function AdminSettingsScreen({ onBack, onLogout, user, organizati
       return;
     }
 
+    // 6. Attendance & Working Hours Threshold Validation
+    const fdNum = parseFloat(fullDayHours);
+    const hdNum = parseFloat(halfDayHours);
+    if (isNaN(fdNum) || fdNum <= 0 || fdNum > 24) {
+      Alert.alert('Validation Error', 'Full Day threshold must be a valid number of hours between 1 and 24.');
+      return;
+    }
+    if (isNaN(hdNum) || hdNum <= 0 || hdNum >= fdNum) {
+      Alert.alert('Validation Error', 'Half Day threshold must be greater than 0 and less than Full Day threshold.');
+      return;
+    }
+
     try {
       setIsSaving(true);
       const res = await api.updateOrgSettings({
@@ -224,11 +242,14 @@ export default function AdminSettingsScreen({ onBack, onLogout, user, organizati
         work_end_time: workEndTime,
         late_threshold_minutes: graceNum,
         working_days: selectedDays.join(','),
-        timezone
+        timezone,
+        full_day_hours: fdNum,
+        half_day_hours: hdNum,
+        min_hours_action: minHoursAction || 'Absent'
       });
 
       if (res.success) {
-        Alert.alert('Settings Saved', 'Organization profile and shift timings updated successfully.');
+        Alert.alert('Settings Saved', 'Organization profile, shift timings, and attendance policy updated successfully.');
       } else {
         Alert.alert('Error', res.error || 'Failed to save settings.');
       }
@@ -461,6 +482,41 @@ export default function AdminSettingsScreen({ onBack, onLogout, user, organizati
                 Active: {selectedDays.join(', ')} ({selectedDays.length} day{selectedDays.length > 1 ? 's' : ''} / week)
               </Text>
             )}
+          </View>
+
+          {/* ── ATTENDANCE & WORKING HOURS POLICY ── */}
+          <Text style={styles.sectionLabel}>ATTENDANCE & WORKING HOURS POLICY</Text>
+          <View style={styles.row}>
+            <View style={styles.col}>
+              <Text style={styles.fieldLabel}>Full Day Threshold (Hours)</Text>
+              <TextInput
+                style={styles.input}
+                value={fullDayHours}
+                onChangeText={(txt) => setFullDayHours(txt.replace(/[^0-9.]/g, ''))}
+                placeholder="8"
+                placeholderTextColor={colors.textSecondary}
+                keyboardType="numeric"
+                editable={canEdit}
+              />
+            </View>
+            <View style={styles.col}>
+              <Text style={styles.fieldLabel}>Half Day Threshold (Hours)</Text>
+              <TextInput
+                style={styles.input}
+                value={halfDayHours}
+                onChangeText={(txt) => setHalfDayHours(txt.replace(/[^0-9.]/g, ''))}
+                placeholder="4"
+                placeholderTextColor={colors.textSecondary}
+                keyboardType="numeric"
+                editable={canEdit}
+              />
+            </View>
+          </View>
+          <View style={styles.policyNoticeBox}>
+            <Ionicons name="information-circle-outline" size={16} color={colors.primary} style={{ marginRight: 6 }} />
+            <Text style={styles.policyNoticeText}>
+              Shifts with working duration less than {halfDayHours || '4'} hours will automatically be classified as Absent.
+            </Text>
           </View>
 
           {/* Appearance & Theme System */}
@@ -1191,5 +1247,22 @@ const getStyles = (colors, isDark) =>
       fontSize: 13,
       fontWeight: '700',
       color: '#ffffff'
+    },
+    policyNoticeBox: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: isDark ? 'rgba(13, 148, 136, 0.12)' : '#F0FDFA',
+      padding: 12,
+      borderRadius: 10,
+      marginTop: 8,
+      marginBottom: 16,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(13, 148, 136, 0.3)' : '#CCFBF1'
+    },
+    policyNoticeText: {
+      fontSize: 11,
+      color: isDark ? '#5EEAD4' : '#0F766E',
+      flex: 1,
+      lineHeight: 16
     }
   });

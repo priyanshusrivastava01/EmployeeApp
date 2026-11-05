@@ -14,80 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeContext';
 import api from '../../services/api';
-
-// Cached signed URLs for employee selfie verification
-const signedUrlCache = new Map();
-
-function SecureSelfie({ photoPath, style, placeholderIcon = 'camera', placeholderText = 'Selfie' }) {
-  const { colors } = useTheme();
-  const [resolvedUrl, setResolvedUrl] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState(false);
-
-  useEffect(() => {
-    let isMounted = true;
-    if (!photoPath || typeof photoPath !== 'string') {
-      setResolvedUrl(null);
-      setLoading(false);
-      return;
-    }
-
-    if (photoPath.startsWith('http://') || photoPath.startsWith('https://') || photoPath.startsWith('data:image/')) {
-      setResolvedUrl(photoPath);
-      setLoading(false);
-      return;
-    }
-
-    const cached = signedUrlCache.get(photoPath);
-    if (cached && cached.expiresAt > Date.now()) {
-      setResolvedUrl(cached.url);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    setLoadError(false);
-
-    api.getStorageSignedUrl({ bucket: 'attendance-selfies', filePath: photoPath, expiresIn: 3600 })
-      .then(res => {
-        if (!isMounted) return;
-        const signedUrl = res?.data?.signedUrl || res?.signedUrl;
-        if (signedUrl) {
-          signedUrlCache.set(photoPath, { url: signedUrl, expiresAt: Date.now() + 50 * 60 * 1000 });
-          setResolvedUrl(signedUrl);
-        } else {
-          setLoadError(true);
-        }
-      })
-      .catch(() => {
-        if (isMounted) setLoadError(true);
-      })
-      .finally(() => {
-        if (isMounted) setLoading(false);
-      });
-
-    return () => { isMounted = false; };
-  }, [photoPath]);
-
-  if (loading) {
-    return (
-      <View style={[style, { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceAlt || '#f1f5f9' }]}>
-        <ActivityIndicator size="small" color={colors.primary} />
-      </View>
-    );
-  }
-
-  if (resolvedUrl && !loadError) {
-    return <Image source={{ uri: resolvedUrl }} style={style} onError={() => setLoadError(true)} resizeMode="cover" />;
-  }
-
-  return (
-    <View style={[style, { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceAlt || '#f1f5f9' }]}>
-      <Ionicons name={placeholderIcon} size={20} color={colors.textSecondary} />
-      {placeholderText ? <Text style={{ fontSize: 10, color: colors.textSecondary, marginTop: 4 }}>{placeholderText}</Text> : null}
-    </View>
-  );
-}
+import SecureSelfie from '../../components/SecureSelfie';
 
 export default function AdminAttendanceScreen({ onBack }) {
   const { colors, isDark } = useTheme();
@@ -299,8 +226,8 @@ export default function AdminAttendanceScreen({ onBack }) {
                     <Text style={[styles.punchBoxTime, { color: '#15803d' }]}>
                       {item.total_minutes ? `${Math.floor(item.total_minutes / 60)}h ${item.total_minutes % 60}m` : (item.punch_in_time ? 'Active' : '-')}
                     </Text>
-                    <Text style={styles.punchBoxSub}>
-                      {item.total_minutes >= 480 ? 'Full Shift' : 'Recorded'}
+                    <Text style={[styles.punchBoxSub, { fontWeight: '700' }]}>
+                      {item.attendance_status || (item.total_minutes >= 480 ? 'Full Day' : (item.total_minutes >= 240 ? 'Half Day' : (item.punch_out_time ? 'Absent' : 'In Progress')))}
                     </Text>
                   </View>
                 </View>
@@ -353,15 +280,24 @@ export default function AdminAttendanceScreen({ onBack }) {
               <ScrollView style={{ maxHeight: 460 }} showsVerticalScrollIndicator={false}>
                 {/* Mode & Verification Banner */}
                 <View style={styles.modalMetaRow}>
-                  <View style={[styles.modePill, selectedRecord.mode === 'WFH' ? styles.modePillWfh : styles.modePillWfo]}>
-                    <Ionicons
-                      name={selectedRecord.mode === 'WFH' ? 'home' : 'business'}
-                      size={12}
-                      color={selectedRecord.mode === 'WFH' ? '#b45309' : '#15803d'}
-                    />
-                    <Text style={[styles.modePillText, { color: selectedRecord.mode === 'WFH' ? '#b45309' : '#15803d' }]}>
-                      {selectedRecord.mode === 'WFH' ? 'Work From Home' : 'Work From Office'}
-                    </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={[styles.modePill, selectedRecord.mode === 'WFH' ? styles.modePillWfh : styles.modePillWfo]}>
+                      <Ionicons
+                        name={selectedRecord.mode === 'WFH' ? 'home' : 'business'}
+                        size={12}
+                        color={selectedRecord.mode === 'WFH' ? '#b45309' : '#15803d'}
+                      />
+                      <Text style={[styles.modePillText, { color: selectedRecord.mode === 'WFH' ? '#b45309' : '#15803d' }]}>
+                        {selectedRecord.mode === 'WFH' ? 'Work From Home' : 'Work From Office'}
+                      </Text>
+                    </View>
+                    {Boolean(selectedRecord.attendance_status) && (
+                      <View style={[styles.modePill, { backgroundColor: isDark ? '#143320' : '#ECFDF5' }]}>
+                        <Text style={[styles.modePillText, { color: '#15803d', fontWeight: '800' }]}>
+                          {selectedRecord.attendance_status}
+                        </Text>
+                      </View>
+                    )}
                   </View>
                   <Text style={styles.modalDurationText}>
                     Duration: {selectedRecord.total_minutes ? `${Math.floor(selectedRecord.total_minutes / 60)}h ${selectedRecord.total_minutes % 60}m` : (selectedRecord.punch_in_time ? 'Active' : '—')}

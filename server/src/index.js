@@ -82,6 +82,9 @@ const memDb = {
       work_start_time: '09:30',
       work_end_time: '18:30',
       late_threshold_minutes: 15,
+      full_day_minutes: 480,
+      half_day_minutes: 240,
+      min_hours_action: 'Absent',
       office_lat: 12.9716,
       office_lng: 77.5946,
       office_radius_meters: 150,
@@ -107,6 +110,9 @@ const memDb = {
       work_start_time: '10:00',
       work_end_time: '19:00',
       late_threshold_minutes: 20,
+      full_day_minutes: 480,
+      half_day_minutes: 240,
+      min_hours_action: 'Absent',
       office_lat: 28.4595,
       office_lng: 77.0266,
       office_radius_meters: 200,
@@ -2114,9 +2120,37 @@ app.patch('/api/org/settings', requireAuth, requireRole(['admin']), async (req, 
       req.body.late_threshold_minutes = grace;
     }
 
+    // Normalization & Validation: full_day_minutes & half_day_minutes
+    if (req.body.full_day_hours !== undefined && req.body.full_day_minutes === undefined) {
+      const fdh = parseFloat(req.body.full_day_hours);
+      if (!isNaN(fdh) && fdh > 0) req.body.full_day_minutes = Math.round(fdh * 60);
+    }
+    if (req.body.half_day_hours !== undefined && req.body.half_day_minutes === undefined) {
+      const hdh = parseFloat(req.body.half_day_hours);
+      if (!isNaN(hdh) && hdh > 0) req.body.half_day_minutes = Math.round(hdh * 60);
+    }
+    if (req.body.full_day_minutes !== undefined) {
+      const fdm = parseInt(req.body.full_day_minutes, 10);
+      if (isNaN(fdm) || fdm <= 0 || fdm > 1440) {
+        return res.status(400).json({ success: false, error: 'Full Day duration must be between 1 and 1440 minutes.' });
+      }
+      req.body.full_day_minutes = fdm;
+    }
+    if (req.body.half_day_minutes !== undefined) {
+      const hdm = parseInt(req.body.half_day_minutes, 10);
+      if (isNaN(hdm) || hdm <= 0 || hdm > 1440) {
+        return res.status(400).json({ success: false, error: 'Half Day duration must be between 1 and 1440 minutes.' });
+      }
+      req.body.half_day_minutes = hdm;
+    }
+    if (req.body.min_hours_action !== undefined) {
+      req.body.min_hours_action = String(req.body.min_hours_action).trim() === 'Short Hours' ? 'Short Hours' : 'Absent';
+    }
+
     const allowed = ['name', 'logo_url', 'contact_email', 'contact_phone', 'address',
       'timezone', 'working_days', 'work_start_time', 'work_end_time',
-      'late_threshold_minutes', 'office_lat', 'office_lng', 'office_radius_meters', 'wfh_allowed'];
+      'late_threshold_minutes', 'office_lat', 'office_lng', 'office_radius_meters', 'wfh_allowed',
+      'full_day_minutes', 'half_day_minutes', 'min_hours_action'];
     const updates = {};
     allowed.forEach(field => {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
@@ -2593,15 +2627,285 @@ app.get('/api/attendance', requireAuth, handleGetAttendance);
 app.get('/api/attendance/history', requireAuth, handleGetAttendance);
 
 /**
+ * GET /api/attendance/today
+ * Returns today's attendance record for the current user.
+ */
+app.get('/api/attendance/today', requireAuth, async (req, res) => {
+  try {
+    const isDbMode = Boolean(supabase && isUuid(req.user.id) && isUuid(req.user.organizationId));
+
+    let orgTimezone = 'Asia/Kolkata';
+    let fullDayMin = 480;
+    let halfDayMin = 240;
+    let org = null;
+    if (isDbMode) {
+      const { data: dbOrg } = await supabase
+        .from('organizations')
+        .select('timezone, full_day_minutes, half_day_minutes')
+        .eq('id', req.user.organizationId)
+        .maybeSingle();
+      if (dbOrg) {
+        org = dbOrg;
+        if (dbOrg.timezone) orgTimezone = dbOrg.timezone;
+        if (dbOrg.full_day_minutes) fullDayMin = Number(dbOrg.full_day_minutes);
+        if (dbOrg.half_day_minutes) halfDayMin = Number(dbOrg.half_day_minutes);
+      }
+    } else {
+      org = mem.findOrgById(req.user.organizationId);
+      if (org?.timezone) orgTimezone = org.timezone;
+      if (org?.full_day_minutes) fullDayMin = Number(org.full_day_minutes);
+      if (org?.half_day_minutes) halfDayMin = Number(org.half_day_minutes);
+    }
+
+    const todayDateStr = getOrgWorkDate(orgTimezone);
+
+    let record = null;
+    if (isDbMode) {
+      // 1. Look for active open shift (punch_out_time IS NULL)
+      const { data: openShift } = await supabase.from('attendance_records')
+        .select('*')
+        .eq('user_id', req.user.id)
+        .eq('organization_id', req.user.organizationId)
+        .is('punch_out_time', null)
+        .order('punch_in_time', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (openShift) {
+        record = openShift;
+      } else {
+        // 2. Look for today's completed shift
+        const { data: todayShift, error: shiftErr } = await supabase.from('attendance_records')
+          .select('*')
+          .eq('user_id', req.user.id)
+          .eq('organization_id', req.user.organizationId)
+          .eq('work_date', todayDateStr)
+          .order('punch_in_time', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (shiftErr) {
+          console.error('[Attendance Today] Supabase error:', shiftErr.message);
+          return res.status(500).json({ success: false, error: 'Failed to fetch today\'s attendance: ' + shiftErr.message });
+        }
+        record = todayShift || null;
+      }
+    } else {
+      // Memory mode
+      const openShift = memDb.attendance.find(
+        a => a.user_id === req.user.id && a.organization_id === req.user.organizationId && !a.punch_out_time
+      );
+      if (openShift) {
+        record = openShift;
+      } else {
+        record = memDb.attendance.find(
+          a => a.user_id === req.user.id && a.organization_id === req.user.organizationId && a.work_date === todayDateStr
+        ) || null;
+      }
+    }
+
+    const isPunchedIn = Boolean(record && record.punch_in_time && !record.punch_out_time);
+    const isPunchedOut = Boolean(record && record.punch_out_time);
+
+    let liveDurationMinutes = null;
+    if (isPunchedIn && record.punch_in_time) {
+      liveDurationMinutes = Math.max(0, Math.floor((Date.now() - new Date(record.punch_in_time).getTime()) / 60000));
+    } else if (record?.total_minutes != null) {
+      liveDurationMinutes = record.total_minutes;
+    }
+
+    const attendanceStatus = isPunchedIn
+      ? 'Shift In Progress'
+      : (isPunchedOut ? (record.attendance_status || (record.total_minutes >= fullDayMin ? 'Full Day' : (record.total_minutes >= halfDayMin ? 'Half Day' : 'Absent'))) : 'Not Punched In');
+
+    const enriched = record ? {
+      ...record,
+      liveDurationMinutes,
+      attendance_status: attendanceStatus,
+      punchInTime: record.punch_in_time,
+      punchOutTime: record.punch_out_time
+    } : null;
+
+    return res.json({
+      success: true,
+      data: enriched,
+      record: enriched,
+      isPunchedIn,
+      isPunchedOut,
+      attendanceStatus,
+      todayDate: todayDateStr,
+      source: isDbMode ? 'supabase' : 'memory'
+    });
+  } catch (err) {
+    console.error('[Attendance Today]', err.message);
+    res.status(500).json({ success: false, error: 'Failed to fetch today\'s attendance: ' + err.message });
+  }
+});
+
+/**
+ * GET /api/attendance/stats
+ * Returns org-wide attendance stats (Admin/TL only).
+ */
+app.get('/api/attendance/stats', requireAuth, requireRole(['founder', 'admin', 'team_leader']), async (req, res) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const isDbMode = Boolean(supabase && isUuid(req.user.organizationId));
+
+    if (isDbMode) {
+      // 1. Fetch organization settings for work start time and late threshold
+      const { data: orgData } = await supabase
+        .from('organizations')
+        .select('work_start_time, late_threshold_minutes')
+        .eq('id', req.user.organizationId)
+        .maybeSingle();
+
+      const lateMinutes = orgData?.late_threshold_minutes || 15;
+      const workStartParts = (orgData?.work_start_time || '09:30').split(':');
+      const workStartH = parseInt(workStartParts[0], 10) || 9;
+      const workStartM = parseInt(workStartParts[1], 10) || 30;
+      const workStartTotalMin = workStartH * 60 + workStartM + lateMinutes;
+
+      // 2. Fetch users for org
+      let usersQuery = supabase
+        .from('users')
+        .select('id, role, is_active, team_leader_id')
+        .eq('organization_id', req.user.organizationId);
+
+      if (req.user.role === 'team_leader') {
+        usersQuery = usersQuery.or(`team_leader_id.eq.${req.user.id},id.eq.${req.user.id}`);
+      }
+
+      const { data: orgUsers, error: usersErr } = await usersQuery;
+      if (usersErr) {
+        return res.status(500).json({ success: false, error: 'Failed to fetch organization users: ' + usersErr.message });
+      }
+
+      const activeUsers = (orgUsers || []).filter(u => u.is_active && u.role !== 'admin' && u.role !== 'founder');
+
+      // 3. Fetch today's attendance records
+      let attQuery = supabase
+        .from('attendance_records')
+        .select('id, user_id, mode, punch_in_time')
+        .eq('organization_id', req.user.organizationId)
+        .eq('work_date', today);
+
+      if (req.user.role === 'team_leader') {
+        const teamIds = (orgUsers || []).map(u => u.id);
+        attQuery = attQuery.in('user_id', teamIds.length > 0 ? teamIds : [req.user.id]);
+      }
+
+      const { data: todayRecords, error: attErr } = await attQuery;
+      if (attErr) {
+        return res.status(500).json({ success: false, error: 'Failed to fetch attendance records: ' + attErr.message });
+      }
+
+      const records = todayRecords || [];
+      const presentToday = records.length;
+      const wfoCount = records.filter(a => a.mode === 'WFO').length;
+      const wfhCount = records.filter(a => a.mode === 'WFH').length;
+      const lateArrivals = records.filter(a => {
+        if (!a.punch_in_time) return false;
+        const punchTime = new Date(a.punch_in_time);
+        const punchTotalMin = punchTime.getHours() * 60 + punchTime.getMinutes();
+        return punchTotalMin > workStartTotalMin;
+      }).length;
+
+      // 4. Pending leaves from database
+      const { count: pendingLeavesCount } = await supabase
+        .from('leaves')
+        .select('*', { count: 'exact', head: true })
+        .eq('organization_id', req.user.organizationId)
+        .eq('status', 'pending');
+
+      const statsData = {
+        totalEmployees: activeUsers.length,
+        activeEmployees: activeUsers.length,
+        presentToday,
+        absentToday: Math.max(0, activeUsers.length - presentToday),
+        lateArrivals,
+        wfoCount,
+        wfhCount,
+        pendingLeaves: pendingLeavesCount || 0,
+        pendingReports: 0,
+        source: 'supabase'
+      };
+
+      return res.json({
+        success: true,
+        data: statsData,
+        ...statsData
+      });
+    }
+
+    // In-memory fallback ONLY when !supabase:
+    let orgUsers = mem.getUsersForOrg(req.user.organizationId);
+    let todayRecords = memDb.attendance.filter(
+      a => a.organization_id === req.user.organizationId && a.work_date === today
+    );
+
+    // If Team Leader, scope calculations to assigned team
+    if (req.user.role === 'team_leader') {
+      const teamIds = new Set(
+        orgUsers.filter(u => u.team_leader_id === req.user.id || u.id === req.user.id).map(u => u.id)
+      );
+      orgUsers = orgUsers.filter(u => teamIds.has(u.id));
+      todayRecords = todayRecords.filter(a => teamIds.has(a.user_id));
+    }
+
+    const org = mem.findOrgById(req.user.organizationId);
+    const lateMinutes = org?.late_threshold_minutes || 15;
+    const workStartParts = (org?.work_start_time || '09:30').split(':');
+    const workStartH = parseInt(workStartParts[0]);
+    const workStartM = parseInt(workStartParts[1]);
+
+    const presentToday = todayRecords.length;
+    const wfoCount = todayRecords.filter(a => a.mode === 'WFO').length;
+    const wfhCount = todayRecords.filter(a => a.mode === 'WFH').length;
+    const lateArrivals = todayRecords.filter(a => {
+      const punchTime = new Date(a.punch_in_time);
+      const punchH = punchTime.getHours();
+      const punchM = punchTime.getMinutes();
+      const punchTotalMin = punchH * 60 + punchM;
+      const workStartTotalMin = workStartH * 60 + workStartM + lateMinutes;
+      return punchTotalMin > workStartTotalMin;
+    }).length;
+
+    const totalActive = orgUsers.filter(u => u.is_active && u.role !== 'admin' && u.role !== 'founder').length;
+
+    const statsData = {
+      totalEmployees: orgUsers.filter(u => u.role !== 'admin' && u.role !== 'founder').length,
+      activeEmployees: totalActive,
+      presentToday,
+      absentToday: Math.max(0, totalActive - presentToday),
+      lateArrivals,
+      wfoCount,
+      wfhCount,
+      pendingLeaves: mem.getLeavesForOrg(req.user.organizationId, null).filter(l => l.status === 'pending').length,
+      pendingReports: 0,
+      source: 'memory'
+    };
+
+    res.json({
+      success: true,
+      data: statsData,
+      ...statsData
+    });
+  } catch (err) {
+    console.error('[Attendance Stats]', err.message);
+    res.status(500).json({ success: false, error: 'Failed to fetch attendance stats.' });
+  }
+});
+
+/**
  * GET /api/attendance/:attendanceId
  * Retrieve specific attendance record with signed photo URLs
  */
-app.get('/api/attendance/:attendanceId', requireAuth, async (req, res) => {
+app.get('/api/attendance/:attendanceId', requireAuth, async (req, res, next) => {
   try {
     const { attendanceId } = req.params;
     // Skip if route parameter is one of the static sub-routes
     if (['today', 'stats', 'history', 'punch-in', 'punch-out'].includes(attendanceId)) {
-      return res.status(404).json({ success: false, error: 'Not found' });
+      return next();
     }
 
     const isDbMode = Boolean(supabase && isUuid(attendanceId) && isUuid(req.user.organizationId));
@@ -2806,12 +3110,49 @@ app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Invalid mode. Must be either "WFO" or "WFH".' });
     }
 
-    const today = new Date().toISOString().slice(0, 10);
     const isDbMode = Boolean(supabase && isUuid(req.user.id) && isUuid(req.user.organizationId));
 
-    // Check for duplicate punch-in today
+    // Fetch organization settings for timezone, geofence, and WFH rules
+    let org = null;
     if (isDbMode) {
-      const { data: existingRecord, error: checkErr } = await supabase
+      const { data: dbOrg, error: orgErr } = await supabase
+        .from('organizations')
+        .select('office_lat, office_lng, office_radius_meters, wfh_allowed, timezone, full_day_minutes, half_day_minutes')
+        .eq('id', req.user.organizationId)
+        .maybeSingle();
+
+      if (orgErr) {
+        console.error('[Punch In] Failed to retrieve organization settings:', orgErr.message);
+        return res.status(500).json({ success: false, error: 'Failed to retrieve organization settings.' });
+      }
+      org = dbOrg;
+    } else {
+      org = mem.findOrgById(req.user.organizationId);
+    }
+
+    const orgTz = org?.timezone || 'Asia/Kolkata';
+    const today = getOrgWorkDate(orgTz);
+
+    // Check for duplicate punch-in (both active open session and same-day completed shift)
+    if (isDbMode) {
+      // 1. Open shift check (cannot punch in if shift is active)
+      const { data: activeOpenShift } = await supabase
+        .from('attendance_records')
+        .select('id, punch_in_time, mode')
+        .eq('user_id', req.user.id)
+        .eq('organization_id', req.user.organizationId)
+        .is('punch_out_time', null)
+        .maybeSingle();
+
+      if (activeOpenShift) {
+        return res.status(409).json({
+          success: false,
+          error: 'You already have an active shift in progress. Use punch-out to end your current session.'
+        });
+      }
+
+      // 2. Same-day shift check (cannot create second shift on same date unless permitted)
+      const { data: existingToday, error: checkErr } = await supabase
         .from('attendance_records')
         .select('id, punch_in_time, punch_out_time, mode')
         .eq('user_id', req.user.id)
@@ -2824,13 +3165,23 @@ app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
         return res.status(500).json({ success: false, error: 'Failed to verify attendance status: ' + checkErr.message });
       }
 
-      if (existingRecord) {
+      if (existingToday) {
         return res.status(409).json({
           success: false,
           error: 'You have already punched in today. Use punch-out to end your current session.'
         });
       }
     } else {
+      const activeOpenShift = memDb.attendance.find(
+        a => a.user_id === req.user.id && a.organization_id === req.user.organizationId && !a.punch_out_time
+      );
+      if (activeOpenShift) {
+        return res.status(409).json({
+          success: false,
+          error: 'You already have an active shift in progress. Use punch-out to end your current session.'
+        });
+      }
+
       const existingToday = memDb.attendance.find(
         a => a.user_id === req.user.id && a.work_date === today && a.organization_id === req.user.organizationId
       );
@@ -2840,24 +3191,6 @@ app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
           error: 'You have already punched in today. Use punch-out to end your current session.'
         });
       }
-    }
-
-    // Fetch organization settings for geofence and WFH rules
-    let org = null;
-    if (isDbMode) {
-      const { data: dbOrg, error: orgErr } = await supabase
-        .from('organizations')
-        .select('office_lat, office_lng, office_radius_meters, wfh_allowed')
-        .eq('id', req.user.organizationId)
-        .maybeSingle();
-
-      if (orgErr) {
-        console.error('[Punch In] Failed to retrieve organization settings:', orgErr.message);
-        return res.status(500).json({ success: false, error: 'Failed to retrieve organization settings.' });
-      }
-      org = dbOrg;
-    } else {
-      org = mem.findOrgById(req.user.organizationId);
     }
 
     let distanceMeters = null;
@@ -2900,6 +3233,7 @@ app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
       punch_out_lat: null,
       punch_out_lng: null,
       total_minutes: null,
+      attendance_status: 'In Progress',
       created_at: punchInIso,
       updated_at: punchInIso
     };
@@ -2972,18 +3306,19 @@ app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
     }
     const validatedPhotoPath = selfieValidation.cleanPath;
 
-    const today = new Date().toISOString().slice(0, 10);
     const isDbMode = Boolean(supabase && isUuid(req.user.id) && isUuid(req.user.organizationId));
     let session = null;
 
     if (isDbMode) {
+      // Find open active shift for the authenticated employee
       const { data: activeRecord, error: findErr } = await supabase
         .from('attendance_records')
         .select('*')
         .eq('user_id', req.user.id)
         .eq('organization_id', req.user.organizationId)
-        .eq('work_date', today)
         .is('punch_out_time', null)
+        .order('punch_in_time', { ascending: false })
+        .limit(1)
         .maybeSingle();
 
       if (findErr) {
@@ -3001,7 +3336,6 @@ app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
     } else {
       let sessionIdx = memDb.attendance.findIndex(
         a => a.user_id === req.user.id &&
-             a.work_date === today &&
              a.organization_id === req.user.organizationId &&
              !a.punch_out_time
       );
@@ -3014,22 +3348,35 @@ app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
       session = memDb.attendance[sessionIdx];
     }
 
-    // Calculate elapsed duration in minutes
+    // Calculate elapsed duration in minutes using actual server timestamps
     const punchInTime = new Date(session.punch_in_time);
     const punchOutTime = new Date();
     const totalMinutes = Math.max(0, Math.floor((punchOutTime.getTime() - punchInTime.getTime()) / 60000));
 
-    // Fetch org geofence settings
+    // Fetch org geofence & working hour policy settings
     let org = null;
     if (isDbMode) {
       const { data: dbOrg } = await supabase
         .from('organizations')
-        .select('office_lat, office_lng, office_radius_meters')
+        .select('office_lat, office_lng, office_radius_meters, full_day_minutes, half_day_minutes, min_hours_action')
         .eq('id', req.user.organizationId)
         .maybeSingle();
       org = dbOrg;
     } else {
       org = mem.findOrgById(req.user.organizationId);
+    }
+
+    const fullDayThreshold = Number(org?.full_day_minutes) || 480;
+    const halfDayThreshold = Number(org?.half_day_minutes) || 240;
+    const minHoursAction = org?.min_hours_action || 'Absent';
+
+    let attendanceStatus = 'Full Day';
+    if (totalMinutes >= fullDayThreshold) {
+      attendanceStatus = 'Full Day';
+    } else if (totalMinutes >= halfDayThreshold) {
+      attendanceStatus = 'Half Day';
+    } else {
+      attendanceStatus = minHoursAction;
     }
 
     let distanceMeters = null;
@@ -3053,6 +3400,7 @@ app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
       punch_out_verified: isVerified,
       punch_out_distance_meters: distanceMeters,
       total_minutes: totalMinutes,
+      attendance_status: attendanceStatus,
       updated_at: punchOutIso
     };
 
@@ -3094,214 +3442,6 @@ app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('[Punch Out]', err.message);
     res.status(500).json({ success: false, error: 'Punch out failed: ' + err.message });
-  }
-});
-
-/**
- * GET /api/attendance/today
- * Returns today's attendance record for the current user.
- */
-app.get('/api/attendance/today', requireAuth, async (req, res) => {
-  try {
-    const today = new Date().toISOString().slice(0, 10);
-    const isDbMode = Boolean(supabase && isUuid(req.user.id) && isUuid(req.user.organizationId));
-
-    if (isDbMode) {
-      const { data, error } = await supabase.from('attendance_records')
-        .select('*')
-        .eq('user_id', req.user.id)
-        .eq('organization_id', req.user.organizationId)
-        .eq('work_date', today)
-        .maybeSingle();
-
-      if (error) {
-        console.error('[Attendance Today] Supabase error:', error.message);
-        return res.status(500).json({ success: false, error: 'Failed to fetch today\'s attendance: ' + error.message });
-      }
-
-      const isPunchedIn = Boolean(data && data.punch_in_time && !data.punch_out_time);
-      const isPunchedOut = Boolean(data && data.punch_out_time);
-      return res.json({
-        success: true,
-        data,
-        record: data,
-        isPunchedIn,
-        isPunchedOut,
-        source: 'supabase'
-      });
-    }
-
-    // In-memory fallback ONLY when !supabase
-    const record = memDb.attendance.find(
-      a => a.user_id === req.user.id && a.work_date === today && a.organization_id === req.user.organizationId
-    ) || null;
-    const isPunchedIn = Boolean(record && record.punch_in_time && !record.punch_out_time);
-    const isPunchedOut = Boolean(record && record.punch_out_time);
-    return res.json({
-      success: true,
-      data: record,
-      record,
-      isPunchedIn,
-      isPunchedOut,
-      source: 'memory'
-    });
-  } catch (err) {
-    console.error('[Attendance Today]', err.message);
-    res.status(500).json({ success: false, error: 'Failed to fetch today\'s attendance: ' + err.message });
-  }
-});
-
-/**
- * GET /api/attendance/stats
- * Returns org-wide attendance stats (Admin/TL only).
- */
-app.get('/api/attendance/stats', requireAuth, requireRole(['founder', 'admin', 'team_leader']), async (req, res) => {
-  try {
-    const today = new Date().toISOString().slice(0, 10);
-    const isDbMode = Boolean(supabase && isUuid(req.user.organizationId));
-
-    if (isDbMode) {
-      // 1. Fetch organization settings for work start time and late threshold
-      const { data: orgData } = await supabase
-        .from('organizations')
-        .select('work_start_time, late_threshold_minutes')
-        .eq('id', req.user.organizationId)
-        .maybeSingle();
-
-      const lateMinutes = orgData?.late_threshold_minutes || 15;
-      const workStartParts = (orgData?.work_start_time || '09:30').split(':');
-      const workStartH = parseInt(workStartParts[0], 10) || 9;
-      const workStartM = parseInt(workStartParts[1], 10) || 30;
-      const workStartTotalMin = workStartH * 60 + workStartM + lateMinutes;
-
-      // 2. Fetch users for org
-      let usersQuery = supabase
-        .from('users')
-        .select('id, role, is_active, team_leader_id')
-        .eq('organization_id', req.user.organizationId);
-
-      if (req.user.role === 'team_leader') {
-        usersQuery = usersQuery.or(`team_leader_id.eq.${req.user.id},id.eq.${req.user.id}`);
-      }
-
-      const { data: orgUsers, error: usersErr } = await usersQuery;
-      if (usersErr) {
-        return res.status(500).json({ success: false, error: 'Failed to fetch organization users: ' + usersErr.message });
-      }
-
-      const activeUsers = (orgUsers || []).filter(u => u.is_active && u.role !== 'admin' && u.role !== 'founder');
-
-      // 3. Fetch today's attendance records
-      let attQuery = supabase
-        .from('attendance_records')
-        .select('id, user_id, mode, punch_in_time')
-        .eq('organization_id', req.user.organizationId)
-        .eq('work_date', today);
-
-      if (req.user.role === 'team_leader') {
-        const teamIds = (orgUsers || []).map(u => u.id);
-        attQuery = attQuery.in('user_id', teamIds.length > 0 ? teamIds : [req.user.id]);
-      }
-
-      const { data: todayRecords, error: attErr } = await attQuery;
-      if (attErr) {
-        return res.status(500).json({ success: false, error: 'Failed to fetch attendance records: ' + attErr.message });
-      }
-
-      const records = todayRecords || [];
-      const presentToday = records.length;
-      const wfoCount = records.filter(a => a.mode === 'WFO').length;
-      const wfhCount = records.filter(a => a.mode === 'WFH').length;
-      const lateArrivals = records.filter(a => {
-        if (!a.punch_in_time) return false;
-        const punchTime = new Date(a.punch_in_time);
-        const punchTotalMin = punchTime.getHours() * 60 + punchTime.getMinutes();
-        return punchTotalMin > workStartTotalMin;
-      }).length;
-
-      // 4. Pending leaves from database
-      const { count: pendingLeavesCount } = await supabase
-        .from('leaves')
-        .select('*', { count: 'exact', head: true })
-        .eq('organization_id', req.user.organizationId)
-        .eq('status', 'pending');
-
-      const statsData = {
-        totalEmployees: activeUsers.length,
-        activeEmployees: activeUsers.length,
-        presentToday,
-        absentToday: Math.max(0, activeUsers.length - presentToday),
-        lateArrivals,
-        wfoCount,
-        wfhCount,
-        pendingLeaves: pendingLeavesCount || 0,
-        pendingReports: 0,
-        source: 'supabase'
-      };
-
-      return res.json({
-        success: true,
-        data: statsData,
-        ...statsData
-      });
-    }
-
-    // In-memory fallback ONLY when !supabase:
-    let orgUsers = mem.getUsersForOrg(req.user.organizationId);
-    let todayRecords = memDb.attendance.filter(
-      a => a.organization_id === req.user.organizationId && a.work_date === today
-    );
-
-    // If Team Leader, scope calculations to assigned team
-    if (req.user.role === 'team_leader') {
-      const teamIds = new Set(
-        orgUsers.filter(u => u.team_leader_id === req.user.id || u.id === req.user.id).map(u => u.id)
-      );
-      orgUsers = orgUsers.filter(u => teamIds.has(u.id));
-      todayRecords = todayRecords.filter(a => teamIds.has(a.user_id));
-    }
-
-    const org = mem.findOrgById(req.user.organizationId);
-    const lateMinutes = org?.late_threshold_minutes || 15;
-    const workStartParts = (org?.work_start_time || '09:30').split(':');
-    const workStartH = parseInt(workStartParts[0]);
-    const workStartM = parseInt(workStartParts[1]);
-
-    const presentToday = todayRecords.length;
-    const wfoCount = todayRecords.filter(a => a.mode === 'WFO').length;
-    const wfhCount = todayRecords.filter(a => a.mode === 'WFH').length;
-    const lateArrivals = todayRecords.filter(a => {
-      const punchTime = new Date(a.punch_in_time);
-      const punchH = punchTime.getHours();
-      const punchM = punchTime.getMinutes();
-      const punchTotalMin = punchH * 60 + punchM;
-      const workStartTotalMin = workStartH * 60 + workStartM + lateMinutes;
-      return punchTotalMin > workStartTotalMin;
-    }).length;
-
-    const totalActive = orgUsers.filter(u => u.is_active && u.role !== 'admin' && u.role !== 'founder').length;
-
-    const statsData = {
-      totalEmployees: orgUsers.filter(u => u.role !== 'admin' && u.role !== 'founder').length,
-      activeEmployees: totalActive,
-      presentToday,
-      absentToday: Math.max(0, totalActive - presentToday),
-      lateArrivals,
-      wfoCount,
-      wfhCount,
-      pendingLeaves: mem.getLeavesForOrg(req.user.organizationId, null).filter(l => l.status === 'pending').length,
-      pendingReports: 0,
-      source: 'memory'
-    };
-
-    res.json({
-      success: true,
-      data: statsData,
-      ...statsData
-    });
-  } catch (err) {
-    console.error('[Attendance Stats]', err.message);
-    res.status(500).json({ success: false, error: 'Failed to fetch attendance stats.' });
   }
 });
 
@@ -7082,8 +7222,16 @@ app.get('/api/storage/signed-url', requireAuth, handleStorageSignedUrl);
 app.post('/api/storage/signed-url', requireAuth, handleStorageSignedUrl);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UTILITY: Haversine distance formula (meters)
+// UTILITIES: Work Date Timezone & Haversine distance formula
 // ─────────────────────────────────────────────────────────────────────────────
+function getOrgWorkDate(timezone = 'Asia/Kolkata') {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(new Date());
+  } catch (e) {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
 function haversineDistance(lat1, lon1, lat2, lon2) {
   const R = 6371000; // Earth radius in meters
   const phi1 = (lat1 * Math.PI) / 180;
