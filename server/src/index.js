@@ -2503,7 +2503,12 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
  * Admin/TL: get all org attendance.
  * Employee: get own attendance only.
  */
-app.get('/api/attendance', requireAuth, async (req, res) => {
+/**
+ * Handler for GET /api/attendance and GET /api/attendance/history
+ * Admin/TL: get all org attendance.
+ * Employee: get own attendance only.
+ */
+async function handleGetAttendance(req, res) {
   try {
     const isFounderOrAdmin = ['founder', 'admin'].includes(req.user.role);
     const isTeamLeader = req.user.role === 'team_leader';
@@ -2582,6 +2587,150 @@ app.get('/api/attendance', requireAuth, async (req, res) => {
     console.error('[Attendance History]', err.message);
     res.status(500).json({ success: false, error: 'Failed to fetch attendance.' });
   }
+}
+
+app.get('/api/attendance', requireAuth, handleGetAttendance);
+app.get('/api/attendance/history', requireAuth, handleGetAttendance);
+
+/**
+ * GET /api/attendance/:attendanceId
+ * Retrieve specific attendance record with signed photo URLs
+ */
+app.get('/api/attendance/:attendanceId', requireAuth, async (req, res) => {
+  try {
+    const { attendanceId } = req.params;
+    // Skip if route parameter is one of the static sub-routes
+    if (['today', 'stats', 'history', 'punch-in', 'punch-out'].includes(attendanceId)) {
+      return res.status(404).json({ success: false, error: 'Not found' });
+    }
+
+    const isDbMode = Boolean(supabase && isUuid(attendanceId) && isUuid(req.user.organizationId));
+    let record = null;
+
+    if (isDbMode) {
+      const { data, error } = await supabase
+        .from('attendance_records')
+        .select('*, users!user_id(name, designation, department, email, profile_photo_url)')
+        .eq('id', attendanceId)
+        .eq('organization_id', req.user.organizationId)
+        .maybeSingle();
+
+      if (error) {
+        return res.status(500).json({ success: false, error: 'Failed to load attendance record: ' + error.message });
+      }
+      record = data;
+    } else {
+      record = memDb.attendance.find(a => a.id === attendanceId && a.organization_id === req.user.organizationId);
+    }
+
+    if (!record) {
+      return res.status(404).json({ success: false, error: 'Attendance record not found.' });
+    }
+
+    // Access control
+    if (req.user.role === 'employee' && record.user_id !== req.user.id) {
+      return res.status(403).json({ success: false, error: 'Access denied. You cannot view another employee\'s attendance record.' });
+    }
+    if (req.user.role === 'team_leader' && record.user_id !== req.user.id) {
+      if (isDbMode) {
+        const { data: member } = await supabase
+          .from('users')
+          .select('id, team_leader_id')
+          .eq('id', record.user_id)
+          .eq('organization_id', req.user.organizationId)
+          .maybeSingle();
+        if (!member || member.team_leader_id !== req.user.id) {
+          return res.status(403).json({ success: false, error: 'Access denied. Employee is not in your assigned team.' });
+        }
+      }
+    }
+
+    // Generate signed URLs for private photos (1 hour expiry)
+    let punchInPhotoSignedUrl = null;
+    let punchOutPhotoSignedUrl = null;
+
+    if (record.punch_in_photo_path) {
+      const signedIn = await getSignedDownloadUrl({ bucket: BUCKETS.SELFIES, path: record.punch_in_photo_path, expiresIn: 3600 });
+      if (signedIn.success) punchInPhotoSignedUrl = signedIn.signedUrl;
+    }
+    if (record.punch_out_photo_path) {
+      const signedOut = await getSignedDownloadUrl({ bucket: BUCKETS.SELFIES, path: record.punch_out_photo_path, expiresIn: 3600 });
+      if (signedOut.success) punchOutPhotoSignedUrl = signedOut.signedUrl;
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        ...record,
+        punchInPhotoSignedUrl,
+        punchOutPhotoSignedUrl
+      }
+    });
+  } catch (err) {
+    console.error('[Get Attendance Record]', err.message);
+    res.status(500).json({ success: false, error: 'Failed to retrieve attendance record.' });
+  }
+});
+
+/**
+ * GET /api/attendance/:attendanceId/photo/:type
+ * Secure image access for authorized users
+ */
+app.get('/api/attendance/:attendanceId/photo/:type', requireAuth, async (req, res) => {
+  try {
+    const { attendanceId, type } = req.params;
+    const normalizedType = type.toLowerCase().replace(/_/g, '-');
+    if (!['punch-in', 'in', 'punch-out', 'out'].includes(normalizedType)) {
+      return res.status(400).json({ success: false, error: 'Invalid photo type. Must be "punch-in" or "punch-out".' });
+    }
+
+    const isDbMode = Boolean(supabase && isUuid(attendanceId) && isUuid(req.user.organizationId));
+    let record = null;
+
+    if (isDbMode) {
+      const { data, error } = await supabase
+        .from('attendance_records')
+        .select('id, user_id, organization_id, punch_in_photo_path, punch_out_photo_path')
+        .eq('id', attendanceId)
+        .eq('organization_id', req.user.organizationId)
+        .maybeSingle();
+
+      if (error || !data) {
+        return res.status(404).json({ success: false, error: 'Attendance record not found.' });
+      }
+      record = data;
+    } else {
+      record = memDb.attendance.find(a => a.id === attendanceId && a.organization_id === req.user.organizationId);
+    }
+
+    if (!record) {
+      return res.status(404).json({ success: false, error: 'Attendance record not found.' });
+    }
+
+    if (req.user.role === 'employee' && record.user_id !== req.user.id) {
+      return res.status(403).json({ success: false, error: 'Access denied.' });
+    }
+
+    const isPunchOut = normalizedType === 'punch-out' || normalizedType === 'out';
+    const photoPath = isPunchOut ? record.punch_out_photo_path : record.punch_in_photo_path;
+
+    if (!photoPath) {
+      return res.status(404).json({ success: false, error: `No ${isPunchOut ? 'Punch Out' : 'Punch In'} photo recorded for this session.` });
+    }
+
+    const signedRes = await getSignedDownloadUrl({ bucket: BUCKETS.SELFIES, path: photoPath, expiresIn: 3600 });
+    if (!signedRes.success || !signedRes.signedUrl) {
+      return res.status(500).json({ success: false, error: 'Could not generate secure photo access URL.' });
+    }
+
+    if (req.query.json === 'true' || req.headers.accept?.includes('application/json')) {
+      return res.json({ success: true, signedUrl: signedRes.signedUrl, photoPath });
+    }
+    return res.redirect(signedRes.signedUrl);
+  } catch (err) {
+    console.error('[Attendance Photo Stream]', err.message);
+    res.status(500).json({ success: false, error: 'Failed to access attendance photo.' });
+  }
 });
 
 /**
@@ -2591,7 +2740,7 @@ function validateAttendanceSelfiePath(photoPath, organizationId, userId) {
   if (!photoPath || typeof photoPath !== 'string' || !photoPath.trim()) {
     return { valid: false, status: 400, error: 'Attendance selfie reference is required.' };
   }
-  const cleanPath = photoPath.replace(/\\/g, '/').trim();
+  let cleanPath = photoPath.replace(/\\/g, '/').trim();
   if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://')) {
     return { valid: false, status: 400, error: 'External image URLs are not permitted for attendance selfies.' };
   }
@@ -2600,6 +2749,11 @@ function validateAttendanceSelfiePath(photoPath, organizationId, userId) {
   }
   if (cleanPath.includes('..') || cleanPath.startsWith('/') || cleanPath.includes('//')) {
     return { valid: false, status: 400, error: 'Invalid selfie storage path. Path traversal is not permitted.' };
+  }
+
+  // Strip leading bucket name if present
+  if (cleanPath.startsWith('attendance-selfies/')) {
+    cleanPath = cleanPath.slice('attendance-selfies/'.length);
   }
 
   const parts = cleanPath.split('/');
@@ -2613,7 +2767,7 @@ function validateAttendanceSelfiePath(photoPath, organizationId, userId) {
   }
 
   const filename = rest.join('/');
-  if (!filename || !/^[a-zA-Z0-9._-]+$/.test(filename)) {
+  if (!filename || !/^[a-zA-Z0-9._\/-]+$/.test(filename) || filename.includes('..') || filename.includes('//')) {
     return { valid: false, status: 400, error: 'Invalid selfie file name format.' };
   }
 
@@ -2754,6 +2908,10 @@ app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
       const { data, error } = await supabase.from('attendance_records').insert([dbRecord]).select().single();
       if (error) {
         console.error('[Punch In] Supabase attendance insert failed:', error.message);
+        // Clean up newly uploaded orphaned selfie on database failure
+        if (supabase && validatedPhotoPath) {
+          supabase.storage.from(BUCKETS.SELFIES).remove([validatedPhotoPath]).catch(() => {});
+        }
         if (error.code === '23505') {
           return res.status(409).json({ success: false, error: 'You have already punched in today. Use punch-out to end your current session.' });
         }
@@ -2909,6 +3067,10 @@ app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
 
       if (error) {
         console.error('[Punch Out Supabase Error]', error.message);
+        // Clean up newly uploaded orphaned selfie on database failure
+        if (supabase && validatedPhotoPath) {
+          supabase.storage.from(BUCKETS.SELFIES).remove([validatedPhotoPath]).catch(() => {});
+        }
         return res.status(500).json({ success: false, error: 'Failed to record punch out: ' + error.message });
       }
 
@@ -6790,8 +6952,18 @@ app.post('/api/storage/upload', requireAuth, async (req, res) => {
     }
 
     // Organization-specific & user-isolated storage path
+    let storagePath;
     const safeBaseName = (filename || `${Date.now()}.jpg`).replace(/[^a-zA-Z0-9._-]/g, '_');
-    const storagePath = `${req.user.organizationId}/${req.user.id}/${Date.now()}-${safeBaseName}`;
+    if (bucket === BUCKETS.SELFIES) {
+      const now = new Date();
+      const YYYY = now.getUTCFullYear();
+      const MM = String(now.getUTCMonth() + 1).padStart(2, '0');
+      const DD = String(now.getUTCDate()).padStart(2, '0');
+      const eventType = (filename && filename.toLowerCase().includes('out')) ? 'punch-out' : 'punch-in';
+      storagePath = `${req.user.organizationId}/${req.user.id}/${YYYY}/${MM}/${DD}/${eventType}/${Date.now()}-${safeBaseName}`;
+    } else {
+      storagePath = `${req.user.organizationId}/${req.user.id}/${Date.now()}-${safeBaseName}`;
+    }
 
     // Call uploadPrivateFile with its expected options object
     const result = await uploadPrivateFile({
@@ -6824,12 +6996,13 @@ app.post('/api/storage/upload', requireAuth, async (req, res) => {
   }
 });
 
-app.get('/api/storage/signed-url', requireAuth, async (req, res) => {
+async function handleStorageSignedUrl(req, res) {
   try {
-    const { bucket = BUCKETS.SELFIES, filePath, path, expiresIn = 3600 } = req.query;
-    const rawPath = filePath || path;
+    const bucket = req.query.bucket || req.body?.bucket || BUCKETS.SELFIES;
+    const rawPath = req.query.filePath || req.query.path || req.body?.filePath || req.body?.path;
+    const expiresIn = req.query.expiresIn || req.body?.expiresIn || 3600;
     if (!rawPath || typeof rawPath !== 'string' || !rawPath.trim()) {
-      return res.status(400).json({ success: false, error: 'filePath query parameter is required.' });
+      return res.status(400).json({ success: false, error: 'filePath parameter is required.' });
     }
 
     // 1. Validate bucket against approved bucket constants
@@ -6903,7 +7076,10 @@ app.get('/api/storage/signed-url', requireAuth, async (req, res) => {
     console.error('[Storage Signed URL]', err.message);
     res.status(500).json({ success: false, error: 'Signed URL generation failed.' });
   }
-});
+}
+
+app.get('/api/storage/signed-url', requireAuth, handleStorageSignedUrl);
+app.post('/api/storage/signed-url', requireAuth, handleStorageSignedUrl);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UTILITY: Haversine distance formula (meters)

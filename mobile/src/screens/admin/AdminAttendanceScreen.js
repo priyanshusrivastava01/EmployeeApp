@@ -6,11 +6,88 @@ import {
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
-  RefreshControl
+  RefreshControl,
+  Modal,
+  Image,
+  ScrollView
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeContext';
 import api from '../../services/api';
+
+// Cached signed URLs for employee selfie verification
+const signedUrlCache = new Map();
+
+function SecureSelfie({ photoPath, style, placeholderIcon = 'camera', placeholderText = 'Selfie' }) {
+  const { colors } = useTheme();
+  const [resolvedUrl, setResolvedUrl] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!photoPath || typeof photoPath !== 'string') {
+      setResolvedUrl(null);
+      setLoading(false);
+      return;
+    }
+
+    if (photoPath.startsWith('http://') || photoPath.startsWith('https://') || photoPath.startsWith('data:image/')) {
+      setResolvedUrl(photoPath);
+      setLoading(false);
+      return;
+    }
+
+    const cached = signedUrlCache.get(photoPath);
+    if (cached && cached.expiresAt > Date.now()) {
+      setResolvedUrl(cached.url);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setLoadError(false);
+
+    api.getStorageSignedUrl({ bucket: 'attendance-selfies', filePath: photoPath, expiresIn: 3600 })
+      .then(res => {
+        if (!isMounted) return;
+        const signedUrl = res?.data?.signedUrl || res?.signedUrl;
+        if (signedUrl) {
+          signedUrlCache.set(photoPath, { url: signedUrl, expiresAt: Date.now() + 50 * 60 * 1000 });
+          setResolvedUrl(signedUrl);
+        } else {
+          setLoadError(true);
+        }
+      })
+      .catch(() => {
+        if (isMounted) setLoadError(true);
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
+
+    return () => { isMounted = false; };
+  }, [photoPath]);
+
+  if (loading) {
+    return (
+      <View style={[style, { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceAlt || '#f1f5f9' }]}>
+        <ActivityIndicator size="small" color={colors.primary} />
+      </View>
+    );
+  }
+
+  if (resolvedUrl && !loadError) {
+    return <Image source={{ uri: resolvedUrl }} style={style} onError={() => setLoadError(true)} resizeMode="cover" />;
+  }
+
+  return (
+    <View style={[style, { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surfaceAlt || '#f1f5f9' }]}>
+      <Ionicons name={placeholderIcon} size={20} color={colors.textSecondary} />
+      {placeholderText ? <Text style={{ fontSize: 10, color: colors.textSecondary, marginTop: 4 }}>{placeholderText}</Text> : null}
+    </View>
+  );
+}
 
 export default function AdminAttendanceScreen({ onBack }) {
   const { colors, isDark } = useTheme();
@@ -19,6 +96,7 @@ export default function AdminAttendanceScreen({ onBack }) {
   const [records, setRecords] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filterMode, setFilterMode] = useState('ALL'); // 'ALL' | 'WFO' | 'WFH'
+  const [selectedRecord, setSelectedRecord] = useState(null);
 
   const loadAttendance = async () => {
     try {
@@ -140,7 +218,11 @@ export default function AdminAttendanceScreen({ onBack }) {
             const isVerified = Boolean(item.punch_in_verified);
 
             return (
-              <View style={styles.card}>
+              <TouchableOpacity
+                style={styles.card}
+                onPress={() => setSelectedRecord(item)}
+                activeOpacity={0.75}
+              >
                 <View style={styles.cardHeader}>
                   <View style={styles.userRow}>
                     <View style={styles.avatarWrap}>
@@ -223,17 +305,159 @@ export default function AdminAttendanceScreen({ onBack }) {
                   </View>
                 </View>
 
-                {/* Coordinates Snippet */}
-                {Boolean(item.punch_in_lat && item.punch_in_lng) && (
+                {/* Coordinates Snippet & Inspection Prompt */}
+                <View style={styles.cardFooterRow}>
                   <View style={styles.coordsFooter}>
                     <Ionicons name="location-outline" size={12} color={colors.textSecondary} />
                     <Text style={styles.coordsFooterText}>
-                      GPS: {Number(item.punch_in_lat).toFixed(4)}, {Number(item.punch_in_lng).toFixed(4)}
+                      {Boolean(item.punch_in_lat && item.punch_in_lng)
+                        ? `GPS: ${Number(item.punch_in_lat).toFixed(4)}, ${Number(item.punch_in_lng).toFixed(4)}`
+                        : 'No GPS data'}
                     </Text>
                   </View>
-                )}
-              </View>
+                  <Text style={styles.viewDetailsText}>Inspect Photos & GPS ›</Text>
+                </View>
+              </TouchableOpacity>
             );
+          }}
+        />
+      )}
+
+      {/* Attendance Detail Inspection Modal */}
+      {selectedRecord && (
+        <Modal
+          visible={true}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setSelectedRecord(null)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.modalContainer}>
+              <View style={styles.modalHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalTitle}>
+                    {selectedRecord.users?.name || selectedRecord.user_id || 'Employee Attendance'}
+                  </Text>
+                  <Text style={styles.modalSubtitle}>
+                    {selectedRecord.work_date} • {selectedRecord.users?.employee_id || selectedRecord.user_id}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setSelectedRecord(null)}
+                  style={styles.modalCloseBtn}
+                >
+                  <Ionicons name="close" size={20} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={{ maxHeight: 460 }} showsVerticalScrollIndicator={false}>
+                {/* Mode & Verification Banner */}
+                <View style={styles.modalMetaRow}>
+                  <View style={[styles.modePill, selectedRecord.mode === 'WFH' ? styles.modePillWfh : styles.modePillWfo]}>
+                    <Ionicons
+                      name={selectedRecord.mode === 'WFH' ? 'home' : 'business'}
+                      size={12}
+                      color={selectedRecord.mode === 'WFH' ? '#b45309' : '#15803d'}
+                    />
+                    <Text style={[styles.modePillText, { color: selectedRecord.mode === 'WFH' ? '#b45309' : '#15803d' }]}>
+                      {selectedRecord.mode === 'WFH' ? 'Work From Home' : 'Work From Office'}
+                    </Text>
+                  </View>
+                  <Text style={styles.modalDurationText}>
+                    Duration: {selectedRecord.total_minutes ? `${Math.floor(selectedRecord.total_minutes / 60)}h ${selectedRecord.total_minutes % 60}m` : (selectedRecord.punch_in_time ? 'Active' : '—')}
+                  </Text>
+                </View>
+
+                {/* Side-by-side Punch In / Punch Out Photos & Timestamps */}
+                <View style={styles.selfiesRow}>
+                  {/* Punch In */}
+                  <View style={styles.selfieCard}>
+                    <Text style={styles.selfieLabel}>Punch In Selfie</Text>
+                    <Text style={styles.selfieTime}>
+                      {selectedRecord.punch_in_time
+                        ? new Date(selectedRecord.punch_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        : '—'}
+                    </Text>
+                    <SecureSelfie
+                      photoPath={selectedRecord.punch_in_photo_path}
+                      style={styles.selfieImg}
+                      placeholderIcon="person"
+                      placeholderText="Punch In Selfie"
+                    />
+                  </View>
+
+                  {/* Punch Out */}
+                  <View style={styles.selfieCard}>
+                    <Text style={styles.selfieLabel}>Punch Out Selfie</Text>
+                    <Text style={styles.selfieTime}>
+                      {selectedRecord.punch_out_time
+                        ? new Date(selectedRecord.punch_out_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        : 'In Progress'}
+                    </Text>
+                    <SecureSelfie
+                      photoPath={selectedRecord.punch_out_photo_path}
+                      style={styles.selfieImg}
+                      placeholderIcon="camera-outline"
+                      placeholderText={selectedRecord.punch_out_time ? 'Punch Out Selfie' : 'In Progress'}
+                    />
+                  </View>
+                </View>
+
+                {/* Audit & GPS Details */}
+                <View style={styles.auditSection}>
+                  <Text style={styles.auditHeading}>GPS & Verification Audit</Text>
+
+                  <View style={styles.auditRow}>
+                    <Text style={styles.auditKey}>Punch In GPS:</Text>
+                    <Text style={styles.auditVal}>
+                      {selectedRecord.punch_in_lat != null
+                        ? `${Number(selectedRecord.punch_in_lat).toFixed(6)}°, ${Number(selectedRecord.punch_in_lng).toFixed(6)}°`
+                        : 'Not recorded'}
+                    </Text>
+                  </View>
+
+                  {selectedRecord.mode === 'WFO' && (
+                    <View style={styles.auditRow}>
+                      <Text style={styles.auditKey}>Distance from Office:</Text>
+                      <Text style={styles.auditVal}>
+                        {selectedRecord.punch_in_distance_meters != null
+                          ? `${Math.round(selectedRecord.punch_in_distance_meters)} meters`
+                          : 'Within geofence'}
+                      </Text>
+                    </View>
+                  )}
+
+                  <View style={styles.auditRow}>
+                    <Text style={styles.auditKey}>Geofence Status:</Text>
+                    <Text style={[styles.auditVal, { color: selectedRecord.punch_in_verified ? '#15803d' : '#b45309', fontWeight: '700' }]}>
+                      {selectedRecord.punch_in_verified ? 'Verified Inside Perimeter' : 'Remote Session'}
+                    </Text>
+                  </View>
+
+                  {selectedRecord.punch_out_time && (
+                    <View style={styles.auditRow}>
+                      <Text style={styles.auditKey}>Punch Out GPS:</Text>
+                      <Text style={styles.auditVal}>
+                        {selectedRecord.punch_out_lat != null
+                          ? `${Number(selectedRecord.punch_out_lat).toFixed(6)}°, ${Number(selectedRecord.punch_out_lng).toFixed(6)}°`
+                          : 'Not recorded'}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </ScrollView>
+
+              <TouchableOpacity
+                style={styles.modalCloseButton}
+                onPress={() => setSelectedRecord(null)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.modalCloseButtonText}>Close Audit</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
           }}
         />
       )}
@@ -497,17 +721,148 @@ const getStyles = (colors, isDark) =>
       fontSize: 9,
       color: colors.textSecondary
     },
-    coordsFooter: {
+    cardFooterRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 4,
+      justifyContent: 'space-between',
       marginTop: 8,
       paddingTop: 6,
       borderTopWidth: 1,
       borderTopColor: colors.border
     },
+    coordsFooter: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4
+    },
     coordsFooterText: {
       fontSize: 10,
       color: colors.textSecondary
+    },
+    viewDetailsText: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: colors.primary
+    },
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.65)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 16
+    },
+    modalContainer: {
+      width: '100%',
+      maxWidth: 520,
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: colors.border
+    },
+    modalHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      marginBottom: 12
+    },
+    modalTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: colors.textPrimary
+    },
+    modalSubtitle: {
+      fontSize: 11,
+      color: colors.textSecondary,
+      marginTop: 2
+    },
+    modalCloseBtn: {
+      padding: 4
+    },
+    modalMetaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 14
+    },
+    modalDurationText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: colors.primary
+    },
+    selfiesRow: {
+      flexDirection: 'row',
+      gap: 10,
+      marginBottom: 14
+    },
+    selfieCard: {
+      flex: 1,
+      backgroundColor: isDark ? '#133333' : '#F7FAF9',
+      padding: 10,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center'
+    },
+    selfieLabel: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: colors.textSecondary,
+      textTransform: 'uppercase'
+    },
+    selfieTime: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: colors.textPrimary,
+      marginVertical: 4
+    },
+    selfieImg: {
+      width: '100%',
+      height: 120,
+      borderRadius: 8,
+      backgroundColor: isDark ? '#1F3A3A' : '#E2E8F0'
+    },
+    auditSection: {
+      backgroundColor: isDark ? '#133333' : '#F7FAF9',
+      padding: 12,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: 14
+    },
+    auditHeading: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: colors.textPrimary,
+      marginBottom: 8,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5
+    },
+    auditRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: 4
+    },
+    auditKey: {
+      fontSize: 11,
+      color: colors.textSecondary
+    },
+    auditVal: {
+      fontSize: 11,
+      fontWeight: '600',
+      color: colors.textPrimary
+    },
+    modalCloseButton: {
+      backgroundColor: colors.primary,
+      paddingVertical: 12,
+      borderRadius: 10,
+      alignItems: 'center',
+      marginTop: 6
+    },
+    modalCloseButtonText: {
+      color: '#ffffff',
+      fontSize: 13,
+      fontWeight: '700'
     }
   });

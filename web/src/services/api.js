@@ -243,6 +243,17 @@ class WebApiService {
       body: JSON.stringify(payload)
     });
   }
+
+  async getStorageSignedUrl(payload = {}) {
+    const { bucket = 'attendance-selfies', filePath, path, expiresIn = 3600 } = payload;
+    const targetPath = filePath || path;
+    const qs = new URLSearchParams({ bucket, filePath: targetPath, expiresIn: String(expiresIn) }).toString();
+    return this.request(`/api/storage/signed-url?${qs}`);
+  }
+
+  async getAttendanceRecord(attendanceId) {
+    return this.request(`/api/attendance/${encodeURIComponent(attendanceId)}`);
+  }
 }
 
 export const webApi = new WebApiService();

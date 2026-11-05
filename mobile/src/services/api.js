@@ -471,6 +471,21 @@ class ApiService {
     return this.store.getAttendanceStats(this.org?.id || 'org-acme-1');
   }
 
+  async getAttendanceRecord(id) {
+    if (this.token) {
+      return await this.request(`/api/attendance/${id}`);
+    }
+    const found = (this.store.state?.attendance || []).find(a => a.id === id);
+    return { success: Boolean(found), data: found };
+  }
+
+  async getAttendancePhotoUrl(id, type = 'punch-in') {
+    if (this.token) {
+      return await this.request(`/api/attendance/${id}/photo/${type}?json=true`);
+    }
+    return { success: true, signedUrl: null };
+  }
+
   // ── Users & Employees ────────────────────────────────
   async getUsers(params = {}) {
     try {

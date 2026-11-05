@@ -320,7 +320,23 @@ function MainApp() {
             base64Data = `data:image/jpeg;base64,${rawBase64}`;
           }
         } catch (fsErr) {
-          throw new Error('Could not read captured selfie file from device storage: ' + fsErr.message);
+          console.warn('[App] FileSystem read error, attempting fetch fallback:', fsErr.message);
+        }
+      }
+
+      // Universal fetch-blob-reader fallback for native/web runtimes
+      if (!base64Data && typeof fetch === 'function') {
+        try {
+          const resp = await fetch(record.photoUri);
+          const blob = await resp.blob();
+          base64Data = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        } catch (fetchErr) {
+          console.warn('[App] Blob reader fallback error:', fetchErr.message);
         }
       }
     }

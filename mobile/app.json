@@ -28,6 +28,14 @@
         "android.permission.ACCESS_FINE_LOCATION"
       ]
     },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow EMS Employee to access your front camera to capture selfie verification photos for Punch In and Punch Out attendance.",
+        "NSLocationWhenInUseUsageDescription": "Allow EMS Employee to access your location to verify office geofence proximity for shift attendance.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow EMS Employee to access your location to verify attendance records."
+      }
+    },
     "plugins": [
       "expo-asset",
       "expo-status-bar",

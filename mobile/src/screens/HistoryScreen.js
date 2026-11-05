@@ -182,7 +182,7 @@ export default function HistoryScreen({ attendanceHistory = [] }) {
               <View style={styles.cardTop}>
                 <View style={styles.cardDateRow}>
                   <SecureSelfie
-                    photoPath={item.punchInPhotoUri || item.photoUri}
+                    photoPath={item.punch_in_photo_path || item.punchInPhotoUri || item.photoUri}
                     style={styles.cardSelfieThumb}
                     placeholderIcon="camera"
                     placeholderText={null}
@@ -282,9 +282,9 @@ export default function HistoryScreen({ attendanceHistory = [] }) {
                 {/* Punch In Event */}
                 <View style={styles.eventBox}>
                   <Text style={styles.eventLabel}>Punch In Event</Text>
-                  <Text style={styles.eventTime}>{selectedRecord?.punchIn || '—'}</Text>
+                  <Text style={styles.eventTime}>{selectedRecord?.punchIn || selectedRecord?.punch_in_time || '—'}</Text>
                   <SecureSelfie
-                    photoPath={selectedRecord?.punchInPhotoUri || selectedRecord?.photoUri}
+                    photoPath={selectedRecord?.punch_in_photo_path || selectedRecord?.punchInPhotoUri || selectedRecord?.photoUri}
                     style={styles.eventPhoto}
                     placeholderIcon="person"
                     placeholderText="Photo Logged"
@@ -294,88 +294,90 @@ export default function HistoryScreen({ attendanceHistory = [] }) {
                 {/* Punch Out Event */}
                 <View style={styles.eventBox}>
                   <Text style={styles.eventLabel}>Punch Out Event</Text>
-                  <Text style={styles.eventTime}>{selectedRecord?.punchOut || 'Not punched out'}</Text>
+                  <Text style={styles.eventTime}>{selectedRecord?.punchOut || selectedRecord?.punch_out_time || 'Not punched out'}</Text>
                   <SecureSelfie
-                    photoPath={selectedRecord?.punchOutPhotoUri}
+                    photoPath={selectedRecord?.punch_out_photo_path || selectedRecord?.punchOutPhotoUri}
                     style={styles.eventPhoto}
                     placeholderIcon="camera-outline"
-                    placeholderText={selectedRecord?.punchOut ? 'Photo Logged' : 'In Progress'}
+                    placeholderText={selectedRecord?.punchOut || selectedRecord?.punch_out_time ? 'Photo Logged' : 'In Progress'}
                   />
                 </View>
               </View>
 
               {/* Verification & Location Details */}
-              {selectedRecord?.mode === 'WFO' ? (
-                <View style={styles.detailSection}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                    <Ionicons name="shield-checkmark" size={16} color={colors.primary} />
-                    <Text style={styles.detailSectionTitle}>Office Geofence Verification</Text>
-                  </View>
-                  <Text style={styles.detailText}>
-                    Status: Verified inside authorized office perimeter (within 250m radius).
+              <View style={styles.detailSection}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                  <Ionicons
+                    name={selectedRecord?.mode === 'WFO' ? 'shield-checkmark' : 'location'}
+                    size={16}
+                    color={colors.primary}
+                  />
+                  <Text style={styles.detailSectionTitle}>
+                    {selectedRecord?.mode === 'WFO' ? 'Office Geofence Verification' : 'Remote Location Verification'}
                   </Text>
                 </View>
-              ) : (
-                <View style={styles.detailSection}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                    <Ionicons name="location" size={16} color={colors.primary} />
-                    <Text style={styles.detailSectionTitle}>WFH Remote Location Verification</Text>
-                  </View>
-                  <Text style={[styles.detailText, { marginBottom: 10 }]}>
-                    Location verified independently at Punch In and Punch Out events.
+                <Text style={[styles.detailText, { marginBottom: 10 }]}>
+                  {selectedRecord?.mode === 'WFO'
+                    ? (selectedRecord?.punch_in_distance_meters != null
+                        ? `Verified inside authorized office perimeter (${Math.round(selectedRecord.punch_in_distance_meters)}m from office center).`
+                        : 'Verified inside authorized office perimeter.')
+                    : 'Location recorded independently at Punch In and Punch Out events.'}
+                </Text>
+
+                {/* Punch In Location Disclosure */}
+                <TouchableOpacity
+                  style={styles.locActionBtn}
+                  onPress={() => setShowInGps(!showInGps)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name={showInGps ? 'eye-off-outline' : 'navigate-outline'} size={14} color={colors.primary} />
+                  <Text style={styles.locActionText}>
+                    {showInGps ? 'Hide Punch In GPS' : 'View Punch In GPS Coordinates'}
                   </Text>
-
-                  {/* Punch In Location Disclosure */}
-                  <TouchableOpacity
-                    style={styles.locActionBtn}
-                    onPress={() => setShowInGps(!showInGps)}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name={showInGps ? 'eye-off-outline' : 'navigate-outline'} size={14} color={colors.primary} />
-                    <Text style={styles.locActionText}>
-                      {showInGps ? 'Hide Punch In GPS' : 'View Punch In GPS Coordinates'}
+                </TouchableOpacity>
+                {showInGps && (
+                  <View style={styles.locBox}>
+                    <Text style={styles.locCoords}>
+                      Latitude: {selectedRecord?.punch_in_lat != null ? `${Number(selectedRecord.punch_in_lat).toFixed(6)}°` : 'Not recorded'}
                     </Text>
-                  </TouchableOpacity>
-                  {showInGps && (
-                    <View style={styles.locBox}>
-                      <Text style={styles.locCoords}>
-                        Latitude: {selectedRecord?.punch_in_lat || '12.9716'}° N
-                      </Text>
-                      <Text style={styles.locCoords}>
-                        Longitude: {selectedRecord?.punch_in_lng || '77.5946'}° E
-                      </Text>
-                      <Text style={styles.locMeta}>
-                        Accuracy: ±10m • Timestamp: {selectedRecord?.punchIn || 'Logged'}
-                      </Text>
-                    </View>
-                  )}
-
-                  {/* Punch Out Location Disclosure */}
-                  <TouchableOpacity
-                    style={[styles.locActionBtn, { marginTop: 8 }]}
-                    onPress={() => setShowOutGps(!showOutGps)}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name={showOutGps ? 'eye-off-outline' : 'navigate-outline'} size={14} color={colors.primary} />
-                    <Text style={styles.locActionText}>
-                      {showOutGps ? 'Hide Punch Out GPS' : 'View Punch Out GPS Coordinates'}
+                    <Text style={styles.locCoords}>
+                      Longitude: {selectedRecord?.punch_in_lng != null ? `${Number(selectedRecord.punch_in_lng).toFixed(6)}°` : 'Not recorded'}
                     </Text>
-                  </TouchableOpacity>
-                  {showOutGps && (
-                    <View style={styles.locBox}>
-                      <Text style={styles.locCoords}>
-                        Latitude: {selectedRecord?.punch_out_lat || '12.9718'}° N
+                    <Text style={styles.locMeta}>
+                      Accuracy: {selectedRecord?.punch_in_accuracy ? `±${Math.round(selectedRecord.punch_in_accuracy)}m` : 'High'} • Timestamp: {selectedRecord?.punchIn || selectedRecord?.punch_in_time || 'Logged'}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Punch Out Location Disclosure */}
+                {(selectedRecord?.punchOut || selectedRecord?.punch_out_lat != null) && (
+                  <>
+                    <TouchableOpacity
+                      style={[styles.locActionBtn, { marginTop: 8 }]}
+                      onPress={() => setShowOutGps(!showOutGps)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name={showOutGps ? 'eye-off-outline' : 'navigate-outline'} size={14} color={colors.primary} />
+                      <Text style={styles.locActionText}>
+                        {showOutGps ? 'Hide Punch Out GPS' : 'View Punch Out GPS Coordinates'}
                       </Text>
-                      <Text style={styles.locCoords}>
-                        Longitude: {selectedRecord?.punch_out_lng || '77.5948'}° E
-                      </Text>
-                      <Text style={styles.locMeta}>
-                        Accuracy: ±10m • Timestamp: {selectedRecord?.punchOut || 'In Progress'}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              )}
+                    </TouchableOpacity>
+                    {showOutGps && (
+                      <View style={styles.locBox}>
+                        <Text style={styles.locCoords}>
+                          Latitude: {selectedRecord?.punch_out_lat != null ? `${Number(selectedRecord.punch_out_lat).toFixed(6)}°` : 'Not recorded'}
+                        </Text>
+                        <Text style={styles.locCoords}>
+                          Longitude: {selectedRecord?.punch_out_lng != null ? `${Number(selectedRecord.punch_out_lng).toFixed(6)}°` : 'Not recorded'}
+                        </Text>
+                        <Text style={styles.locMeta}>
+                          Accuracy: {selectedRecord?.punch_out_accuracy ? `±${Math.round(selectedRecord.punch_out_accuracy)}m` : 'High'} • Timestamp: {selectedRecord?.punchOut || selectedRecord?.punch_out_time || 'In Progress'}
+                        </Text>
+                      </View>
+                    )}
+                  </>
+                )}
+              </View>
             </ScrollView>
 
             <TouchableOpacity

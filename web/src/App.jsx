@@ -174,6 +174,39 @@ export default function App() {
         })));
       }
 
+      if (aRes.success && aRes.data && aRes.data.length > 0) {
+        setAttendanceRecords(aRes.data.map(item => {
+          const empName = item.users?.name || item.user_id || 'Employee';
+          const punchInDate = item.punch_in_time ? new Date(item.punch_in_time) : null;
+          const punchOutDate = item.punch_out_time ? new Date(item.punch_out_time) : null;
+          const timeFormat = (d) => d ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—';
+          const isLate = punchInDate ? (punchInDate.getHours() > 9 || (punchInDate.getHours() === 9 && punchInDate.getMinutes() > 30)) : false;
+
+          return {
+            id: item.id,
+            employeeId: item.users?.employee_id || item.user_id?.slice(0, 8),
+            name: empName,
+            department: item.users?.department || 'Operations',
+            photoUrl: item.punch_in_photo_path || `https://ui-avatars.com/api/?name=${encodeURIComponent(empName)}&background=0D9488&color=fff`,
+            punchInPhotoPath: item.punch_in_photo_path,
+            punchOutPhotoPath: item.punch_out_photo_path,
+            punchIn: timeFormat(punchInDate),
+            punchOut: item.punch_out_time ? timeFormat(punchOutDate) : '— Active Shift —',
+            mode: item.mode || 'WFO',
+            status: item.status || (item.punch_in_verified ? 'Present' : 'Verified'),
+            verified: item.punch_in_verified ?? true,
+            isLate,
+            geofenceStatus: item.mode === 'WFO'
+              ? (item.punch_in_distance_meters != null ? `Inside (${Math.round(item.punch_in_distance_meters)}m)` : 'Inside Geofence')
+              : 'WFH Logged',
+            location: item.punch_in_lat != null
+              ? `Lat: ${Number(item.punch_in_lat).toFixed(4)}, Lng: ${Number(item.punch_in_lng).toFixed(4)}`
+              : (item.mode === 'WFO' ? 'Office Headquarters' : 'Remote Location'),
+            distanceMeters: item.punch_in_distance_meters
+          };
+        }));
+      }
+
       if (annRes.success && annRes.data && annRes.data.length > 0) {
         setAnnouncements(annRes.data);
       }
@@ -212,6 +245,34 @@ export default function App() {
   const showToast = (message) => {
     setNotification(message);
     setTimeout(() => setNotification(null), 3000);
+  };
+
+  const handleInspectAttendancePhoto = async (row, type = 'in') => {
+    const photoPath = type === 'out'
+      ? (row.punchOutPhotoPath || row.punchOutPhotoUri)
+      : (row.punchInPhotoPath || row.photoPath || row.photoUrl);
+
+    let resolvedUrl = photoPath || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80';
+
+    if (photoPath && !photoPath.startsWith('http') && !photoPath.startsWith('data:image/')) {
+      try {
+        const res = await webApi.getStorageSignedUrl({ bucket: 'attendance-selfies', filePath: photoPath, expiresIn: 3600 });
+        if (res?.data?.signedUrl || res?.signedUrl) {
+          resolvedUrl = res?.data?.signedUrl || res?.signedUrl;
+        }
+      } catch (err) {
+        console.warn('Failed to resolve signed url:', err);
+      }
+    }
+
+    setSelectedPhoto({
+      url: resolvedUrl,
+      name: row.name,
+      time: type === 'out' ? (row.outTime || row.punchOut) : (row.inTime || row.punchIn),
+      location: row.location || (row.distanceMeters != null ? `${Math.round(row.distanceMeters)}m from office` : (row.mode === 'WFO' ? 'Office Geofence' : 'Remote WFH')),
+      mode: row.mode,
+      verified: row.verified !== false
+    });
   };
 
   const handleCreateEmployee = async (e) => {
@@ -1857,8 +1918,8 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {mockAttendance.map((row, idx) => (
-                      <tr key={row.id} style={{ borderBottom: idx < mockAttendance.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                    {attendanceRecords.map((row, idx) => (
+                      <tr key={row.id} style={{ borderBottom: idx < attendanceRecords.length - 1 ? '1px solid var(--border)' : 'none' }}>
                         <td style={{ padding: '16px 20px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                             <img src={row.photoUrl} alt={row.name} style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover' }} />
@@ -1890,7 +1951,7 @@ export default function App() {
                         </td>
                         <td style={{ padding: '16px 20px' }}>
                           <button
-                            onClick={() => setSelectedPhoto({ url: row.photoUrl, name: row.name, time: row.punchIn, location: row.location })}
+                            onClick={() => handleInspectAttendancePhoto(row, 'in')}
                             style={{
                               display: 'inline-flex',
                               alignItems: 'center',
@@ -2102,7 +2163,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {mockAttendance.map((row) => (
+                    {attendanceRecords.map((row) => (
                       <tr key={row.id} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={{ padding: '16px 20px', fontWeight: 700, color: 'var(--text-primary)' }}>{row.name}</td>
                         <td style={{ padding: '16px 20px' }}>
@@ -2115,7 +2176,7 @@ export default function App() {
                         </td>
                         <td style={{ padding: '16px 20px' }}>
                           <button
-                            onClick={() => setSelectedPhoto({ url: row.photoUrl, name: row.name, time: row.punchIn, location: row.location })}
+                            onClick={() => handleInspectAttendancePhoto(row, 'in')}
                             style={{ padding: '6px 12px', background: 'var(--bg-light-olive)', color: 'var(--primary)', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer' }}
                           >
                             Inspect Selfie

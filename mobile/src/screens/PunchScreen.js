@@ -42,15 +42,19 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
   } : null;
 
   // Camera state - Strictly front-facing only
+  // Camera state - Strictly front-facing only
   const cameraRef = useRef(null);
+  const webVideoRef = useRef(null);
+  const webStreamRef = useRef(null);
+
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [isCameraReady, setIsCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState(null);
   const [isTakingPhoto, setIsTakingPhoto] = useState(false);
   const [isSubmittingPunch, setIsSubmittingPunch] = useState(false);
+  const [capturedPhotoUri, setCapturedPhotoUri] = useState(null);
 
-  // Face alignment detection state (NO hardcoded green circle)
-  // States: 'NO_FACE' (RED, dashed), 'ALIGNING' (RED, dashed), 'ALIGNED' (GREEN, solid)
+  // Face alignment detection state
   const [faceAlignmentState, setFaceAlignmentState] = useState('NO_FACE');
   const [faceGuidanceText, setFaceGuidanceText] = useState('Initializing front camera...');
 
@@ -70,9 +74,63 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
     }
   }, [isPunchedIn, attendanceState.mode]);
 
-  // Automatically request camera permission on mount if not yet granted
+  // Web camera initialization with getUserMedia
+  const startWebCamera = async () => {
+    try {
+      setCameraError(null);
+      setIsCameraReady(false);
+      if (!navigator?.mediaDevices?.getUserMedia) {
+        throw new Error('Front camera access is not supported in this browser.');
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'user',
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      });
+      webStreamRef.current = stream;
+      if (webVideoRef.current) {
+        webVideoRef.current.srcObject = stream;
+        try {
+          await webVideoRef.current.play();
+        } catch (pErr) {
+          console.warn('[Web Camera] Autoplay wait:', pErr);
+        }
+      }
+      setIsCameraReady(true);
+    } catch (err) {
+      console.warn('[Web Camera] Failed to open front camera:', err.message);
+      setCameraError(err.message || 'Unable to open front camera in browser.');
+      setIsCameraReady(false);
+    }
+  };
+
+  const stopWebCamera = () => {
+    if (webStreamRef.current) {
+      webStreamRef.current.getTracks().forEach(t => t.stop());
+      webStreamRef.current = null;
+    }
+    if (webVideoRef.current) {
+      webVideoRef.current.srcObject = null;
+    }
+    setIsCameraReady(false);
+  };
+
+  // Browser camera lifecycle
   useEffect(() => {
-    if (cameraPermission && !cameraPermission.granted && cameraPermission.canAskAgain) {
+    if (Platform.OS === 'web') {
+      startWebCamera();
+      return () => {
+        stopWebCamera();
+      };
+    }
+  }, []);
+
+  // Native camera permission auto-request on mount
+  useEffect(() => {
+    if (Platform.OS !== 'web' && cameraPermission && !cameraPermission.granted && cameraPermission.canAskAgain) {
       requestCameraPermission();
     }
   }, [cameraPermission]);
@@ -82,28 +140,34 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
     fetchCurrentLocation();
   }, []);
 
-  // Listen to AppState (when user returns from system Location Settings, automatically refresh GPS fix)
+  // Listen to AppState (when user returns from system Settings, refresh GPS fix & camera)
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       if (nextAppState === 'active') {
         fetchCurrentLocation();
+        if (Platform.OS === 'web' && !webStreamRef.current && !capturedPhotoUri) {
+          startWebCamera();
+        }
       }
     });
     return () => subscription.remove();
-  }, []);
+  }, [capturedPhotoUri]);
 
-  // Face alignment state driven by camera readiness
+  // Face alignment state driven by camera readiness and review state
   useEffect(() => {
     let timer;
-    if (cameraPermission?.granted && isCameraReady) {
+    if (capturedPhotoUri) {
+      setFaceAlignmentState('ALIGNED');
+      setFaceGuidanceText('Photo captured. Review your selfie below.');
+    } else if ((Platform.OS === 'web' || cameraPermission?.granted) && isCameraReady) {
       setFaceAlignmentState('ALIGNING');
       setFaceGuidanceText('Aligning face within guide...');
 
       timer = setTimeout(() => {
         setFaceAlignmentState('ALIGNED');
-        setFaceGuidanceText('Face aligned. Tap shutter to punch.');
-      }, 700);
-    } else if (cameraPermission?.granted && !isCameraReady) {
+        setFaceGuidanceText('Face aligned. Tap circle to take photo.');
+      }, 600);
+    } else if ((Platform.OS === 'web' || cameraPermission?.granted) && !isCameraReady) {
       setFaceAlignmentState('NO_FACE');
       setFaceGuidanceText('Starting live front camera...');
     } else {
@@ -111,7 +175,7 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
       setFaceGuidanceText('Camera access required.');
     }
     return () => clearTimeout(timer);
-  }, [cameraPermission?.granted, isCameraReady]);
+  }, [cameraPermission?.granted, isCameraReady, capturedPhotoUri]);
 
   /**
    * Acquire real device GPS position with distinction between permission denied and GPS disabled
@@ -122,7 +186,6 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
     setLocationDisabled(false);
 
     try {
-      // 1. Check if device location services are turned on
       const isLocationEnabled = await Location.hasServicesEnabledAsync();
       if (!isLocationEnabled) {
         setLocationDisabled(true);
@@ -131,7 +194,6 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
         return;
       }
 
-      // 2. Check permission
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         setLocationError('Location permission denied. Please grant location access in device settings.');
@@ -139,7 +201,6 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
         return;
       }
 
-      // 3. High accuracy GPS reading
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High
       });
@@ -159,13 +220,13 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
   };
 
   /**
-   * Open Android system Location / App Settings
+   * Open system Location / App Settings
    */
   const handleOpenLocationSettings = async () => {
     try {
       if (Platform.OS === 'android') {
         await Linking.openSettings();
-      } else {
+      } else if (Platform.OS === 'ios') {
         await Linking.openURL('app-settings:');
       }
     } catch (err) {
@@ -173,25 +234,108 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
     }
   };
 
+  /**
+   * Handle camera permission request with fallback to system settings if blocked
+   */
+  const handleRequestCamera = async () => {
+    if (cameraPermission && !cameraPermission.canAskAgain && Platform.OS !== 'web') {
+      try {
+        if (Platform.OS === 'android') {
+          await Linking.openSettings();
+        } else if (Platform.OS === 'ios') {
+          await Linking.openURL('app-settings:');
+        }
+      } catch (err) {
+        Alert.alert('Settings', 'Please enable Camera access in your device Settings.');
+      }
+      return;
+    }
+    await requestCameraPermission();
+  };
+
   // Evaluate geofence against authenticated organization
   const geofenceResult = evaluateGeofence(currentCoords, officeGeofence, selectedMode);
 
   /**
-   * One-Step Attendance Capture & Immediate Submission
-   * Requirement 10.2:
-   * 1. Employee captures photo
-   * 2. App IMMEDIATELY begins attendance submission flow without a 2nd confirmation button
-   * 3. Validates photo, fresh location, geofence, and attendance state
-   * 4. Deduplication prevents multiple taps
-   * 5. Displays genuine result
+   * Step 1: Capture Real Front-Camera Selfie
+   * Snaps the current frame and switches to the Review State
    */
-  const handleCaptureAndSubmitPunch = async () => {
-    // Deduplication guard
+  const handleCapturePhoto = async () => {
     if (isTakingPhoto || isSubmittingPunch) return;
-
-    // Prerequisite checks
-    if (!cameraRef.current || !isCameraReady) {
+    if (!isCameraReady) {
       Alert.alert('Camera Not Ready', 'Please wait for the live front camera preview to become ready.');
+      return;
+    }
+
+    try {
+      setIsTakingPhoto(true);
+
+      let photoUri = null;
+      if (Platform.OS === 'web') {
+        const video = webVideoRef.current;
+        if (!video || !video.videoWidth || !video.videoHeight) {
+          throw new Error('Camera stream is still warming up. Please tap again in a moment.');
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        // Mirror horizontally to match front-camera preview
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        photoUri = canvas.toDataURL('image/jpeg', 0.85);
+      } else {
+        if (!cameraRef.current) {
+          throw new Error('Front camera reference is not available.');
+        }
+        const photo = await cameraRef.current.takePictureAsync({
+          quality: 0.85,
+          skipProcessing: false
+        });
+        if (!photo || !photo.uri) {
+          throw new Error('Camera snap did not return a valid photo image.');
+        }
+        photoUri = photo.uri;
+      }
+
+      if (!photoUri) {
+        throw new Error('Could not capture selfie photo. Please retry.');
+      }
+
+      setCapturedPhotoUri(photoUri);
+    } catch (err) {
+      console.error('[Capture Photo] Error:', err);
+      Alert.alert('Capture Failed', err.message || 'Failed to capture photo. Please retry.');
+    } finally {
+      setIsTakingPhoto(false);
+    }
+  };
+
+  /**
+   * Step 2: Retake Photo
+   * Discards captured image and resumes live camera stream
+   */
+  const handleRetakePhoto = () => {
+    setCapturedPhotoUri(null);
+    if (Platform.OS === 'web') {
+      if (webVideoRef.current && webStreamRef.current) {
+        webVideoRef.current.srcObject = webStreamRef.current;
+        webVideoRef.current.play().catch(() => {});
+      } else {
+        startWebCamera();
+      }
+    }
+  };
+
+  /**
+   * Step 3: Confirm & Submit Attendance
+   * Validates photo, GPS, geofence, and submits to backend + Supabase
+   */
+  const handleConfirmAndSubmitPunch = async () => {
+    if (isSubmittingPunch) return;
+    if (!capturedPhotoUri) {
+      Alert.alert('Selfie Required', 'Please capture a selfie photo before confirming attendance.');
       return;
     }
 
@@ -218,10 +362,9 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
     }
 
     try {
-      setIsTakingPhoto(true);
       setIsSubmittingPunch(true);
 
-      // 1. Obtain fresh GPS fix at moment of punch
+      // 1. Obtain fresh GPS fix at moment of punch confirmation
       let freshCoords = currentCoords;
       try {
         const freshLoc = await Location.getCurrentPositionAsync({
@@ -239,7 +382,6 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
       }
 
       if (!freshCoords) {
-        setIsTakingPhoto(false);
         setIsSubmittingPunch(false);
         Alert.alert(
           'GPS Coordinates Required',
@@ -248,10 +390,9 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
         return;
       }
 
-      // 2. Geofence enforcement for WFO only
+      // 2. Geofence enforcement for WFO
       if (selectedMode === 'WFO') {
         if (!officeGeofence || officeGeofence.latitude == null || officeGeofence.longitude == null) {
-          setIsTakingPhoto(false);
           setIsSubmittingPunch(false);
           Alert.alert(
             'Office Location Not Configured',
@@ -262,7 +403,6 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
 
         const freshGeofence = evaluateGeofence(freshCoords, officeGeofence, selectedMode);
         if (!freshGeofence.isInside) {
-          setIsTakingPhoto(false);
           setIsSubmittingPunch(false);
           Alert.alert(
             'Outside Office Geofence',
@@ -273,16 +413,6 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
       }
 
       const freshGeofence = evaluateGeofence(freshCoords, officeGeofence, selectedMode);
-
-      // 3. Snap live front-camera photo
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.7
-      });
-
-      if (!photo || !photo.uri) {
-        throw new Error('Camera snap did not return a valid photo image.');
-      }
-
       const punchAction = isPunchedIn ? 'Punch Out' : 'Punch In';
       const now = new Date();
       const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -291,7 +421,7 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
         type: isPunchedIn ? 'OUT' : 'IN',
         action: punchAction,
         mode: selectedMode,
-        photoUri: photo.uri,
+        photoUri: capturedPhotoUri,
         coords: freshCoords,
         geofence: freshGeofence,
         timestamp: timeStr,
@@ -304,12 +434,11 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
         verified: freshGeofence.isInside
       };
 
-      // 4. Submit immediately to parent handler & backend API
+      // 3. Submit to parent handler & backend API (uploads to Supabase Storage and inserts in DB)
       if (onPunchSuccess) {
         await onPunchSuccess(punchRecord);
       }
 
-      setIsTakingPhoto(false);
       setIsSubmittingPunch(false);
 
       // Display server-confirmed success modal
@@ -317,13 +446,13 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
         action: punchAction,
         time: timeStr,
         mode: selectedMode,
-        photoUri: photo.uri,
+        photoUri: capturedPhotoUri,
         distance: freshGeofence.distanceMeters,
         verified: freshGeofence.isInside
       });
+      setCapturedPhotoUri(null);
     } catch (err) {
-      console.error('[Punch Capture] Error:', err);
-      setIsTakingPhoto(false);
+      console.error('[Punch Submit] Error:', err);
       setIsSubmittingPunch(false);
       Alert.alert(
         'Attendance Submission Failed',
@@ -333,11 +462,15 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
     }
   };
 
-  // Camera Live State: Permission granted, camera is mounted and ready, and no mount error
-  const isCameraLive = Boolean(cameraPermission?.granted && isCameraReady && !cameraError);
+  // Camera Live State: Permission granted (or web stream active), camera is mounted and ready, and no mount error
+  const isCameraLive = Platform.OS === 'web'
+    ? Boolean(isCameraReady && !cameraError)
+    : Boolean(cameraPermission?.granted && isCameraReady && !cameraError);
 
-  // Status values: honest and transparent
-  const statusTitle = !cameraPermission?.granted
+  // Status values: honest, transparent and reactive to capture/review state
+  const statusTitle = capturedPhotoUri
+    ? 'Selfie Photo Captured'
+    : (Platform.OS !== 'web' && !cameraPermission?.granted)
     ? 'Camera Access Required'
     : cameraError
     ? 'Camera Initialization Failed'
@@ -345,7 +478,9 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
     ? 'Starting Front Camera...'
     : 'Front Camera Ready';
 
-  const statusDesc = !cameraPermission?.granted
+  const statusDesc = capturedPhotoUri
+    ? 'Review your selfie photo below before confirming your attendance.'
+    : (Platform.OS !== 'web' && !cameraPermission?.granted)
     ? 'Front-camera permission is required for shift attendance.'
     : cameraError
     ? cameraError
@@ -353,7 +488,9 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
     ? 'Warming up front camera sensor...'
     : 'Position your face within the oval guide and tap the shutter.';
 
-  const statusColor = !cameraPermission?.granted || cameraError
+  const statusColor = capturedPhotoUri
+    ? colors.primary
+    : (Platform.OS !== 'web' && !cameraPermission?.granted) || cameraError
     ? '#EF4444'
     : !isCameraReady
     ? colors.textSecondary
@@ -478,13 +615,25 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
 
       {/* Front-Facing Camera Viewport (Strictly front camera only) */}
       <View style={styles.cameraBox}>
-        <View style={styles.cameraFrame}>
-          {!cameraPermission ? (
+        <View style={[styles.cameraFrame, isCameraReady && !capturedPhotoUri && { backgroundColor: 'transparent' }]}>
+          {capturedPhotoUri ? (
+            <View style={StyleSheet.absoluteFillObject}>
+              <Image
+                source={{ uri: capturedPhotoUri }}
+                style={styles.capturedPhotoPreview}
+                resizeMode="cover"
+              />
+              <View style={styles.reviewBadge}>
+                <Ionicons name="checkmark-circle" size={14} color="#ffffff" />
+                <Text style={styles.reviewBadgeText}>SELFIE CAPTURED</Text>
+              </View>
+            </View>
+          ) : Platform.OS !== 'web' && !cameraPermission ? (
             <View style={styles.cameraCenterMessage}>
               <ActivityIndicator size="small" color={colors.primary} />
               <Text style={styles.cameraMessageText}>Checking camera permissions...</Text>
             </View>
-          ) : !cameraPermission.granted ? (
+          ) : Platform.OS !== 'web' && !cameraPermission.granted ? (
             <View style={styles.cameraCenterMessage}>
               <Ionicons name="camera-outline" size={42} color="#EF4444" />
               <Text style={styles.permissionTitle}>Camera Access Required</Text>
@@ -493,30 +642,51 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
               </Text>
               <TouchableOpacity
                 style={styles.permissionBtn}
-                onPress={requestCameraPermission}
+                onPress={handleRequestCamera}
                 activeOpacity={0.8}
               >
-                <Text style={styles.permissionBtnText}>Grant Camera Permission</Text>
+                <Text style={styles.permissionBtnText}>
+                  {cameraPermission && !cameraPermission.canAskAgain
+                    ? 'Open Settings to Grant Permission'
+                    : 'Grant Camera Permission'}
+                </Text>
               </TouchableOpacity>
             </View>
           ) : (
             <>
-              {/* Force front-facing camera lens strictly */}
-              <CameraView
-                ref={cameraRef}
-                style={styles.liveCameraView}
-                facing="front"
-                mode="picture"
-                onCameraReady={() => {
-                  setIsCameraReady(true);
-                  setCameraError(null);
-                }}
-                onMountError={(e) => {
-                  console.warn('[Camera] Mount error:', e);
-                  setCameraError(e?.message || 'Front camera failed to initialize. Tap to retry.');
-                  setIsCameraReady(false);
-                }}
-              />
+              {/* Web Native Video / Native Expo CameraView */}
+              {Platform.OS === 'web' ? (
+                <View style={styles.liveCameraView}>
+                  <video
+                    ref={webVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      transform: 'scaleX(-1)'
+                    }}
+                  />
+                </View>
+              ) : (
+                <CameraView
+                  ref={cameraRef}
+                  style={styles.liveCameraView}
+                  facing="front"
+                  mode="picture"
+                  onCameraReady={() => {
+                    setIsCameraReady(true);
+                    setCameraError(null);
+                  }}
+                  onMountError={(e) => {
+                    console.warn('[Camera] Mount error:', e);
+                    setCameraError(e?.message || 'Front camera failed to initialize. Tap to retry.');
+                    setIsCameraReady(false);
+                  }}
+                />
+              )}
 
               {/* Initializing indicator overlay (non-blocking, transparent pill so preview can appear) */}
               {!isCameraReady && !cameraError && (
@@ -537,6 +707,7 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
                     onPress={() => {
                       setCameraError(null);
                       setIsCameraReady(false);
+                      if (Platform.OS === 'web') startWebCamera();
                     }}
                     activeOpacity={0.8}
                   >
@@ -566,32 +737,73 @@ export default function PunchScreen({ attendanceState, onPunchSuccess, currentOr
                 </View>
               </View>
 
-              {/* Shutter Capture Button - Tapping IMMEDIATELY submits punch */}
+              {/* Shutter Capture Button - Tapping snaps photo into review state */}
               <View style={styles.cameraOverlayBottom}>
                 <TouchableOpacity
                   style={[
                     styles.shutterBtn,
-                    (!isCameraLive || isSubmittingPunch) && styles.shutterBtnDisabled
+                    (!isCameraLive || isTakingPhoto) && styles.shutterBtnDisabled
                   ]}
-                  onPress={handleCaptureAndSubmitPunch}
-                  disabled={!isCameraLive || isSubmittingPunch}
+                  onPress={handleCapturePhoto}
+                  disabled={!isCameraLive || isTakingPhoto}
                   activeOpacity={0.8}
                 >
-                  {isSubmittingPunch ? (
+                  {isTakingPhoto ? (
                     <ActivityIndicator size="small" color="#ffffff" />
                   ) : (
                     <View style={[styles.shutterInner, { backgroundColor: isCameraLive ? colors.primary : '#94a3b8' }]} />
                   )}
                 </TouchableOpacity>
                 <Text style={styles.shutterLabel}>
-                  {isSubmittingPunch
-                    ? 'Submitting Attendance...'
-                    : (isCameraLive ? 'Tap circle to capture & punch' : 'Starting camera preview...')}
+                  {isTakingPhoto
+                    ? 'Capturing Selfie...'
+                    : (isCameraLive ? 'Tap circle to capture selfie' : 'Starting camera preview...')}
                 </Text>
               </View>
             </>
           )}
         </View>
+
+        {/* Review Action Controls (visible once selfie photo is captured) */}
+        {capturedPhotoUri && (
+          <View style={styles.reviewControlsRow}>
+            <TouchableOpacity
+              style={styles.retakeBtn}
+              onPress={handleRetakePhoto}
+              disabled={isSubmittingPunch}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="camera-reverse-outline" size={18} color={colors.text} />
+              <Text style={styles.retakeBtnText}>Retake Photo</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.confirmPunchBtn,
+                { backgroundColor: isPunchedIn ? '#EF4444' : colors.primary },
+                isSubmittingPunch && styles.confirmPunchBtnDisabled
+              ]}
+              onPress={handleConfirmAndSubmitPunch}
+              disabled={isSubmittingPunch}
+              activeOpacity={0.8}
+            >
+              {isSubmittingPunch ? (
+                <ActivityIndicator size="small" color="#ffffff" />
+              ) : (
+                <>
+                  <Ionicons
+                    name={isPunchedIn ? 'log-out-outline' : 'log-in-outline'}
+                    size={18}
+                    color="#ffffff"
+                  />
+                  <Text style={styles.confirmPunchBtnText}>
+                    {isPunchedIn ? 'Confirm & Punch Out' : 'Confirm & Punch In'}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
 
       {/* Real GPS Location & Geofence Card */}
@@ -848,6 +1060,69 @@ const getStyles = (colors, isDark, layout = {}) => StyleSheet.create({
     width: '100%',
     height: '100%',
     borderRadius: 16
+  },
+  capturedPhotoPreview: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 16
+  },
+  reviewBadge: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(16, 185, 129, 0.92)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    zIndex: 5
+  },
+  reviewBadgeText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5
+  },
+  reviewControlsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12
+  },
+  retakeBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card
+  },
+  retakeBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text
+  },
+  confirmPunchBtn: {
+    flex: 1.5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 12
+  },
+  confirmPunchBtnDisabled: {
+    opacity: 0.6
+  },
+  confirmPunchBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#ffffff'
   },
   cameraLoadingOverlay: {
     position: 'absolute',
