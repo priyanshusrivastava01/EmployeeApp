@@ -8,11 +8,19 @@ const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'ems-dev-secret-change-in-production';
 
+// Optional pluggable validator for live membership and active user verification
+let userValidator = null;
+
+function setUserValidator(fn) {
+  userValidator = fn;
+}
+
 /**
  * requireAuth — Middleware that validates the Bearer JWT token.
  * Attaches req.user = { id, email, role, organizationId, organizationSlug, name }
+ * Also enforces that the user account and organization membership are active.
  */
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   try {
     const authHeader = req.headers['authorization'];
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -33,6 +41,10 @@ function requireAuth(req, res, next) {
       return res.status(401).json({ success: false, error: 'Invalid authentication token.' });
     }
 
+    if (!decoded.userId || !decoded.organizationId) {
+      return res.status(401).json({ success: false, error: 'Invalid authentication token payload.' });
+    }
+
     // Attach trusted user context from the verified token payload
     req.user = {
       id: decoded.userId,
@@ -42,6 +54,20 @@ function requireAuth(req, res, next) {
       organizationId: decoded.organizationId,
       organizationSlug: decoded.organizationSlug
     };
+
+    // Verify active account and organization membership if validator is registered
+    if (userValidator) {
+      const validation = await userValidator(req.user.id, req.user.organizationId, req.user);
+      if (!validation.valid) {
+        return res.status(validation.status || 403).json({
+          success: false,
+          error: validation.error || 'Access denied. Account is inactive or suspended.'
+        });
+      }
+      if (validation.role) {
+        req.user.role = validation.role;
+      }
+    }
 
     next();
   } catch (err) {
@@ -105,4 +131,4 @@ function generateToken(user, organizationId, organizationSlug) {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
 }
 
-module.exports = { requireAuth, requireRole, requireSameOrg, generateToken };
+module.exports = { requireAuth, requireRole, requireSameOrg, generateToken, setUserValidator };

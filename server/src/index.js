@@ -17,7 +17,7 @@ const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const xlsx = require('xlsx');
 const { supabase } = require('./config/supabase');
-const { requireAuth, requireRole, generateToken } = require('./middleware/auth');
+const { requireAuth, requireRole, generateToken, setUserValidator } = require('./middleware/auth');
 const { BUCKETS, isBase64DataUri, parseBase64DataUri, uploadPrivateFile, getSignedDownloadUrl } = require('./services/storage');
 
 dotenv.config();
@@ -539,6 +539,42 @@ const mem = {
   getAdvancesForUser: (orgId, userId) => (memDb.salaryAdvances || []).filter(a => a.organization_id === orgId && a.user_id === userId).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
   getAdvancesForOrg: (orgId) => (memDb.salaryAdvances || []).filter(a => a.organization_id === orgId).sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTH VALIDATOR HOOK: Enforces active status and organization isolation on every request
+// ─────────────────────────────────────────────────────────────────────────────
+setUserValidator(async (userId, orgId, tokenUser) => {
+  if (supabase && isUuid(userId) && isUuid(orgId)) {
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, organization_id, is_active, role')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (error || !user) {
+      return { valid: false, status: 401, error: 'User account not found.' };
+    }
+    if (user.is_active === false) {
+      return { valid: false, status: 403, error: 'Access denied. Account is inactive or suspended.' };
+    }
+    if (user.organization_id !== orgId) {
+      return { valid: false, status: 403, error: 'Access denied. Invalid organization membership.' };
+    }
+    return { valid: true, role: user.role };
+  } else {
+    const user = mem.findUserById(userId);
+    if (!user) {
+      return { valid: false, status: 401, error: 'User account not found.' };
+    }
+    if (user.is_active === false || user.status === 'inactive' || user.status === 'suspended') {
+      return { valid: false, status: 403, error: 'Access denied. Account is inactive or suspended.' };
+    }
+    if (user.organization_id !== orgId) {
+      return { valid: false, status: 403, error: 'Access denied. Invalid organization membership.' };
+    }
+    return { valid: true, role: user.role };
+  }
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // IDENTIFIER GENERATION & CRYPTO HELPERS
@@ -2810,12 +2846,22 @@ app.get('/api/attendance/stats', requireAuth, requireRole(['founder', 'admin', '
         return punchTotalMin > workStartTotalMin;
       }).length;
 
-      // 4. Pending leaves from database
-      const { count: pendingLeavesCount } = await supabase
-        .from('leaves')
+      // 4. Pending leaves from database (strictly scoped to org and team scope, status = 'pending')
+      let leavesQuery = supabase
+        .from('leave_applications')
         .select('*', { count: 'exact', head: true })
         .eq('organization_id', req.user.organizationId)
         .eq('status', 'pending');
+
+      if (req.user.role === 'team_leader') {
+        const teamIds = (orgUsers || []).map(u => u.id);
+        leavesQuery = leavesQuery.in('user_id', teamIds.length > 0 ? teamIds : [req.user.id]);
+      }
+
+      const { count: pendingLeavesCount, error: leavesErr } = await leavesQuery;
+      if (leavesErr) {
+        console.error('[Attendance Stats Leaves Error]:', leavesErr.message);
+      }
 
       const statsData = {
         totalEmployees: activeUsers.length,
@@ -2872,6 +2918,14 @@ app.get('/api/attendance/stats', requireAuth, requireRole(['founder', 'admin', '
 
     const totalActive = orgUsers.filter(u => u.is_active && u.role !== 'admin' && u.role !== 'founder').length;
 
+    let pendingLeavesList = mem.getLeavesForOrg(req.user.organizationId, null).filter(l => l.status === 'pending');
+    if (req.user.role === 'team_leader') {
+      const teamIds = new Set(
+        orgUsers.filter(u => u.team_leader_id === req.user.id || u.id === req.user.id).map(u => u.id)
+      );
+      pendingLeavesList = pendingLeavesList.filter(l => teamIds.has(l.user_id));
+    }
+
     const statsData = {
       totalEmployees: orgUsers.filter(u => u.role !== 'admin' && u.role !== 'founder').length,
       activeEmployees: totalActive,
@@ -2880,7 +2934,7 @@ app.get('/api/attendance/stats', requireAuth, requireRole(['founder', 'admin', '
       lateArrivals,
       wfoCount,
       wfhCount,
-      pendingLeaves: mem.getLeavesForOrg(req.user.organizationId, null).filter(l => l.status === 'pending').length,
+      pendingLeaves: pendingLeavesList.length,
       pendingReports: 0,
       source: 'memory'
     };
@@ -5146,8 +5200,20 @@ app.get('/api/leaves', requireAuth, async (req, res) => {
     if (isEmployee) {
       targetUserId = req.user.id;
     } else if (isTeamLeader) {
-      const team = mem.getUsersForOrg(req.user.organizationId).filter(u => u.team_leader_id === req.user.id || u.id === req.user.id);
-      allowedTeamIds = new Set(team.map(u => u.id));
+      let teamMemberIds = [];
+      if (supabase && isUuid(req.user.organizationId)) {
+        const { data: teamUsers } = await supabase
+          .from('users')
+          .select('id')
+          .eq('organization_id', req.user.organizationId)
+          .or(`team_leader_id.eq.${req.user.id},id.eq.${req.user.id}`);
+        teamMemberIds = (teamUsers || []).map(u => u.id);
+      } else {
+        const team = mem.getUsersForOrg(req.user.organizationId).filter(u => u.team_leader_id === req.user.id || u.id === req.user.id);
+        teamMemberIds = team.map(u => u.id);
+      }
+      allowedTeamIds = new Set(teamMemberIds);
+
       if (req.query.user_id) {
         if (!allowedTeamIds.has(req.query.user_id)) {
           return res.status(403).json({ success: false, error: 'Access denied. You can only view leaves for your assigned team members.' });
@@ -5155,40 +5221,119 @@ app.get('/api/leaves', requireAuth, async (req, res) => {
         targetUserId = req.query.user_id;
       }
     } else {
-      targetUserId = req.query.user_id || null;
+      // Founder or Admin
+      if (req.query.user_id) {
+        if (supabase && isUuid(req.user.organizationId)) {
+          const { data: userInOrg } = await supabase
+            .from('users')
+            .select('id')
+            .eq('id', req.query.user_id)
+            .eq('organization_id', req.user.organizationId)
+            .maybeSingle();
+          if (!userInOrg) {
+            return res.status(404).json({ success: false, error: 'Employee not found in your organization.' });
+          }
+        } else {
+          const userInOrg = mem.getUsersForOrg(req.user.organizationId).find(u => u.id === req.query.user_id);
+          if (!userInOrg) {
+            return res.status(404).json({ success: false, error: 'Employee not found in your organization.' });
+          }
+        }
+        targetUserId = req.query.user_id;
+      }
     }
 
     let leaves = [];
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       let query = supabase.from('leave_applications')
         .select('*')
         .eq('organization_id', req.user.organizationId);
-      if (targetUserId) query = query.eq('user_id', targetUserId);
-      if (isTeamLeader && !targetUserId && allowedTeamIds) {
-        query = query.in('user_id', Array.from(allowedTeamIds));
+      if (targetUserId) {
+        query = query.eq('user_id', targetUserId);
+      } else if (isTeamLeader && allowedTeamIds) {
+        const teamArr = Array.from(allowedTeamIds);
+        query = query.in('user_id', teamArr.length > 0 ? teamArr : [req.user.id]);
       }
-      if (req.query.status && req.query.status !== 'all') query = query.eq('status', req.query.status);
+      if (req.query.status && req.query.status !== 'all') query = query.eq('status', req.query.status.toLowerCase());
       query = query.order('created_at', { ascending: false });
       const { data, error } = await query;
       if (error) {
         console.error('[Leaves Get Supabase Error]:', error.message);
         return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
       }
-      if (data) leaves = data;
+      leaves = data || [];
+      return res.json({ success: true, data: leaves, total: leaves.length, source: 'supabase' });
     }
 
-    if (!leaves.length) {
-      leaves = mem.getLeavesForOrg(req.user.organizationId, targetUserId);
-      if (isTeamLeader && !targetUserId && allowedTeamIds) {
-        leaves = leaves.filter(l => allowedTeamIds.has(l.user_id));
-      }
-      if (req.query.status && req.query.status !== 'all') {
-        leaves = leaves.filter(l => l.status === req.query.status);
-      }
+    // In-memory fallback ONLY when !supabase
+    leaves = mem.getLeavesForOrg(req.user.organizationId, targetUserId);
+    if (isTeamLeader && !targetUserId && allowedTeamIds) {
+      leaves = leaves.filter(l => allowedTeamIds.has(l.user_id));
     }
-    res.json({ success: true, data: leaves, total: leaves.length });
+    if (req.query.status && req.query.status !== 'all') {
+      leaves = leaves.filter(l => l.status?.toLowerCase() === req.query.status.toLowerCase());
+    }
+    res.json({ success: true, data: leaves, total: leaves.length, source: 'memory' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch leaves.' });
+  }
+});
+
+// GET single leave application details with ownership and team scope verification
+app.get('/api/leaves/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    let leave = null;
+
+    if (supabase && isUuid(req.user.organizationId)) {
+      const { data, error } = await supabase
+        .from('leave_applications')
+        .select('*')
+        .eq('id', id)
+        .eq('organization_id', req.user.organizationId)
+        .maybeSingle();
+      if (error) {
+        return res.status(500).json({ success: false, error: 'Failed to fetch leave request: ' + error.message });
+      }
+      leave = data;
+    } else {
+      leave = memDb.leaves.find(l => l.id === id && l.organization_id === req.user.organizationId);
+    }
+
+    if (!leave) {
+      return res.status(404).json({ success: false, error: 'Leave request not found.' });
+    }
+
+    // Role-based authorization
+    if (req.user.role === 'employee') {
+      if (leave.user_id !== req.user.id) {
+        return res.status(403).json({ success: false, error: 'Access denied. You can only view your own leave requests.' });
+      }
+    } else if (req.user.role === 'team_leader') {
+      if (leave.user_id !== req.user.id) {
+        let isTeamMember = false;
+        if (supabase && isUuid(req.user.organizationId)) {
+          const { data: member } = await supabase
+            .from('users')
+            .select('id')
+            .eq('id', leave.user_id)
+            .eq('organization_id', req.user.organizationId)
+            .eq('team_leader_id', req.user.id)
+            .maybeSingle();
+          isTeamMember = Boolean(member);
+        } else {
+          const user = mem.findUserById(leave.user_id);
+          isTeamMember = user && user.team_leader_id === req.user.id;
+        }
+        if (!isTeamMember) {
+          return res.status(403).json({ success: false, error: 'Access denied. You can only view leave requests for your assigned team members.' });
+        }
+      }
+    }
+
+    res.json({ success: true, data: leave });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to fetch leave request details.' });
   }
 });
 
@@ -5220,7 +5365,7 @@ app.post('/api/leaves', requireAuth, async (req, res) => {
       updated_at: new Date().toISOString()
     };
 
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const dbLeave = {
         id: newLeave.id,
         organization_id: newLeave.organization_id,
@@ -5239,10 +5384,11 @@ app.post('/api/leaves', requireAuth, async (req, res) => {
         console.error('[Leave Post Supabase Error]:', error.message);
         return res.status(500).json({ success: false, error: 'Failed to submit leave in database: ' + error.message });
       }
+      return res.status(201).json({ success: true, data, source: 'supabase' });
     }
 
     memDb.leaves.push(newLeave);
-    res.status(201).json({ success: true, data: newLeave, source: supabase ? 'supabase' : 'memory' });
+    res.status(201).json({ success: true, data: newLeave, source: 'memory' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to submit leave request.' });
   }
@@ -5258,28 +5404,113 @@ const handleLeaveUpdate = async (req, res) => {
       return res.status(400).json({ success: false, error: 'Invalid status. Use: approved, rejected, or cancelled.' });
     }
 
-    if (supabase) {
+    // 1. Fetch existing leave request to verify existence, tenant isolation, and current status
+    let existingLeave = null;
+    if (supabase && isUuid(req.user.organizationId)) {
+      const { data, error } = await supabase
+        .from('leave_applications')
+        .select('*')
+        .eq('id', id)
+        .eq('organization_id', req.user.organizationId)
+        .maybeSingle();
+      if (error) {
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
+      }
+      existingLeave = data;
+    } else {
+      existingLeave = memDb.leaves.find(l => l.id === id && l.organization_id === req.user.organizationId);
+    }
+
+    if (!existingLeave) {
+      return res.status(404).json({ success: false, error: 'Leave request not found.' });
+    }
+
+    // 2. Prevent race conditions and duplicate approvals: must currently be 'pending'
+    if (existingLeave.status !== 'pending') {
+      return res.status(409).json({
+        success: false,
+        error: `Cannot modify leave request. It has already been ${existingLeave.status}.`
+      });
+    }
+
+    // 3. Permission checks by status transition
+    if (status === 'cancelled') {
+      // Employee can cancel their own pending leave request; Admin/Founder can also cancel
+      const isOwner = existingLeave.user_id === req.user.id;
+      const isManagement = ['founder', 'admin'].includes(req.user.role);
+      if (!isOwner && !isManagement) {
+        return res.status(403).json({ success: false, error: 'Access denied. You can only cancel your own leave requests.' });
+      }
+    } else if (['approved', 'rejected'].includes(status)) {
+      // Ordinary employees CANNOT approve or reject any leave request
+      if (req.user.role === 'employee') {
+        return res.status(403).json({ success: false, error: 'Access denied. Employees cannot approve or reject leave requests.' });
+      }
+
+      // Self-approval is strictly prohibited: users cannot approve or reject their own leave requests
+      if (existingLeave.user_id === req.user.id) {
+        return res.status(403).json({ success: false, error: 'Access denied. You cannot approve or reject your own leave request.' });
+      }
+
+      // Team Leader scope: must be assigned team leader of the applicant
+      if (req.user.role === 'team_leader') {
+        let isAssignedTL = false;
+        if (supabase && isUuid(req.user.organizationId)) {
+          const { data: member } = await supabase
+            .from('users')
+            .select('id')
+            .eq('id', existingLeave.user_id)
+            .eq('organization_id', req.user.organizationId)
+            .eq('team_leader_id', req.user.id)
+            .maybeSingle();
+          isAssignedTL = Boolean(member);
+        } else {
+          const user = mem.findUserById(existingLeave.user_id);
+          isAssignedTL = user && user.team_leader_id === req.user.id;
+        }
+        if (!isAssignedTL) {
+          return res.status(403).json({
+            success: false,
+            error: 'Access denied. Team leaders can only review leave requests for their assigned team members.'
+          });
+        }
+      }
+
+      // Rejection reason is mandatory
+      if (status === 'rejected' && (!remarks || !remarks.trim())) {
+        return res.status(400).json({ success: false, error: 'Rejection reason is mandatory when rejecting a leave application.' });
+      }
+    }
+
+    const reviewedAt = new Date().toISOString();
+
+    // 4. Atomic update: ensure condition on status = 'pending' to prevent concurrent overwrite
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data, error } = await supabase.from('leave_applications')
         .update({
           status,
           reviewed_by: req.user.id,
           review_remarks: remarks,
-          reviewed_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          reviewed_at: reviewedAt,
+          updated_at: reviewedAt
         })
         .eq('id', id)
         .eq('organization_id', req.user.organizationId)
+        .eq('status', 'pending')
         .select()
-        .single();
+        .maybeSingle();
+
       if (error) {
         console.error('[Leave Update Supabase Error]:', error.message);
         return res.status(500).json({ success: false, error: 'Failed to update leave in database: ' + error.message });
       }
-      if (data) {
-        const idx = memDb.leaves.findIndex(l => l.id === id);
-        if (idx !== -1) memDb.leaves[idx] = { ...memDb.leaves[idx], ...data };
-        return res.json({ success: true, data, source: 'supabase' });
+      if (!data) {
+        return res.status(409).json({ success: false, error: 'Leave request was already modified or is no longer pending.' });
       }
+
+      const idx = memDb.leaves.findIndex(l => l.id === id);
+      if (idx !== -1) memDb.leaves[idx] = { ...memDb.leaves[idx], ...data };
+      return res.json({ success: true, data, source: 'supabase' });
     }
 
     const idx = memDb.leaves.findIndex(l => l.id === id && l.organization_id === req.user.organizationId);
@@ -5292,8 +5523,8 @@ const handleLeaveUpdate = async (req, res) => {
       reviewed_by_name: req.user.name,
       review_remarks: remarks,
       decision_comment: remarks,
-      reviewed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      reviewed_at: reviewedAt,
+      updated_at: reviewedAt
     };
 
     res.json({ success: true, data: memDb.leaves[idx], source: 'memory' });
@@ -5302,8 +5533,8 @@ const handleLeaveUpdate = async (req, res) => {
   }
 };
 
-app.patch('/api/leaves/:id', requireAuth, requireRole(['admin', 'team_leader']), handleLeaveUpdate);
-app.patch('/api/leaves/:id/status', requireAuth, requireRole(['admin', 'team_leader']), handleLeaveUpdate);
+app.patch('/api/leaves/:id', requireAuth, handleLeaveUpdate);
+app.patch('/api/leaves/:id/status', requireAuth, handleLeaveUpdate);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ANNOUNCEMENTS (org-scoped)
@@ -5783,31 +6014,152 @@ app.patch('/api/profile', requireAuth, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TIMESHEETS
+// TIMESHEETS (Employee ownership, TL team-scoping, and Admin oversight)
 // ─────────────────────────────────────────────────────────────────────────────
 
 app.get('/api/timesheets', requireAuth, async (req, res) => {
   try {
-    const isAdmin = ['founder', 'admin', 'team_leader'].includes(req.user.role);
-    const targetUserId = isAdmin ? (req.query.user_id || null) : req.user.id;
+    const isFounderOrAdmin = ['founder', 'admin'].includes(req.user.role);
+    const isTeamLeader = req.user.role === 'team_leader';
+    const isEmployee = req.user.role === 'employee';
 
-    if (supabase) {
+    let targetUserId = null;
+    let allowedTeamIds = null;
+
+    if (isEmployee) {
+      // Employees can ONLY ever view their own timesheet entries
+      targetUserId = req.user.id;
+    } else if (isTeamLeader) {
+      // Team Leaders can only access their assigned team members (and themselves)
+      let teamMemberIds = [];
+      if (supabase && isUuid(req.user.organizationId)) {
+        const { data: teamUsers } = await supabase
+          .from('users')
+          .select('id')
+          .eq('organization_id', req.user.organizationId)
+          .or(`team_leader_id.eq.${req.user.id},id.eq.${req.user.id}`);
+        teamMemberIds = (teamUsers || []).map(u => u.id);
+      } else {
+        const team = mem.getUsersForOrg(req.user.organizationId).filter(u => u.team_leader_id === req.user.id || u.id === req.user.id);
+        teamMemberIds = team.map(u => u.id);
+      }
+      allowedTeamIds = new Set(teamMemberIds);
+
+      if (req.query.user_id) {
+        if (!allowedTeamIds.has(req.query.user_id)) {
+          return res.status(403).json({ success: false, error: 'Access denied. You can only view timesheets for your assigned team members.' });
+        }
+        targetUserId = req.query.user_id;
+      }
+    } else {
+      // Founder or Admin
+      if (req.query.user_id) {
+        if (supabase && isUuid(req.user.organizationId)) {
+          const { data: userInOrg } = await supabase
+            .from('users')
+            .select('id')
+            .eq('id', req.query.user_id)
+            .eq('organization_id', req.user.organizationId)
+            .maybeSingle();
+          if (!userInOrg) {
+            return res.status(404).json({ success: false, error: 'Employee not found in your organization.' });
+          }
+        } else {
+          const userInOrg = mem.getUsersForOrg(req.user.organizationId).find(u => u.id === req.query.user_id);
+          if (!userInOrg) {
+            return res.status(404).json({ success: false, error: 'Employee not found in your organization.' });
+          }
+        }
+        targetUserId = req.query.user_id;
+      }
+    }
+
+    if (supabase && isUuid(req.user.organizationId)) {
       let query = supabase.from('timesheet_entries').select('*').eq('organization_id', req.user.organizationId);
-      if (targetUserId) query = query.eq('user_id', targetUserId);
+      if (targetUserId) {
+        query = query.eq('user_id', targetUserId);
+      } else if (isTeamLeader && allowedTeamIds) {
+        const teamArr = Array.from(allowedTeamIds);
+        query = query.in('user_id', teamArr.length > 0 ? teamArr : [req.user.id]);
+      }
       query = query.order('work_date', { ascending: false });
       const { data, error } = await query;
       if (error) {
         console.error('[Timesheets Supabase Error]:', error.message);
         return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
       }
-      return res.json({ success: true, data: data || [], source: 'supabase' });
+      return res.json({ success: true, data: data || [], total: (data || []).length, source: 'supabase' });
     }
 
+    // In-memory fallback ONLY when !supabase
     let list = memDb.timesheets.filter(t => t.organization_id === req.user.organizationId);
-    if (targetUserId) list = list.filter(t => t.user_id === targetUserId);
-    res.json({ success: true, data: list, source: 'memory' });
+    if (targetUserId) {
+      list = list.filter(t => t.user_id === targetUserId);
+    } else if (isTeamLeader && allowedTeamIds) {
+      list = list.filter(t => allowedTeamIds.has(t.user_id));
+    }
+    list.sort((a, b) => new Date(b.work_date || b.created_at) - new Date(a.work_date || a.created_at));
+    res.json({ success: true, data: list, total: list.length, source: 'memory' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to fetch timesheets.' });
+  }
+});
+
+// GET single timesheet entry with IDOR protection
+app.get('/api/timesheets/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    let entry = null;
+
+    if (supabase && isUuid(req.user.organizationId)) {
+      const { data, error } = await supabase
+        .from('timesheet_entries')
+        .select('*')
+        .eq('id', id)
+        .eq('organization_id', req.user.organizationId)
+        .maybeSingle();
+      if (error) {
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
+      }
+      entry = data;
+    } else {
+      entry = memDb.timesheets.find(t => t.id === id && t.organization_id === req.user.organizationId);
+    }
+
+    if (!entry) {
+      return res.status(404).json({ success: false, error: 'Timesheet entry not found.' });
+    }
+
+    // Role-based authorization
+    if (req.user.role === 'employee') {
+      if (entry.user_id !== req.user.id) {
+        return res.status(403).json({ success: false, error: 'Access denied. You can only view your own timesheet entries.' });
+      }
+    } else if (req.user.role === 'team_leader') {
+      if (entry.user_id !== req.user.id) {
+        let isTeamMember = false;
+        if (supabase && isUuid(req.user.organizationId)) {
+          const { data: member } = await supabase
+            .from('users')
+            .select('id')
+            .eq('id', entry.user_id)
+            .eq('organization_id', req.user.organizationId)
+            .eq('team_leader_id', req.user.id)
+            .maybeSingle();
+          isTeamMember = Boolean(member);
+        } else {
+          const user = mem.findUserById(entry.user_id);
+          isTeamMember = user && user.team_leader_id === req.user.id;
+        }
+        if (!isTeamMember) {
+          return res.status(403).json({ success: false, error: 'Access denied. You can only view timesheets for your assigned team members.' });
+        }
+      }
+    }
+
+    res.json({ success: true, data: entry });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to fetch timesheet entry.' });
   }
 });
 
@@ -5816,25 +6168,35 @@ app.post('/api/timesheets', requireAuth, async (req, res) => {
     const { workDate, projectName, taskDescription, hoursSpent } = req.body;
     const pName = projectName || req.body.project || 'General Tasks';
     const taskDesc = taskDescription || req.body.tasksSummary || req.body.summary || req.body.description;
-    const hours = hoursSpent !== undefined ? hoursSpent : (req.body.totalHours !== undefined ? req.body.totalHours : req.body.hours);
+    const rawHours = hoursSpent !== undefined ? hoursSpent : (req.body.totalHours !== undefined ? req.body.totalHours : req.body.hours);
 
-    if (!pName || !taskDesc || !hours) {
+    if (!pName || !taskDesc || rawHours === undefined || rawHours === null) {
       return res.status(400).json({ success: false, error: 'projectName, taskDescription, and hoursSpent are required.' });
     }
+
+    const hours = Number(rawHours);
+    if (isNaN(hours) || hours <= 0 || hours > 24) {
+      return res.status(400).json({ success: false, error: 'hoursSpent must be a valid number between 0.1 and 24.' });
+    }
+
+    // Force user_id and organization_id from verified auth token
+    const requestedStatus = req.body.status;
+    const initialStatus = requestedStatus === 'draft' ? 'draft' : 'submitted';
+
     const entry = {
       id: generateUUID(),
       organization_id: req.user.organizationId,
       user_id: req.user.id,
       work_date: workDate || req.body.weekStartDate || new Date().toISOString().slice(0, 10),
-      project_name: pName,
-      task_description: taskDesc,
-      hours_spent: Number(hours),
-      status: 'submitted',
+      project_name: pName.trim(),
+      task_description: taskDesc.trim(),
+      hours_spent: hours,
+      status: initialStatus,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
 
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data, error } = await supabase.from('timesheet_entries').insert(entry).select().single();
       if (error) {
         console.error('[Create Timesheet Supabase Error]:', error.message);
@@ -5847,6 +6209,186 @@ app.post('/api/timesheets', requireAuth, async (req, res) => {
     res.status(201).json({ success: true, data: entry, source: 'memory' });
   } catch (err) {
     res.status(500).json({ success: false, error: 'Failed to log timesheet.' });
+  }
+});
+
+// Update or approve/reject timesheet entry
+const handleTimesheetUpdate = async (req, res) => {
+  try {
+    const { id } = req.params;
+    let existingEntry = null;
+
+    if (supabase && isUuid(req.user.organizationId)) {
+      const { data, error } = await supabase
+        .from('timesheet_entries')
+        .select('*')
+        .eq('id', id)
+        .eq('organization_id', req.user.organizationId)
+        .maybeSingle();
+      if (error) {
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
+      }
+      existingEntry = data;
+    } else {
+      existingEntry = memDb.timesheets.find(t => t.id === id && t.organization_id === req.user.organizationId);
+    }
+
+    if (!existingEntry) {
+      return res.status(404).json({ success: false, error: 'Timesheet entry not found.' });
+    }
+
+    const updates = { updated_at: new Date().toISOString() };
+
+    // Employee authorization rules
+    if (req.user.role === 'employee') {
+      if (existingEntry.user_id !== req.user.id) {
+        return res.status(403).json({ success: false, error: 'Access denied. You can only update your own timesheet entries.' });
+      }
+      if (existingEntry.status === 'approved') {
+        return res.status(403).json({ success: false, error: 'Cannot update a timesheet entry that has already been approved.' });
+      }
+      if (req.body.status && !['draft', 'submitted'].includes(req.body.status)) {
+        return res.status(403).json({ success: false, error: 'Employees cannot approve timesheet entries.' });
+      }
+
+      if (req.body.projectName || req.body.project) updates.project_name = (req.body.projectName || req.body.project).trim();
+      if (req.body.taskDescription || req.body.tasksSummary || req.body.activity) {
+        updates.task_description = (req.body.taskDescription || req.body.tasksSummary || req.body.activity).trim();
+      }
+      if (req.body.hoursSpent !== undefined || req.body.hours !== undefined) {
+        const h = Number(req.body.hoursSpent !== undefined ? req.body.hoursSpent : req.body.hours);
+        if (isNaN(h) || h <= 0 || h > 24) {
+          return res.status(400).json({ success: false, error: 'hoursSpent must be a valid number between 0.1 and 24.' });
+        }
+        updates.hours_spent = h;
+      }
+      if (req.body.workDate || req.body.date) updates.work_date = req.body.workDate || req.body.date;
+      if (req.body.status) updates.status = req.body.status;
+    } else if (req.user.role === 'team_leader') {
+      // Team leaders: Cannot approve own timesheet
+      if (existingEntry.user_id === req.user.id && ['approved', 'rejected'].includes(req.body.status)) {
+        return res.status(403).json({ success: false, error: 'Team leaders cannot approve their own timesheet entries.' });
+      }
+
+      // Must be on assigned team
+      let isTeamMember = false;
+      if (supabase && isUuid(req.user.organizationId)) {
+        const { data: member } = await supabase
+          .from('users')
+          .select('id')
+          .eq('id', existingEntry.user_id)
+          .eq('organization_id', req.user.organizationId)
+          .eq('team_leader_id', req.user.id)
+          .maybeSingle();
+        isTeamMember = Boolean(member);
+      } else {
+        const user = mem.findUserById(existingEntry.user_id);
+        isTeamMember = user && user.team_leader_id === req.user.id;
+      }
+      if (!isTeamMember && existingEntry.user_id !== req.user.id) {
+        return res.status(403).json({ success: false, error: 'Access denied. You can only review timesheets for your assigned team members.' });
+      }
+
+      if (req.body.status && ['approved', 'rejected', 'submitted', 'draft'].includes(req.body.status)) {
+        updates.status = req.body.status;
+      }
+      if (req.body.reviewRemarks || req.body.remarks) updates.review_remarks = req.body.reviewRemarks || req.body.remarks;
+    } else {
+      // Founder or Admin: Cannot approve/reject own timesheet
+      if (existingEntry.user_id === req.user.id && ['approved', 'rejected'].includes(req.body.status)) {
+        return res.status(403).json({ success: false, error: 'Founders and Admins cannot approve their own timesheet entries.' });
+      }
+      if (req.body.status && ['approved', 'rejected', 'submitted', 'draft'].includes(req.body.status)) {
+        updates.status = req.body.status;
+      }
+      if (req.body.reviewRemarks || req.body.remarks) updates.review_remarks = req.body.reviewRemarks || req.body.remarks;
+      if (req.body.projectName) updates.project_name = req.body.projectName.trim();
+      if (req.body.taskDescription) updates.task_description = req.body.taskDescription.trim();
+      if (req.body.hoursSpent !== undefined) updates.hours_spent = Number(req.body.hoursSpent);
+    }
+
+    if (supabase && isUuid(req.user.organizationId)) {
+      const { data, error } = await supabase
+        .from('timesheet_entries')
+        .update(updates)
+        .eq('id', id)
+        .eq('organization_id', req.user.organizationId)
+        .select()
+        .single();
+      if (error) {
+        console.error('[Update Timesheet Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database update failed: ' + error.message });
+      }
+      const idx = memDb.timesheets.findIndex(t => t.id === id);
+      if (idx !== -1) memDb.timesheets[idx] = { ...memDb.timesheets[idx], ...data };
+      return res.json({ success: true, data, source: 'supabase' });
+    }
+
+    const idx = memDb.timesheets.findIndex(t => t.id === id && t.organization_id === req.user.organizationId);
+    memDb.timesheets[idx] = { ...memDb.timesheets[idx], ...updates };
+    res.json({ success: true, data: memDb.timesheets[idx], source: 'memory' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to update timesheet entry.' });
+  }
+};
+
+app.patch('/api/timesheets/:id', requireAuth, handleTimesheetUpdate);
+app.put('/api/timesheets/:id', requireAuth, handleTimesheetUpdate);
+
+// DELETE timesheet entry
+app.delete('/api/timesheets/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    let existingEntry = null;
+
+    if (supabase && isUuid(req.user.organizationId)) {
+      const { data, error } = await supabase
+        .from('timesheet_entries')
+        .select('*')
+        .eq('id', id)
+        .eq('organization_id', req.user.organizationId)
+        .maybeSingle();
+      if (error) {
+        return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
+      }
+      existingEntry = data;
+    } else {
+      existingEntry = memDb.timesheets.find(t => t.id === id && t.organization_id === req.user.organizationId);
+    }
+
+    if (!existingEntry) {
+      return res.status(404).json({ success: false, error: 'Timesheet entry not found.' });
+    }
+
+    if (req.user.role === 'employee') {
+      if (existingEntry.user_id !== req.user.id) {
+        return res.status(403).json({ success: false, error: 'Access denied. You can only delete your own timesheet entries.' });
+      }
+      if (existingEntry.status === 'approved') {
+        return res.status(403).json({ success: false, error: 'Cannot delete a timesheet entry that has already been approved.' });
+      }
+    } else if (req.user.role === 'team_leader') {
+      return res.status(403).json({ success: false, error: 'Access denied. Only the entry owner or an administrator can delete timesheets.' });
+    }
+
+    if (supabase && isUuid(req.user.organizationId)) {
+      const { error } = await supabase
+        .from('timesheet_entries')
+        .delete()
+        .eq('id', id)
+        .eq('organization_id', req.user.organizationId);
+      if (error) {
+        console.error('[Delete Timesheet Supabase Error]:', error.message);
+        return res.status(500).json({ success: false, error: 'Database deletion failed: ' + error.message });
+      }
+    }
+
+    const idx = memDb.timesheets.findIndex(t => t.id === id && t.organization_id === req.user.organizationId);
+    if (idx !== -1) memDb.timesheets.splice(idx, 1);
+
+    res.json({ success: true, message: 'Timesheet entry deleted successfully.' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to delete timesheet entry.' });
   }
 });
 
