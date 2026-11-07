@@ -22,6 +22,8 @@ import AdminAnnouncementsScreen from './AdminAnnouncementsScreen';
 import AdminGeofenceScreen from './AdminGeofenceScreen';
 import AdminSettingsScreen from './AdminSettingsScreen';
 import AdminAuditsScreen from './AdminAuditsScreen';
+import AdminRulesScreen from './AdminRulesScreen';
+import { HolidaysScreen, CelebrationsScreen } from '../FeatureScreens';
 
 export default function AdminDashboard({ user, organization, onLogout }) {
   const { colors, isDark, setPreference } = useTheme();
@@ -30,6 +32,12 @@ export default function AdminDashboard({ user, organization, onLogout }) {
   const styles = getStyles(colors, isDark, layout);
 
   const [activeScreen, setActiveScreen] = useState('home');
+  const [screenParams, setScreenParams] = useState({});
+
+  const handleNavigate = (screenKey, params = {}) => {
+    setScreenParams(params || {});
+    setActiveScreen(screenKey);
+  };
 
   const isTeamLeader = user?.role === 'team_leader';
   const roleDisplay = user?.role === 'founder'
@@ -41,26 +49,36 @@ export default function AdminDashboard({ user, organization, onLogout }) {
   const renderScreen = () => {
     switch (activeScreen) {
       case 'employees':
-        return <AdminEmployeesScreen onBack={() => setActiveScreen('home')} user={user} organization={organization} />;
+        return <AdminEmployeesScreen onBack={() => handleNavigate('home')} user={user} organization={organization} />;
       case 'attendance':
-        return <AdminAttendanceScreen onBack={() => setActiveScreen('home')} user={user} organization={organization} />;
+        return <AdminAttendanceScreen onBack={() => handleNavigate('home')} user={user} organization={organization} />;
+      case 'advances':
+        return <AdminLeaveScreen onBack={() => handleNavigate('home')} user={user} organization={organization} initialTab="advances" />;
       case 'leaves':
-        return <AdminLeaveScreen onBack={() => setActiveScreen('home')} user={user} organization={organization} />;
+        return <AdminLeaveScreen onBack={() => handleNavigate('home')} user={user} organization={organization} initialTab={screenParams?.tab || 'leaves'} />;
+      case 'bank':
+        return <AdminLeaveScreen onBack={() => handleNavigate('home')} user={user} organization={organization} initialTab="bank" />;
+      case 'holidays':
+        return <HolidaysScreen onBack={() => handleNavigate('home')} />;
+      case 'rules':
+        return <AdminRulesScreen onBack={() => handleNavigate('home')} user={user} organization={organization} />;
+      case 'celebrations':
+        return <CelebrationsScreen onBack={() => handleNavigate('home')} />;
       case 'reports':
-        return <AdminReportsScreen onBack={() => setActiveScreen('home')} user={user} organization={organization} />;
+        return <AdminReportsScreen onBack={() => handleNavigate('home')} user={user} organization={organization} />;
       case 'audits':
-        return <AdminAuditsScreen onBack={() => setActiveScreen('home')} user={user} organization={organization} />;
+        return <AdminAuditsScreen onBack={() => handleNavigate('home')} user={user} organization={organization} />;
       case 'announcements':
-        return <AdminAnnouncementsScreen onBack={() => setActiveScreen('home')} user={user} organization={organization} />;
+        return <AdminAnnouncementsScreen onBack={() => handleNavigate('home')} user={user} organization={organization} />;
       case 'geofence':
-        return <AdminGeofenceScreen onBack={() => setActiveScreen('home')} user={user} organization={organization} />;
+        return <AdminGeofenceScreen onBack={() => handleNavigate('home')} user={user} organization={organization} />;
       case 'settings':
-        return <AdminSettingsScreen onBack={() => setActiveScreen('home')} onLogout={onLogout} user={user} organization={organization} />;
+        return <AdminSettingsScreen onBack={() => handleNavigate('home')} onLogout={onLogout} user={user} organization={organization} />;
       case 'home':
       default:
         return (
           <AdminHomeScreen
-            onNavigate={(screenKey) => setActiveScreen(screenKey)}
+            onNavigate={handleNavigate}
             user={user}
             organization={organization}
           />
@@ -150,7 +168,7 @@ export default function AdminDashboard({ user, organization, onLogout }) {
             <TouchableOpacity
               key={tab.id}
               style={styles.tabBtn}
-              onPress={() => setActiveScreen(tab.id)}
+              onPress={() => handleNavigate(tab.id, { tab: 'leaves' })}
               activeOpacity={0.7}
             >
               <Ionicons

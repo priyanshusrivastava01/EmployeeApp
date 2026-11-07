@@ -31,6 +31,11 @@ const STORAGE_KEYS = {
  * 4. Localhost for Web / iOS simulator
  */
 function resolveDefaultServerUrl() {
+  // If running on web in browser on localhost / 127.0.0.1, always default to the local backend
+  if (typeof window !== 'undefined' && window.location && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+    return 'http://localhost:5000';
+  }
+
   if (process.env.EXPO_PUBLIC_API_URL) {
     return process.env.EXPO_PUBLIC_API_URL.replace(/\/$/, '');
   }
@@ -78,7 +83,17 @@ class ApiService {
         storage.getItem(STORAGE_KEYS.SERVER_URL)
       ]);
 
-      if (customUrl) this.baseUrl = customUrl;
+      const isLocalhostWeb = typeof window !== 'undefined' && window.location && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+      if (customUrl) {
+        if (isLocalhostWeb && customUrl.includes('onrender.com')) {
+          this.baseUrl = 'http://localhost:5000';
+          await storage.removeItem(STORAGE_KEYS.SERVER_URL).catch(() => {});
+        } else {
+          this.baseUrl = customUrl;
+        }
+      } else if (isLocalhostWeb) {
+        this.baseUrl = 'http://localhost:5000';
+      }
       if (savedToken) this.token = savedToken;
       if (savedUser) this.user = JSON.parse(savedUser);
       if (savedOrg) this.org = JSON.parse(savedOrg);
@@ -1206,9 +1221,12 @@ class ApiService {
 
   async approveSalaryAdvance(id, action, approvedAmount, remarks) {
     try {
+      const payload = typeof action === 'object' && action !== null
+        ? action
+        : { action, approvedAmount, remarks };
       return await this.request(`/api/admin/advances/${id}/approve`, {
         method: 'PATCH',
-        body: JSON.stringify({ action, approvedAmount, remarks })
+        body: JSON.stringify(payload)
       });
     } catch (err) {
       const statusParam = typeof action === 'object' ? action.status : action;
@@ -1276,8 +1294,12 @@ class ApiService {
   // ── Announcements (Part 12) ───────────────────────────
   async getAnnouncements(publishedOnly = false) {
     try {
-      return await this.request(`/api/announcements${publishedOnly ? '?publishedOnly=true' : ''}`);
+      const q = publishedOnly ? '?publishedOnly=true' : '?all=true';
+      return await this.request(`/api/announcements${q}`);
     } catch (err) {
+      if (err.isServerError) {
+        return { success: false, error: err.data?.error || err.message, data: [] };
+      }
       const list = this.store.getAnnouncements(this.org?.id || 'org-acme-1', publishedOnly);
       return { success: true, data: list };
     }
@@ -1290,7 +1312,10 @@ class ApiService {
         body: JSON.stringify(payload)
       });
     } catch (err) {
-      return await this.store.createAnnouncement(payload, this.user, this.org);
+      if (err.isServerError || (err.status && err.status >= 400)) {
+        return { success: false, error: err.data?.error || err.message };
+      }
+      return { success: false, error: err.message || 'Network request failed' };
     }
   }
 
@@ -1300,17 +1325,22 @@ class ApiService {
         method: 'DELETE'
       });
     } catch (err) {
-      this.store.state.announcements = this.store.state.announcements.filter((a) => a.id !== id);
-      await this.store.persist();
-      return { success: true };
+      if (err.isServerError || (err.status && err.status >= 400)) {
+        return { success: false, error: err.data?.error || err.message };
+      }
+      return { success: false, error: err.message || 'Network request failed' };
     }
   }
 
   // ── Company Rules (Part 11) ───────────────────────────
   async getRules(publishedOnly = false) {
     try {
-      return await this.request(`/api/rules${publishedOnly ? '?publishedOnly=true' : ''}`);
+      const q = publishedOnly ? '?publishedOnly=true' : '?all=true';
+      return await this.request(`/api/rules${q}`);
     } catch (err) {
+      if (err.isServerError) {
+        return { success: false, error: err.data?.error || err.message, data: [] };
+      }
       const list = this.store.getRules(this.org?.id || 'org-acme-1');
       return { success: true, data: list };
     }
@@ -1323,16 +1353,46 @@ class ApiService {
         body: JSON.stringify(payload)
       });
     } catch (err) {
-      const newRule = {
-        id: `rul-${Date.now()}`,
-        title: payload.title,
-        content: payload.content,
-        category: payload.category || 'General',
-        published: true
-      };
-      this.store.state.rules.push(newRule);
-      await this.store.persist();
-      return { success: true, data: newRule };
+      if (err.isServerError || (err.status && err.status >= 400)) {
+        return { success: false, error: err.data?.error || err.message };
+      }
+      return { success: false, error: err.message || 'Network request failed' };
+    }
+  }
+
+  async updateRule(id, payload) {
+    try {
+      return await this.request(`/api/rules/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      });
+    } catch (err) {
+      if (err.isServerError || (err.status && err.status >= 400)) {
+        return { success: false, error: err.data?.error || err.message };
+      }
+      return { success: false, error: err.message || 'Network request failed' };
+    }
+  }
+
+  async deleteRule(id) {
+    try {
+      return await this.request(`/api/rules/${id}`, {
+        method: 'DELETE'
+      });
+    } catch (err) {
+      if (err.isServerError || (err.status && err.status >= 400)) {
+        return { success: false, error: err.data?.error || err.message };
+      }
+      return { success: false, error: err.message || 'Network request failed' };
+    }
+  }
+
+  // ── Celebrations ───────────────────────────────────────
+  async getCelebrations() {
+    try {
+      return await this.request('/api/celebrations');
+    } catch (err) {
+      return { success: true, data: [] };
     }
   }
 
@@ -1355,6 +1415,47 @@ class ApiService {
     } catch (err) {
       return await this.store.updateOrgSettings(this.org?.id || 'org-acme-1', payload);
     }
+  }
+
+  // ── Multi-Branch Office Management & Geofencing (Prompt 2) ──
+  async getBranches(activeOnly = false) {
+    try {
+      const qs = activeOnly ? '?active=true' : '';
+      return await this.request(`/api/branches${qs}`);
+    } catch (err) {
+      console.warn('[API] getBranches error:', err.message);
+      return { success: true, data: [] };
+    }
+  }
+
+  async getMyBranch() {
+    try {
+      return await this.request('/api/branches/my-branch');
+    } catch (err) {
+      console.warn('[API] getMyBranch error:', err.message);
+      return { success: false, error: err.message };
+    }
+  }
+
+  async createBranch(payload) {
+    return await this.request('/api/branches', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async updateBranch(id, payload) {
+    return await this.request(`/api/branches/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async deleteBranch(id, force = false) {
+    const qs = force ? '?force=true' : '';
+    return await this.request(`/api/branches/${id}${qs}`, {
+      method: 'DELETE'
+    });
   }
 
   // ── Holidays & Notifications (Part 11 & 13) ────────────

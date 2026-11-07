@@ -58,6 +58,7 @@ export default function ProfileScreen({ onLogout, onNavigate, currentUser, curre
 
   // Salary & Bank Details
   const [bankDetails, setBankDetails] = useState(null);
+  const [assignedBranchInfo, setAssignedBranchInfo] = useState(null);
   const [bankModalVisible, setBankModalVisible] = useState(false);
   const [bankHolderName, setBankHolderName] = useState('');
   const [bankName, setBankName] = useState('');
@@ -131,12 +132,22 @@ export default function ProfileScreen({ onLogout, onNavigate, currentUser, curre
     }
   };
 
+  const loadBranchInfo = async () => {
+    try {
+      const res = await api.getMyBranch();
+      if (res && res.success) {
+        setAssignedBranchInfo(res);
+      }
+    } catch (_) {}
+  };
+
   useEffect(() => {
     loadProfilePhoto();
     loadPreferences();
     loadBankDetails();
     loadUpdateRequests();
     checkBiometrics();
+    loadBranchInfo();
   }, []);
 
   const handleToggleNotifications = async (val) => {
@@ -587,15 +598,28 @@ export default function ProfileScreen({ onLogout, onNavigate, currentUser, curre
 
         <View style={styles.detailRow}>
           <Text style={styles.detailLabel}>Work Mode</Text>
-          <Text style={styles.detailValue}>Hybrid (WFO / WFH)</Text>
-        </View>
-
-        <View style={[styles.detailRow, { borderBottomWidth: 0 }]}>
-          <Text style={styles.detailLabel}>Assigned Campus</Text>
           <Text style={styles.detailValue}>
-            {currentOrg?.name ? `${currentOrg.name} (${currentOrg.city || 'HQ'})` : mockOfficeGeofence.name}
+            {(assignedBranchInfo?.workMode || currentUser?.work_mode || currentUser?.workMode) === 'WFH'
+              ? 'Work From Home (WFH)'
+              : 'Work From Office (WFO)'}
           </Text>
         </View>
+
+        {(assignedBranchInfo?.workMode || currentUser?.work_mode || currentUser?.workMode) !== 'WFH' && (
+          <View style={[styles.detailRow, { borderBottomWidth: 0 }]}>
+            <Text style={styles.detailLabel}>Assigned Campus</Text>
+            <View style={{ alignItems: 'flex-end', flex: 1 }}>
+              <Text style={styles.detailValue}>
+                {assignedBranchInfo?.branch?.name || currentUser?.branch_name || currentUser?.branchName || currentOrg?.name || 'Headquarters'}
+              </Text>
+              {Boolean(assignedBranchInfo?.branch?.address || currentUser?.branch_address || currentUser?.branchAddress) && (
+                <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2, textAlign: 'right' }}>
+                  {assignedBranchInfo?.branch?.address || currentUser?.branch_address || currentUser?.branchAddress}
+                </Text>
+              )}
+            </View>
+          </View>
+        )}
       </View>
 
       {/* ============================================================== */}

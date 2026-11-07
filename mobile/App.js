@@ -545,7 +545,6 @@ function MainApp() {
         {activeSubScreen === 'advance' && <AdvancePaymentScreen onBack={() => setActiveSubScreen(null)} currentUser={currentUser} />}
         {activeSubScreen === 'coworkers' && <CoworkersScreen onBack={() => setActiveSubScreen(null)} />}
         {activeSubScreen === 'leave' && <LeaveApplicationScreen onBack={() => setActiveSubScreen(null)} />}
-        {activeSubScreen === 'timesheet' && <TimesheetScreen onBack={() => setActiveSubScreen(null)} />}
         {activeSubScreen === 'announcements' && <AnnouncementsScreen onBack={() => setActiveSubScreen(null)} />}
         {activeSubScreen === 'rules' && <CompanyRulesScreen onBack={() => setActiveSubScreen(null)} />}
         {activeSubScreen === 'celebrations' && <CelebrationsScreen onBack={() => setActiveSubScreen(null)} />}

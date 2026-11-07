@@ -45,28 +45,43 @@ export default function AdminEmployeesScreen({ onBack, user, organization }) {
   const [newPhone, setNewPhone] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [newWorkMode, setNewWorkMode] = useState('WFO'); // 'WFO' | 'WFH'
+  const [newBranchId, setNewBranchId] = useState(null);
+  const [branches, setBranches] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Success Result Modals
   const [createdCredentialsResult, setCreatedCredentialsResult] = useState(null);
   const [createdInviteResult, setCreatedInviteResult] = useState(null);
 
-  // Selected Employee Detail Modal
+  // Selected Employee Detail Modal & Reassignment
   const [selectedUser, setSelectedUser] = useState(null);
+  const [isReassigning, setIsReassigning] = useState(false);
+  const [editWorkMode, setEditWorkMode] = useState('WFO');
+  const [editBranchId, setEditBranchId] = useState(null);
+  const [isSavingReassign, setIsSavingReassign] = useState(false);
 
   const loadData = async () => {
     try {
       setIsLoading(true);
-      const [usersRes, orgRes] = await Promise.all([
+      const [usersRes, orgRes, branchRes] = await Promise.all([
         api.getUsers(),
-        api.getOrgSettings().catch(() => null)
+        api.getOrgSettings().catch(() => null),
+        api.getBranches(true).catch(() => null)
       ]);
 
-      if (usersRes.success && usersRes.data) {
+      if (usersRes && usersRes.success && usersRes.data) {
         setEmployees(usersRes.data);
       }
       if (orgRes && orgRes.success && orgRes.data) {
         setOrgSettings(orgRes.data);
+      }
+      if (branchRes && branchRes.success && Array.isArray(branchRes.data)) {
+        setBranches(branchRes.data);
+        if (branchRes.data.length > 0 && !newBranchId) {
+          const defaultHq = branchRes.data.find(b => b.is_headquarters) || branchRes.data[0];
+          setNewBranchId(defaultHq.id);
+        }
       }
 
       if (!isTeamLeader) {
@@ -92,6 +107,11 @@ export default function AdminEmployeesScreen({ onBack, user, organization }) {
       return;
     }
 
+    if (newWorkMode === 'WFO' && !newBranchId) {
+      Alert.alert('Branch Required', 'Please select an assigned office branch for Work From Office (WFO) staff.');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
 
@@ -114,7 +134,9 @@ export default function AdminEmployeesScreen({ onBack, user, organization }) {
           department: newDepartment.trim() || 'Engineering',
           designation: newDesignation.trim() || (newRole === 'team_leader' ? 'Team Lead' : 'Staff Member'),
           phone: newPhone.trim() || null,
-          password: targetPassword
+          password: targetPassword,
+          workMode: newWorkMode,
+          branchId: newWorkMode === 'WFO' ? newBranchId : null
         };
 
         const res = await api.createUser(payload);
@@ -147,7 +169,9 @@ export default function AdminEmployeesScreen({ onBack, user, organization }) {
           role: newRole,
           department: newDepartment.trim() || 'Operations',
           designation: newDesignation.trim() || (newRole === 'team_leader' ? 'Team Lead' : 'Staff Member'),
-          phone: newPhone.trim() || null
+          phone: newPhone.trim() || null,
+          workMode: newWorkMode,
+          branchId: newWorkMode === 'WFO' ? newBranchId : null
         });
 
         if (res.success && res.invitation) {
@@ -218,6 +242,51 @@ export default function AdminEmployeesScreen({ onBack, user, organization }) {
         }
       ]
     );
+  };
+
+  const openEmployeeDetail = (user) => {
+    setSelectedUser(user);
+    setEditWorkMode(user.workMode || user.work_mode || 'WFO');
+    setEditBranchId(user.branchId || user.branch_id || (branches[0]?.id || null));
+    setIsReassigning(false);
+  };
+
+  const handleSaveReassign = async () => {
+    if (!selectedUser) return;
+    if (editWorkMode === 'WFO' && !editBranchId) {
+      Alert.alert('Branch Required', 'Please select an assigned office branch for Work From Office (WFO).');
+      return;
+    }
+    try {
+      setIsSavingReassign(true);
+      const res = await api.updateUser(selectedUser.id, {
+        work_mode: editWorkMode,
+        branch_id: editWorkMode === 'WFO' ? editBranchId : null
+      });
+      if (res.success) {
+        Alert.alert('Updated', 'Employee work mode and branch assignment updated successfully.');
+        setIsReassigning(false);
+        loadData();
+        const updatedBranch = branches.find(b => b.id === editBranchId);
+        setSelectedUser({
+          ...selectedUser,
+          workMode: editWorkMode,
+          work_mode: editWorkMode,
+          branchId: editWorkMode === 'WFO' ? editBranchId : null,
+          branch_id: editWorkMode === 'WFO' ? editBranchId : null,
+          branchName: editWorkMode === 'WFO' ? (updatedBranch?.name || 'Assigned Branch') : null,
+          branch_name: editWorkMode === 'WFO' ? (updatedBranch?.name || 'Assigned Branch') : null,
+          branchAddress: editWorkMode === 'WFO' ? (updatedBranch?.address || null) : null,
+          branch_address: editWorkMode === 'WFO' ? (updatedBranch?.address || null) : null
+        });
+      } else {
+        Alert.alert('Update Failed', res.error || 'Failed to update branch assignment.');
+      }
+    } catch (e) {
+      Alert.alert('Error', e.message);
+    } finally {
+      setIsSavingReassign(false);
+    }
   };
 
   const copyToClipboard = async (text, message = 'Copied to clipboard') => {
@@ -452,7 +521,7 @@ export default function AdminEmployeesScreen({ onBack, user, organization }) {
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={styles.employeeCard}
-                  onPress={() => setSelectedUser(item)}
+                  onPress={() => openEmployeeDetail(item)}
                   activeOpacity={0.75}
                 >
                   <View style={styles.avatar}>
@@ -493,7 +562,21 @@ export default function AdminEmployeesScreen({ onBack, user, organization }) {
                     )}
 
                     <Text style={styles.empDesignation}>{item.designation || 'Staff Member'}</Text>
-                    <Text style={styles.empDept}>{item.department || 'Operations'}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+                      <Text style={styles.empDept}>{item.department || 'Operations'}</Text>
+                      <Text style={{ fontSize: 10, color: colors.textSecondary }}>•</Text>
+                      <View style={[
+                        styles.modeBadgeMini,
+                        item.workMode === 'WFH' ? styles.modeBadgeWfh : styles.modeBadgeWfo
+                      ]}>
+                        <Text style={[
+                          styles.modeBadgeMiniText,
+                          item.workMode === 'WFH' ? styles.modeTextWfh : styles.modeTextWfo
+                        ]}>
+                          {item.workMode === 'WFH' ? 'WFH' : (item.branchName ? `WFO: ${item.branchName}` : 'WFO')}
+                        </Text>
+                      </View>
+                    </View>
                   </View>
                   <View style={styles.statusIndicator}>
                     <View
@@ -649,6 +732,94 @@ export default function AdminEmployeesScreen({ onBack, user, organization }) {
                   </TouchableOpacity>
                 ))}
               </View>
+
+              {/* Work Mode & Office Branch Selection (Module B) */}
+              <Text style={styles.formLabel}>Work Mode *</Text>
+              <View style={styles.rolePickerRow}>
+                <TouchableOpacity
+                  style={[styles.roleSelectBtn, newWorkMode === 'WFO' && styles.roleSelectBtnActive]}
+                  onPress={() => setNewWorkMode('WFO')}
+                >
+                  <Ionicons
+                    name="business-outline"
+                    size={14}
+                    color={newWorkMode === 'WFO' ? '#ffffff' : colors.textSecondary}
+                    style={{ marginRight: 4 }}
+                  />
+                  <Text style={[styles.roleSelectText, newWorkMode === 'WFO' && styles.roleSelectTextActive]}>
+                    Work From Office (WFO)
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.roleSelectBtn, newWorkMode === 'WFH' && styles.roleSelectBtnActive]}
+                  onPress={() => setNewWorkMode('WFH')}
+                >
+                  <Ionicons
+                    name="home-outline"
+                    size={14}
+                    color={newWorkMode === 'WFH' ? '#ffffff' : colors.textSecondary}
+                    style={{ marginRight: 4 }}
+                  />
+                  <Text style={[styles.roleSelectText, newWorkMode === 'WFH' && styles.roleSelectTextActive]}>
+                    Work From Home (WFH)
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {newWorkMode === 'WFO' && (
+                <View style={{ marginBottom: 10 }}>
+                  <Text style={styles.formLabel}>Assigned Office Branch *</Text>
+                  {branches.length === 0 ? (
+                    <View style={styles.branchWarningBox}>
+                      <Ionicons name="warning-outline" size={16} color="#d97706" />
+                      <Text style={styles.branchWarningText}>
+                        No active office branches found. Configure a branch in Office Geofencing before onboarding WFO staff.
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={{ gap: 6 }}>
+                      {branches.map((b) => {
+                        const isSelected = newBranchId === b.id;
+                        return (
+                          <TouchableOpacity
+                            key={b.id}
+                            style={[
+                              styles.branchPickerItem,
+                              isSelected && styles.branchPickerItemActive
+                            ]}
+                            onPress={() => setNewBranchId(b.id)}
+                            activeOpacity={0.8}
+                          >
+                            <View style={{ flex: 1 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                <Text style={[styles.branchPickerName, isSelected && styles.branchPickerNameActive]}>
+                                  {b.name}
+                                </Text>
+                                {b.is_headquarters && (
+                                  <View style={styles.hqPillMini}>
+                                    <Text style={styles.hqPillMiniText}>HQ</Text>
+                                  </View>
+                                )}
+                              </View>
+                              {Boolean(b.address) && (
+                                <Text style={styles.branchPickerAddress} numberOfLines={1}>
+                                  {b.address}
+                                </Text>
+                              )}
+                            </View>
+                            <Ionicons
+                              name={isSelected ? 'radio-button-on' : 'radio-button-off'}
+                              size={18}
+                              color={isSelected ? colors.primary : colors.textSecondary}
+                            />
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
+                </View>
+              )}
 
               <Text style={styles.formLabel}>Department</Text>
               <TextInput
@@ -892,6 +1063,122 @@ export default function AdminEmployeesScreen({ onBack, user, organization }) {
                     Status: {selectedUser.isActive !== false ? 'Active' : 'Deactivated'}
                   </Text>
                 </View>
+
+                {/* Work Mode & Assigned Office Campus */}
+                <View style={styles.detailInfoRow}>
+                  <Ionicons
+                    name={selectedUser.workMode === 'WFH' ? 'home-outline' : 'business-outline'}
+                    size={16}
+                    color={colors.primary}
+                  />
+                  <Text style={styles.detailInfoText}>
+                    Work Mode: {selectedUser.workMode === 'WFH' ? 'Work From Home (WFH)' : 'Work From Office (WFO)'}
+                  </Text>
+                </View>
+
+                {selectedUser.workMode !== 'WFH' && (
+                  <View style={[styles.detailInfoRow, { alignItems: 'flex-start' }]}>
+                    <Ionicons name="location-outline" size={16} color={colors.primary} style={{ marginTop: 2 }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.detailInfoText}>
+                        Assigned Campus: {selectedUser.branchName || selectedUser.branch_name || 'Headquarters Branch'}
+                      </Text>
+                      {Boolean(selectedUser.branchAddress || selectedUser.branch_address) && (
+                        <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }}>
+                          {selectedUser.branchAddress || selectedUser.branch_address}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                )}
+
+                {/* Branch / Work Mode Reassignment Form (Module C) */}
+                {isFounder && (
+                  <View style={{ marginTop: 8, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10 }}>
+                    {!isReassigning ? (
+                      <TouchableOpacity
+                        style={styles.reassignOpenBtn}
+                        onPress={() => setIsReassigning(true)}
+                      >
+                        <Ionicons name="swap-horizontal" size={15} color={colors.primary} />
+                        <Text style={styles.reassignOpenBtnText}>Change Branch / Work Mode</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={styles.reassignBox}>
+                        <Text style={styles.reassignTitle}>Reassign Work Mode & Branch</Text>
+                        
+                        {/* Work Mode Selector */}
+                        <View style={{ flexDirection: 'row', gap: 6, marginVertical: 6 }}>
+                          <TouchableOpacity
+                            style={[styles.miniModeBtn, editWorkMode === 'WFO' && styles.miniModeBtnActive]}
+                            onPress={() => setEditWorkMode('WFO')}
+                          >
+                            <Text style={[styles.miniModeText, editWorkMode === 'WFO' && styles.miniModeTextActive]}>
+                              WFO
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.miniModeBtn, editWorkMode === 'WFH' && styles.miniModeBtnActive]}
+                            onPress={() => setEditWorkMode('WFH')}
+                          >
+                            <Text style={[styles.miniModeText, editWorkMode === 'WFH' && styles.miniModeTextActive]}>
+                              WFH
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+
+                        {/* Branch Picker for WFO */}
+                        {editWorkMode === 'WFO' && (
+                          <View style={{ marginVertical: 6, gap: 4 }}>
+                            <Text style={{ fontSize: 10.5, fontWeight: '700', color: colors.textSecondary }}>
+                              Select Office Branch:
+                            </Text>
+                            {branches.map(b => (
+                              <TouchableOpacity
+                                key={b.id}
+                                style={[
+                                  styles.branchPickerItem,
+                                  editBranchId === b.id && styles.branchPickerItemActive
+                                ]}
+                                onPress={() => setEditBranchId(b.id)}
+                              >
+                                <Text style={[styles.branchPickerName, editBranchId === b.id && styles.branchPickerNameActive]}>
+                                  {b.name}
+                                </Text>
+                                <Ionicons
+                                  name={editBranchId === b.id ? 'radio-button-on' : 'radio-button-off'}
+                                  size={16}
+                                  color={editBranchId === b.id ? colors.primary : colors.textSecondary}
+                                />
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
+
+                        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+                          <TouchableOpacity
+                            style={styles.cancelMiniBtn}
+                            onPress={() => setIsReassigning(false)}
+                            disabled={isSavingReassign}
+                          >
+                            <Text style={{ fontSize: 11.5, color: colors.textSecondary }}>Cancel</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.saveMiniBtn}
+                            onPress={handleSaveReassign}
+                            disabled={isSavingReassign}
+                          >
+                            {isSavingReassign ? (
+                              <ActivityIndicator size="small" color="#ffffff" />
+                            ) : (
+                              <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#ffffff' }}>Save Assignment</Text>
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                )}
 
                 {selectedUser.role !== 'founder' && (
                   <TouchableOpacity
@@ -1562,5 +1849,139 @@ const getStyles = (colors, isDark, layout = {}) =>
     statusToggleText: {
       fontSize: 13,
       fontWeight: '700'
+    },
+    modeBadgeMini: {
+      paddingHorizontal: 5,
+      paddingVertical: 1,
+      borderRadius: 4
+    },
+    modeBadgeWfo: {
+      backgroundColor: isDark ? '#14532d' : '#dcfce7'
+    },
+    modeBadgeWfh: {
+      backgroundColor: isDark ? '#1e3a8a' : '#dbeafe'
+    },
+    modeBadgeMiniText: {
+      fontSize: 10,
+      fontWeight: '700'
+    },
+    modeTextWfo: {
+      color: isDark ? '#4ade80' : '#15803d'
+    },
+    modeTextWfh: {
+      color: isDark ? '#93c5fd' : '#1e40af'
+    },
+    branchWarningBox: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      backgroundColor: '#fef3c7',
+      borderWidth: 1,
+      borderColor: '#fcd34d',
+      borderRadius: 8,
+      padding: 8,
+      marginTop: 4
+    },
+    branchWarningText: {
+      fontSize: 11,
+      color: '#92400e',
+      flex: 1
+    },
+    branchPickerItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: 8,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: isDark ? '#1e293b' : '#f8fafc'
+    },
+    branchPickerItemActive: {
+      borderColor: colors.primary,
+      backgroundColor: isDark ? 'rgba(132,118,75,0.2)' : 'rgba(132,118,75,0.08)'
+    },
+    branchPickerName: {
+      fontSize: 12.5,
+      fontWeight: '600',
+      color: colors.textPrimary
+    },
+    branchPickerNameActive: {
+      color: colors.primary,
+      fontWeight: '700'
+    },
+    branchPickerAddress: {
+      fontSize: 10.5,
+      color: colors.textSecondary,
+      marginTop: 1
+    },
+    hqPillMini: {
+      backgroundColor: isDark ? '#1e3a8a' : '#dbeafe',
+      paddingHorizontal: 4,
+      paddingVertical: 1,
+      borderRadius: 3
+    },
+    hqPillMiniText: {
+      fontSize: 9,
+      fontWeight: '800',
+      color: isDark ? '#93c5fd' : '#1e40af'
+    },
+    reassignOpenBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      paddingVertical: 8,
+      borderRadius: 8,
+      backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#f1f5f9'
+    },
+    reassignOpenBtnText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: colors.primary
+    },
+    reassignBox: {
+      backgroundColor: isDark ? '#0f172a' : '#f8fafc',
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 10
+    },
+    reassignTitle: {
+      fontSize: 11.5,
+      fontWeight: '700',
+      color: colors.textPrimary,
+      marginBottom: 4
+    },
+    miniModeBtn: {
+      flex: 1,
+      paddingVertical: 6,
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center'
+    },
+    miniModeBtnActive: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary
+    },
+    miniModeText: {
+      fontSize: 11.5,
+      fontWeight: '600',
+      color: colors.textSecondary
+    },
+    miniModeTextActive: {
+      color: '#ffffff',
+      fontWeight: '700'
+    },
+    cancelMiniBtn: {
+      paddingHorizontal: 10,
+      paddingVertical: 5
+    },
+    saveMiniBtn: {
+      backgroundColor: colors.primary,
+      paddingHorizontal: 12,
+      paddingVertical: 5,
+      borderRadius: 6
     }
   });

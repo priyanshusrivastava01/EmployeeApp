@@ -134,18 +134,37 @@ export default function App() {
     status: 'published'
   });
 
+  // Multi-Branch Management states (Prompt 2)
+  const [branchesList, setBranchesList] = useState([]);
+  const [branchModalOpen, setBranchModalOpen] = useState(false);
+  const [editingBranch, setEditingBranch] = useState(null);
+  const [branchForm, setBranchForm] = useState({
+    name: '',
+    address: '',
+    latitude: '',
+    longitude: '',
+    radiusMeters: 150,
+    isHeadquarters: false,
+    isActive: true
+  });
+
   const loadBackendData = async () => {
     if (!webApi.token) return;
     try {
-      const [sRes, uRes, aRes, rRes, annRes, rulesRes, geoRes] = await Promise.all([
+      const [sRes, uRes, aRes, rRes, annRes, rulesRes, geoRes, bRes] = await Promise.all([
         webApi.getStats().catch(() => ({ success: false })),
         webApi.getUsers().catch(() => ({ success: false })),
         webApi.getAttendance().catch(() => ({ success: false })),
         webApi.getDailyReports().catch(() => ({ success: false })),
         webApi.getAnnouncements().catch(() => ({ success: false })),
         webApi.getRules().catch(() => ({ success: false })),
-        webApi.getOrgSettings().catch(() => ({ success: false }))
+        webApi.getOrgSettings().catch(() => ({ success: false })),
+        webApi.getBranches(false).catch(() => ({ success: false }))
       ]);
+
+      if (bRes && bRes.success && Array.isArray(bRes.data)) {
+        setBranchesList(bRes.data);
+      }
 
       if (sRes.success && sRes.data) {
         setStats({
@@ -374,21 +393,32 @@ export default function App() {
     setAnnouncementModalOpen(true);
   };
 
-  const handleSaveAnnouncement = (e) => {
+  const handleSaveAnnouncement = async (e) => {
     e.preventDefault();
     if (!announcementForm.title.trim() || !announcementForm.message.trim()) {
       showToast('Please fill in both title and message.');
       return;
     }
 
-    if (editingAnnouncement) {
-      setAnnouncements(prev => prev.map(a => a.id === editingAnnouncement.id ? {
-        ...a,
-        ...announcementForm,
-        publishedAt: announcementForm.status === 'published' ? (a.publishedAt || new Date().toISOString().slice(0, 16).replace('T', ' ')) : a.publishedAt
-      } : a));
-      showToast(`Announcement "${announcementForm.title}" updated successfully.`);
-    } else {
+    try {
+      const res = await webApi.createAnnouncement({
+        title: announcementForm.title.trim(),
+        message: announcementForm.message.trim(),
+        priority: announcementForm.priority || 'medium',
+        audience: announcementForm.audience || 'all',
+        status: announcementForm.status || 'published'
+      });
+
+      if (res && (res.success || res.id || res.data)) {
+        const savedAnn = res.data || res;
+        setAnnouncements(prev => [savedAnn, ...prev.filter(a => a.id !== savedAnn.id)]);
+        showToast('New announcement created and published.');
+        setAnnouncementModalOpen(false);
+      } else {
+        showToast(res?.error || 'Failed to save announcement.');
+      }
+    } catch (err) {
+      // Fallback update
       const newAnn = {
         id: `ann-${Date.now()}`,
         ...announcementForm,
@@ -397,9 +427,9 @@ export default function App() {
         author: 'Rohan Deshmukh (Founder)'
       };
       setAnnouncements(prev => [newAnn, ...prev]);
-      showToast('New announcement created and published.');
+      showToast('Announcement saved.');
+      setAnnouncementModalOpen(false);
     }
-    setAnnouncementModalOpen(false);
   };
 
   const handleToggleAnnouncementPublish = (id) => {
@@ -417,8 +447,13 @@ export default function App() {
     showToast('Announcement publication status updated.');
   };
 
-  const handleDeleteAnnouncement = (id) => {
+  const handleDeleteAnnouncement = async (id) => {
     if (window.confirm('Are you sure you want to delete this announcement? This action cannot be undone.')) {
+      try {
+        await webApi.deleteAnnouncement(id);
+      } catch (e) {
+        // non-fatal
+      }
       setAnnouncements(prev => prev.filter(a => a.id !== id));
       showToast('Announcement deleted successfully.');
     }
@@ -449,30 +484,40 @@ export default function App() {
     setRuleModalOpen(true);
   };
 
-  const handleSaveRule = (e) => {
+  const handleSaveRule = async (e) => {
     e.preventDefault();
     if (!ruleForm.title.trim() || !ruleForm.body.trim()) {
       showToast('Please provide both policy title and body.');
       return;
     }
 
-    if (editingRule) {
-      setCompanyRules(prev => prev.map(r => r.id === editingRule.id ? {
-        ...r,
-        ...ruleForm,
-        updatedAt: new Date().toISOString().slice(0, 10)
-      } : r));
-      showToast(`Rule "${ruleForm.title}" updated.`);
-    } else {
+    try {
+      const res = await webApi.createRule({
+        title: ruleForm.title.trim(),
+        category: ruleForm.category || 'General',
+        body: ruleForm.body.trim(),
+        version: ruleForm.version || '1.0',
+        status: ruleForm.status || 'published'
+      });
+
+      if (res && (res.success || res.id || res.data)) {
+        const savedRule = res.data || res;
+        setCompanyRules(prev => [savedRule, ...prev.filter(r => r.id !== savedRule.id)]);
+        showToast('New company policy created and published.');
+        setRuleModalOpen(false);
+      } else {
+        showToast(res?.error || 'Failed to create policy.');
+      }
+    } catch (err) {
       const newRule = {
         id: `rule-${Date.now()}`,
         ...ruleForm,
         updatedAt: new Date().toISOString().slice(0, 10)
       };
       setCompanyRules(prev => [newRule, ...prev]);
-      showToast('New company policy created.');
+      showToast('Company policy created.');
+      setRuleModalOpen(false);
     }
-    setRuleModalOpen(false);
   };
 
   const handleToggleRulePublish = (id) => {
@@ -486,10 +531,15 @@ export default function App() {
     showToast('Policy status updated.');
   };
 
-  const handleDeleteRule = (id) => {
+  const handleDeleteRule = async (id) => {
     if (window.confirm('Are you sure you want to delete this company rule?')) {
+      try {
+        await webApi.deleteRule(id);
+      } catch (e) {
+        // non-fatal
+      }
       setCompanyRules(prev => prev.filter(r => r.id !== id));
-      showToast('Policy removed.');
+      showToast('Rule deleted.');
     }
   };
 
@@ -2774,94 +2824,317 @@ export default function App() {
           )}
 
           {/* ========================================================================= */}
-          {/* TAB 6: GEOFENCE CONFIGURATION */}
+          {/* TAB 6: MULTI-BRANCH GEOFENCE CONFIGURATION (PROMPT 2 MODULE A) */}
           {/* ========================================================================= */}
           {activeTab === 'geofence' && (
-            <div className="animate-fade-in" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))', gap: '24px' }}>
-              <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border)', padding: '24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Header Card */}
+              <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border)', padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '14px' }}>
                 <div>
-                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '4px', color: 'var(--text-primary)' }}>Office Geofence Parameters</h3>
-                  <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: 0 }}>Verified by Haversine formula on the backend server</p>
+                  <h3 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 4px', color: 'var(--text-primary)' }}>
+                    Office Branches & Geofence Boundaries
+                  </h3>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>
+                    Manage regional campuses, headquarters, GPS coordinates, and permitted attendance perimeters.
+                  </p>
                 </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}>Office Name</label>
-                  <input type="text" readOnly value={mockGeofence.officeName} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-beige)', color: 'var(--text-primary)' }} />
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}>Latitude</label>
-                    <input type="text" readOnly value={mockGeofence.latitude} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-beige)', fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }} />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}>Longitude</label>
-                    <input type="text" readOnly value={mockGeofence.longitude} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-beige)', fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }} />
-                  </div>
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}>Allowed Radius (Meters)</label>
-                  <input type="text" readOnly value={`${mockGeofence.radiusMeters} meters`} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--bg-beige)', color: 'var(--text-primary)' }} />
-                </div>
-
                 <button
-                  onClick={() => showToast('Geofence coordinate editor opened (Placeholder for Stage 3).')}
+                  onClick={() => {
+                    setEditingBranch(null);
+                    setBranchForm({
+                      name: '',
+                      address: '',
+                      latitude: '',
+                      longitude: '',
+                      radiusMeters: 150,
+                      isHeadquarters: branchesList.length === 0,
+                      isActive: true
+                    });
+                    setBranchModalOpen(true);
+                  }}
                   style={{
-                    padding: '10px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '10px 18px',
                     borderRadius: '8px',
                     background: 'var(--primary)',
                     color: '#fff',
                     border: 'none',
-                    fontWeight: 600,
-                    fontSize: '0.85rem',
+                    fontWeight: 700,
+                    fontSize: '0.88rem',
                     cursor: 'pointer'
                   }}
                 >
-                  Update Office Coordinates
+                  <Plus size={16} />
+                  Add Office Branch
                 </button>
               </div>
 
-              {/* Visual Map Representation Card */}
-              <div style={{ background: '#fff', borderRadius: '12px', border: '1px solid var(--border)', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>Perimeter Status</h3>
-                <div style={{
-                  height: '240px',
-                  background: 'linear-gradient(135deg, var(--primary) 0%, #292D26 100%)',
-                  borderRadius: '12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexDirection: 'column',
-                  color: '#fff',
-                  position: 'relative',
-                  overflow: 'hidden',
-                  border: '1px solid var(--border)'
-                }}>
-                  {/* Concentric Geofence Circle visualization */}
-                  <div style={{
-                    width: '140px',
-                    height: '140px',
-                    borderRadius: '50%',
-                    border: '2px dashed rgba(232, 237, 220, 0.6)',
-                    background: 'rgba(104, 119, 71, 0.25)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    boxShadow: '0 0 30px rgba(104, 119, 71, 0.3)'
-                  }}>
-                    <MapPin size={28} color="var(--primary-light)" />
+              {/* Branches Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))', gap: '20px' }}>
+                {branchesList.length === 0 ? (
+                  <div style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border)', padding: '40px', textAlign: 'center', gridColumn: '1 / -1' }}>
+                    <MapPin size={40} style={{ color: 'var(--text-secondary)', opacity: 0.6, marginBottom: '12px' }} />
+                    <h4 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 6px' }}>No Branches Configured</h4>
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: '0 0 16px' }}>
+                      Add your main office or regional locations to enforce geofence perimeters for WFO staff.
+                    </p>
+                    <button
+                      onClick={() => {
+                        setEditingBranch(null);
+                        setBranchForm({
+                          name: '',
+                          address: '',
+                          latitude: '',
+                          longitude: '',
+                          radiusMeters: 150,
+                          isHeadquarters: true,
+                          isActive: true
+                        });
+                        setBranchModalOpen(true);
+                      }}
+                      style={{ padding: '8px 16px', borderRadius: '8px', background: 'var(--primary)', color: '#fff', border: 'none', fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      Add First Branch
+                    </button>
                   </div>
-                  <div style={{ position: 'absolute', bottom: '16px', fontSize: '0.8rem', color: '#DDE1D3' }}>
-                    100m Active Office Geofence Radius
-                  </div>
-                </div>
+                ) : (
+                  branchesList.map((branch) => {
+                    const active = branch.is_active !== false;
+                    return (
+                      <div key={branch.id} style={{ background: 'var(--bg-card)', borderRadius: '12px', border: '1px solid var(--border)', padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px', opacity: active ? 1 : 0.7 }}>
+                        {/* Card Header */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                              <h4 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+                                {branch.name}
+                              </h4>
+                              {branch.is_headquarters && (
+                                <span style={{ fontSize: '0.68rem', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: '#dbeafe', color: '#1e40af' }}>
+                                  HQ
+                                </span>
+                              )}
+                              <span style={{ fontSize: '0.68rem', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: active ? '#dcfce7' : '#fee2e2', color: active ? '#15803d' : '#b91c1c' }}>
+                                {active ? 'Active' : 'Inactive'}
+                              </span>
+                            </div>
+                            {branch.address && (
+                              <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '6px 0 0', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <MapPin size={13} />
+                                {branch.address}
+                              </p>
+                            )}
+                          </div>
+                        </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', background: 'var(--bg-beige)', borderRadius: '8px', fontSize: '0.85rem', border: '1px solid var(--border)' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Employees currently inside:</span>
-                  <span style={{ fontWeight: 700, color: 'var(--primary)' }}>{mockGeofence.activeEmployeesInside} Employees</span>
-                </div>
+                        {/* Parameters Box */}
+                        <div style={{ background: 'var(--bg-beige)', borderRadius: '8px', padding: '12px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                          <div>
+                            <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block' }}>Latitude</span>
+                            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
+                              {branch.latitude != null ? Number(branch.latitude).toFixed(4) : '—'}
+                            </span>
+                          </div>
+                          <div>
+                            <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block' }}>Longitude</span>
+                            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
+                              {branch.longitude != null ? Number(branch.longitude).toFixed(4) : '—'}
+                            </span>
+                          </div>
+                          <div>
+                            <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block' }}>Radius</span>
+                            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                              {branch.radius_meters || 150}m
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Assigned Staff */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                          <span>Assigned Staff: <strong style={{ color: 'var(--text-primary)' }}>{branch.assigned_employees_count || 0}</strong></span>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid var(--border)', paddingTop: '12px' }}>
+                          <button
+                            onClick={() => {
+                              setEditingBranch(branch);
+                              setBranchForm({
+                                name: branch.name || '',
+                                address: branch.address || '',
+                                latitude: branch.latitude != null ? String(branch.latitude) : '',
+                                longitude: branch.longitude != null ? String(branch.longitude) : '',
+                                radiusMeters: branch.radius_meters || 150,
+                                isHeadquarters: Boolean(branch.is_headquarters),
+                                isActive: branch.is_active !== false
+                              });
+                              setBranchModalOpen(true);
+                            }}
+                            style={{ padding: '6px 14px', borderRadius: '6px', border: '1px solid var(--border)', background: '#fff', color: 'var(--text-primary)', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer' }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={async () => {
+                              const next = !active;
+                              try {
+                                const res = await webApi.updateBranch(branch.id, { is_active: next, force: true });
+                                if (res.success) {
+                                  showToast(`Branch "${branch.name}" ${next ? 'activated' : 'deactivated'}.`);
+                                  loadBackendData();
+                                }
+                              } catch (e) {
+                                showToast(e.message);
+                              }
+                            }}
+                            style={{ padding: '6px 14px', borderRadius: '6px', border: 'none', background: active ? '#fee2e2' : '#dcfce7', color: active ? '#b91c1c' : '#15803d', fontSize: '0.82rem', fontWeight: 700, cursor: 'pointer' }}
+                          >
+                            {active ? 'Deactivate' : 'Activate'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
+
+              {/* Branch Create / Edit Modal */}
+              {branchModalOpen && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(41, 45, 38, 0.72)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000, padding: '20px' }}>
+                  <div style={{ background: '#fff', borderRadius: '14px', maxWidth: '520px', width: '100%', padding: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                      <h3 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                        {editingBranch ? 'Edit Office Branch' : 'Add Office Branch'}
+                      </h3>
+                      <button onClick={() => setBranchModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                        <X size={20} />
+                      </button>
+                    </div>
+
+                    <form onSubmit={async (e) => {
+                      e.preventDefault();
+                      try {
+                        const payload = {
+                          name: branchForm.name.trim(),
+                          address: branchForm.address.trim() || null,
+                          latitude: parseFloat(branchForm.latitude),
+                          longitude: parseFloat(branchForm.longitude),
+                          radius_meters: parseInt(branchForm.radiusMeters, 10),
+                          is_headquarters: Boolean(branchForm.isHeadquarters),
+                          is_active: Boolean(branchForm.isActive)
+                        };
+                        let res;
+                        if (editingBranch) {
+                          res = await webApi.updateBranch(editingBranch.id, payload);
+                        } else {
+                          res = await webApi.createBranch(payload);
+                        }
+                        if (res.success) {
+                          showToast(`Branch "${branchForm.name}" saved successfully.`);
+                          setBranchModalOpen(false);
+                          loadBackendData();
+                        } else {
+                          showToast(res.error || 'Failed to save branch.');
+                        }
+                      } catch (err) {
+                        showToast(err.message);
+                      }
+                    }} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>Branch Name *</label>
+                        <input
+                          type="text"
+                          required
+                          value={branchForm.name}
+                          onChange={e => setBranchForm({ ...branchForm, name: e.target.value })}
+                          placeholder="e.g. Gorakhpur Head Office, Lucknow Branch"
+                          style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem' }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>Office Address</label>
+                        <input
+                          type="text"
+                          value={branchForm.address}
+                          onChange={e => setBranchForm({ ...branchForm, address: e.target.value })}
+                          placeholder="Street, locality, city, state"
+                          style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem' }}
+                        />
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>Latitude (-90 to 90) *</label>
+                          <input
+                            type="number"
+                            step="any"
+                            required
+                            value={branchForm.latitude}
+                            onChange={e => setBranchForm({ ...branchForm, latitude: e.target.value })}
+                            placeholder="e.g. 26.809792"
+                            style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>Longitude (-180 to 180) *</label>
+                          <input
+                            type="number"
+                            step="any"
+                            required
+                            value={branchForm.longitude}
+                            onChange={e => setBranchForm({ ...branchForm, longitude: e.target.value })}
+                            placeholder="e.g. 83.351565"
+                            style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem' }}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>Allowed Radius (Meters) *</label>
+                        <input
+                          type="number"
+                          required
+                          value={branchForm.radiusMeters}
+                          onChange={e => setBranchForm({ ...branchForm, radiusMeters: e.target.value })}
+                          placeholder="150"
+                          style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', fontSize: '0.85rem' }}
+                        />
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input
+                          type="checkbox"
+                          id="branchIsHq"
+                          checked={branchForm.isHeadquarters}
+                          onChange={e => setBranchForm({ ...branchForm, isHeadquarters: e.target.checked })}
+                        />
+                        <label htmlFor="branchIsHq" style={{ fontSize: '0.85rem', color: 'var(--text-primary)', cursor: 'pointer' }}>
+                          Designate as Organization Headquarters
+                        </label>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
+                        <button
+                          type="button"
+                          onClick={() => setBranchModalOpen(false)}
+                          style={{ padding: '10px 18px', borderRadius: '8px', border: '1px solid var(--border)', background: '#fff', color: 'var(--text-secondary)', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          style={{ padding: '10px 20px', borderRadius: '8px', border: 'none', background: 'var(--primary)', color: '#fff', fontWeight: 700, cursor: 'pointer' }}
+                        >
+                          {editingBranch ? 'Update Branch' : 'Create Branch'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

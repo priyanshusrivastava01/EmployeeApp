@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeContext';
 import api from '../../services/api';
 
-export default function AdminLeaveScreen({ onBack, user, organization }) {
+export default function AdminLeaveScreen({ onBack, user, organization, initialTab = 'leaves' }) {
   const { colors, isDark } = useTheme();
   const styles = getStyles(colors, isDark);
 
@@ -22,7 +22,16 @@ export default function AdminLeaveScreen({ onBack, user, organization }) {
   const isManagement = user?.role === 'founder' || user?.role === 'admin';
 
   // Desk Mode: 'leaves' | 'advances' | 'bank'
-  const [deskTab, setDeskTab] = useState('leaves');
+  const [deskTab, setDeskTab] = useState(initialTab || 'leaves');
+
+  useEffect(() => {
+    if (initialTab && initialTab !== deskTab) {
+      setDeskTab(initialTab);
+      if (initialTab === 'advances') loadAdvances();
+      else if (initialTab === 'leaves') loadLeaves();
+      else if (initialTab === 'bank') loadBankSubmissions();
+    }
+  }, [initialTab]);
 
   // Leaves State
   const [leaves, setLeaves] = useState([]);
@@ -315,7 +324,12 @@ export default function AdminLeaveScreen({ onBack, user, organization }) {
                 borderRadius: 8,
                 backgroundColor: deskTab === tab.id ? colors.primary : 'transparent'
               }}
-              onPress={() => setDeskTab(tab.id)}
+              onPress={() => {
+                setDeskTab(tab.id);
+                if (tab.id === 'leaves') loadLeaves();
+                else if (tab.id === 'advances') loadAdvances();
+                else if (tab.id === 'bank') loadBankSubmissions();
+              }}
             >
               <Ionicons
                 name={tab.icon}
@@ -573,8 +587,8 @@ export default function AdminLeaveScreen({ onBack, user, organization }) {
                 return (
                   <View style={styles.card}>
                     <View style={styles.cardHeader}>
-                      <View>
-                        <Text style={styles.userName}>{item.user_name || item.userName || item.employeeName || item.employee_name || 'Staff'}</Text>
+                      <View style={{ flex: 1, minWidth: 0, paddingRight: 6 }}>
+                        <Text style={styles.userName} numberOfLines={1}>{item.user_name || item.userName || item.employeeName || item.employee_name || 'Staff'}</Text>
                         <Text style={{ fontSize: 13, fontWeight: '700', color: colors.primary, marginTop: 2 }}>
                           ₹{Number(item.amount || item.requestedAmount || 0).toLocaleString('en-IN')}
                         </Text>
@@ -582,13 +596,16 @@ export default function AdminLeaveScreen({ onBack, user, organization }) {
                       <View style={[styles.statusTag, {
                         backgroundColor: item.status === 'Approved' || item.status === 'Paid'
                           ? '#dcfce7'
-                          : item.status === 'Rejected' ? '#fee2e2' : '#fef3c7'
+                          : item.status === 'Rejected' ? '#fee2e2' : '#fef3c7',
+                        maxWidth: '48%',
+                        alignSelf: 'flex-start'
                       }]}>
                         <Text style={[styles.statusTagText, {
                           color: item.status === 'Approved' || item.status === 'Paid'
                             ? '#15803d'
-                            : item.status === 'Rejected' ? '#b91c1c' : '#b45309'
-                        }]}>
+                            : item.status === 'Rejected' ? '#b91c1c' : '#b45309',
+                          textAlign: 'center'
+                        }]} numberOfLines={2}>
                           {item.status}
                         </Text>
                       </View>

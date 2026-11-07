@@ -26,6 +26,17 @@ export default function HomeScreen({
   const cardWidth = getGridCardWidth(layout.contentWidth, columns, 10);
   const styles = getStyles(colors, isDark, { ...layout, columns, cardWidth });
   const [profileAvatarUri, setProfileAvatarUri] = useState(null);
+  const [assignedBranch, setAssignedBranch] = useState(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    api.getMyBranch().then(res => {
+      if (isMounted && res && res.success) {
+        setAssignedBranch(res);
+      }
+    }).catch(() => {});
+    return () => { isMounted = false; };
+  }, [currentUser?.id]);
 
   useEffect(() => {
     (async () => {
@@ -262,11 +273,11 @@ export default function HomeScreen({
       {/* 6. EXTRA FEATURES SECTION (Content-Aware Adaptive Grid) */}
       <View style={styles.sectionHeaderRow}>
         <Text style={styles.sectionHeading}>Company Services & Tools</Text>
-        <Text style={styles.sectionSubBadge}>7 Tools</Text>
+        <Text style={styles.sectionSubBadge}>6 Tools</Text>
       </View>
 
       <View style={styles.twoColumnGrid}>
-        {/* Advance Payment */}
+        {/* 1. Advance Payment */}
         <TouchableOpacity
           style={styles.gridCard}
           onPress={() => handleNav('advance')}
@@ -282,23 +293,7 @@ export default function HomeScreen({
           <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} style={{ flexShrink: 0 }} />
         </TouchableOpacity>
 
-        {/* Co-workers */}
-        <TouchableOpacity
-          style={styles.gridCard}
-          onPress={() => handleNav('coworkers')}
-          activeOpacity={0.8}
-        >
-          <View style={[styles.gridIconCircle, { backgroundColor: colors.lightOlive }]}>
-            <Ionicons name="people-outline" size={20} color={colors.primary} />
-          </View>
-          <View style={styles.gridTextWrap}>
-            <Text style={styles.gridTitle} numberOfLines={1} ellipsizeMode="tail">Co-workers</Text>
-            <Text style={styles.gridDesc} numberOfLines={1} ellipsizeMode="tail">Staff contact directory</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} style={{ flexShrink: 0 }} />
-        </TouchableOpacity>
-
-        {/* Leave Application */}
+        {/* 2. Leave Application */}
         <TouchableOpacity
           style={styles.gridCard}
           onPress={() => handleNav('leave')}
@@ -314,23 +309,7 @@ export default function HomeScreen({
           <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} style={{ flexShrink: 0 }} />
         </TouchableOpacity>
 
-        {/* Add Timesheet */}
-        <TouchableOpacity
-          style={styles.gridCard}
-          onPress={() => handleNav('timesheet')}
-          activeOpacity={0.8}
-        >
-          <View style={[styles.gridIconCircle, { backgroundColor: colors.lightOlive }]}>
-            <Ionicons name="timer-outline" size={20} color={colors.primary} />
-          </View>
-          <View style={styles.gridTextWrap}>
-            <Text style={styles.gridTitle} numberOfLines={1} ellipsizeMode="tail">Add Timesheet</Text>
-            <Text style={styles.gridDesc} numberOfLines={1} ellipsizeMode="tail">Daily project hours log</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} style={{ flexShrink: 0 }} />
-        </TouchableOpacity>
-
-        {/* Announcements */}
+        {/* 3. Announcements */}
         <TouchableOpacity
           style={styles.gridCard}
           onPress={() => handleNav('announcements')}
@@ -346,7 +325,7 @@ export default function HomeScreen({
           <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} style={{ flexShrink: 0 }} />
         </TouchableOpacity>
 
-        {/* Notes / Rules */}
+        {/* 4. Notes / Rules */}
         <TouchableOpacity
           style={styles.gridCard}
           onPress={() => handleNav('rules')}
@@ -362,7 +341,7 @@ export default function HomeScreen({
           <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} style={{ flexShrink: 0 }} />
         </TouchableOpacity>
 
-        {/* Celebrations */}
+        {/* 5. Celebrations */}
         <TouchableOpacity
           style={styles.gridCard}
           onPress={() => handleNav('celebrations')}
@@ -377,18 +356,44 @@ export default function HomeScreen({
           </View>
           <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} style={{ flexShrink: 0 }} />
         </TouchableOpacity>
+
+        {/* 6. Co-workers */}
+        <TouchableOpacity
+          style={styles.gridCard}
+          onPress={() => handleNav('coworkers')}
+          activeOpacity={0.8}
+        >
+          <View style={[styles.gridIconCircle, { backgroundColor: colors.lightOlive }]}>
+            <Ionicons name="people-outline" size={20} color={colors.primary} />
+          </View>
+          <View style={styles.gridTextWrap}>
+            <Text style={styles.gridTitle} numberOfLines={1} ellipsizeMode="tail">Co-workers</Text>
+            <Text style={styles.gridDesc} numberOfLines={1} ellipsizeMode="tail">Staff contact directory</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.borderStrong} style={{ flexShrink: 0 }} />
+        </TouchableOpacity>
       </View>
 
       {/* 7. OFFICE GEOFENCE SNIPPET (Transparency Info) */}
       <View style={styles.geofenceCard}>
         <View style={styles.geofenceIconWrap}>
-          <Ionicons name="navigate-circle" size={20} color={colors.primary} />
+          <Ionicons
+            name={assignedBranch?.workMode === 'WFH' ? 'home' : 'navigate-circle'}
+            size={20}
+            color={colors.primary}
+          />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.geofenceTitle}>Registered Work Base</Text>
-          <Text style={styles.geofenceName}>{currentOrg?.name || mockOfficeGeofence.name}</Text>
+          <Text style={styles.geofenceName}>
+            {assignedBranch?.workMode === 'WFH'
+              ? 'Remote / Work From Home'
+              : (assignedBranch?.branch?.name || currentUser?.branch_name || currentUser?.branchName || currentOrg?.name || 'Headquarters')}
+          </Text>
           <Text style={styles.geofenceMeta}>
-            {currentOrg?.city ? `${currentOrg.city}, ${currentOrg.country || 'India'} • ` : ''}Radius: {currentOrg?.office_radius_meters || mockOfficeGeofence.radiusMeters}m perimeter • Verified on server
+            {assignedBranch?.workMode === 'WFH'
+              ? 'Authorized for remote shift check-in • No office perimeter enforced'
+              : `${assignedBranch?.branch?.address || currentOrg?.address || (currentOrg?.city ? `${currentOrg.city}, India` : 'Headquarters')} • Radius: ${assignedBranch?.branch?.radius_meters || currentOrg?.office_radius_meters || 150}m perimeter`}
           </Text>
         </View>
       </View>

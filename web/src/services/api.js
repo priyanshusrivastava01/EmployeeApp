@@ -233,6 +233,12 @@ class WebApiService {
     });
   }
 
+  async deleteRule(id) {
+    return this.request(`/api/rules/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
   async getOrgSettings() {
     return this.request('/api/org/settings');
   }
@@ -241,6 +247,33 @@ class WebApiService {
     return this.request('/api/org/settings', {
       method: 'PATCH',
       body: JSON.stringify(payload)
+    });
+  }
+
+  // Multi-Branch Management (Prompt 2)
+  async getBranches(activeOnly = false) {
+    const qs = activeOnly ? '?active=true' : '';
+    return this.request(`/api/branches${qs}`);
+  }
+
+  async createBranch(payload) {
+    return this.request('/api/branches', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async updateBranch(id, payload) {
+    return this.request(`/api/branches/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+  }
+
+  async deleteBranch(id, force = false) {
+    const qs = force ? '?force=true' : '';
+    return this.request(`/api/branches/${id}${qs}`, {
+      method: 'DELETE'
     });
   }
 

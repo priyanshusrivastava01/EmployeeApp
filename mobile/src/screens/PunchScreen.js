@@ -92,13 +92,45 @@ export default function PunchScreen({ attendanceState = {}, onPunchSuccess, curr
     isPunchedIn ? (attendanceState.mode || 'WFO') : 'WFO'
   );
 
-  // Derive real company office geofence from authenticated organization
-  const officeGeofence = (currentOrg && (currentOrg.office_lat != null || currentOrg.latitude != null)) ? {
-    name: currentOrg.name || 'Company Office',
-    latitude: currentOrg.office_lat != null ? Number(currentOrg.office_lat) : Number(currentOrg.latitude),
-    longitude: currentOrg.office_lng != null ? Number(currentOrg.office_lng) : Number(currentOrg.longitude),
-    radiusMeters: currentOrg.office_radius_meters != null ? Number(currentOrg.office_radius_meters) : (currentOrg.radius_meters != null ? Number(currentOrg.radius_meters) : 100)
-  } : null;
+  // Branch-specific geofencing (Prompt 2 Module D)
+  const [assignedBranch, setAssignedBranch] = useState(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    api.getMyBranch().then(res => {
+      if (isMounted && res && res.success && res.branch) {
+        setAssignedBranch(res.branch);
+      }
+    }).catch(() => {});
+    return () => { isMounted = false; };
+  }, [currentUser?.id]);
+
+  // Derive effective geofence from assigned office branch with fallback to org headquarters
+  const officeGeofence = useMemo(() => {
+    if (assignedBranch && assignedBranch.latitude != null && assignedBranch.longitude != null) {
+      return {
+        id: assignedBranch.id,
+        name: assignedBranch.name || 'Assigned Office Branch',
+        address: assignedBranch.address || null,
+        latitude: Number(assignedBranch.latitude),
+        longitude: Number(assignedBranch.longitude),
+        radiusMeters: Number(assignedBranch.radius_meters) || 150,
+        isActive: assignedBranch.is_active !== false
+      };
+    }
+    if (currentOrg && (currentOrg.office_lat != null || currentOrg.latitude != null)) {
+      return {
+        id: 'org-default',
+        name: currentOrg.name || 'Company Office',
+        address: currentOrg.address || null,
+        latitude: currentOrg.office_lat != null ? Number(currentOrg.office_lat) : Number(currentOrg.latitude),
+        longitude: currentOrg.office_lng != null ? Number(currentOrg.office_lng) : Number(currentOrg.longitude),
+        radiusMeters: currentOrg.office_radius_meters != null ? Number(currentOrg.office_radius_meters) : (currentOrg.radius_meters != null ? Number(currentOrg.radius_meters) : 100),
+        isActive: true
+      };
+    }
+    return null;
+  }, [assignedBranch, currentOrg]);
 
   // Camera state - Strictly front-facing only
   // Camera state - Strictly front-facing only
@@ -461,13 +493,22 @@ export default function PunchScreen({ attendanceState = {}, onPunchSuccess, curr
         return;
       }
 
-      // 2. Geofence enforcement for WFO
+      // 2. Geofence enforcement for WFO against assigned office branch
       if (selectedMode === 'WFO') {
         if (!officeGeofence || officeGeofence.latitude == null || officeGeofence.longitude == null) {
           setIsSubmittingPunch(false);
           Alert.alert(
             'Office Location Not Configured',
-            'Office GPS coordinates are not configured for your company. WFO attendance cannot be verified. Please contact your company administrator or select WFH if authorized.'
+            'Office GPS coordinates are not configured for your assigned branch. WFO attendance cannot be verified. Please contact your company administrator or select WFH if authorized.'
+          );
+          return;
+        }
+
+        if (officeGeofence.isActive === false) {
+          setIsSubmittingPunch(false);
+          Alert.alert(
+            'Assigned Branch Inactive',
+            `Your assigned office branch (${officeGeofence.name}) is currently inactive. Contact your company administrator.`
           );
           return;
         }
@@ -477,7 +518,7 @@ export default function PunchScreen({ attendanceState = {}, onPunchSuccess, curr
           setIsSubmittingPunch(false);
           Alert.alert(
             'Outside Office Geofence',
-            `You are currently outside the authorized office geofence (${freshGeofence.distanceMeters != null ? `${freshGeofence.distanceMeters}m away` : 'location unverified'}, allowed radius: ${officeGeofence.radiusMeters}m). Please move closer or select authorized WFH mode.`
+            `You are currently outside your assigned office geofence for ${officeGeofence.name} (${freshGeofence.distanceMeters != null ? `${freshGeofence.distanceMeters}m away` : 'location unverified'}, allowed radius: ${officeGeofence.radiusMeters}m). Please move closer or select authorized WFH mode.`
           );
           return;
         }

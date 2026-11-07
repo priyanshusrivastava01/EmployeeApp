@@ -185,6 +185,8 @@ const memDb = {
       monthly_salary: 45000,
       phone: '+91 98765 43210',
       team_leader_id: 'user-tl-001',
+      branch_id: 'branch-demo-001',
+      work_mode: 'WFO',
       profile_photo_url: null,
       face_enrollment_status: 'not_enrolled',
       is_active: true,
@@ -202,6 +204,8 @@ const memDb = {
       designation: 'Logistics Coordinator',
       phone: '+91 91234 87654',
       team_leader_id: null,
+      branch_id: 'branch-demo-001',
+      work_mode: 'WFO',
       profile_photo_url: null,
       face_enrollment_status: 'not_enrolled',
       is_active: true,
@@ -240,6 +244,7 @@ const memDb = {
   bankDetails: [],
   profileUpdateRequests: [],
   salaryAdvances: [],
+  branches: [],
 
   // Seed some attendance for demo employee
   _init() {
@@ -480,6 +485,35 @@ const memDb = {
         updated_at: `${yesterdayIST}T18:15:00.000Z`
       }
     ];
+
+    this.branches = [
+      {
+        id: 'branch-demo-001',
+        organization_id: 'org-demo-001',
+        name: 'Headquarters - Bengaluru',
+        address: 'Bangalore Technology Park, Whitefield, Bengaluru 560066',
+        latitude: 12.9716,
+        longitude: 77.5946,
+        radius_meters: 150,
+        is_headquarters: true,
+        is_active: true,
+        created_at: new Date('2026-01-01').toISOString(),
+        updated_at: new Date('2026-01-01').toISOString()
+      },
+      {
+        id: 'branch-demo-002',
+        organization_id: 'org-demo-002',
+        name: 'Head Office - Gurugram',
+        address: 'Gurgaon Innovation Hub, Sector 44, Gurugram 122003',
+        latitude: 28.4595,
+        longitude: 77.0266,
+        radius_meters: 200,
+        is_headquarters: true,
+        is_active: true,
+        created_at: new Date('2026-02-01').toISOString(),
+        updated_at: new Date('2026-02-01').toISOString()
+      }
+    ];
   }
 };
 
@@ -537,7 +571,14 @@ const mem = {
   getProfileUpdatesForUser: (orgId, userId) => (memDb.profileUpdateRequests || []).filter(p => p.organization_id === orgId && p.user_id === userId).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
   getProfileUpdatesForOrg: (orgId) => (memDb.profileUpdateRequests || []).filter(p => p.organization_id === orgId).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
   getAdvancesForUser: (orgId, userId) => (memDb.salaryAdvances || []).filter(a => a.organization_id === orgId && a.user_id === userId).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
-  getAdvancesForOrg: (orgId) => (memDb.salaryAdvances || []).filter(a => a.organization_id === orgId).sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+  getAdvancesForOrg: (orgId) => (memDb.salaryAdvances || []).filter(a => a.organization_id === orgId).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
+  getBranchesForOrg: (orgId, activeOnly) => {
+    let list = (memDb.branches || []).filter(b => b.organization_id === orgId);
+    if (activeOnly) list = list.filter(b => b.is_active !== false);
+    return list.sort((a, b) => (b.is_headquarters ? 1 : 0) - (a.is_headquarters ? 1 : 0));
+  },
+  findBranchById: (id) => (memDb.branches || []).find(b => b.id === id),
+  findBranchByName: (orgId, name) => (memDb.branches || []).find(b => b.organization_id === orgId && b.name.trim().toLowerCase() === name.trim().toLowerCase())
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -620,7 +661,7 @@ async function generateMemberIdAsync(role, orgId) {
   else if (role === 'team_leader') prefix = 'TLD';
 
   let maxSeq = 0;
-  if (supabase) {
+  if (supabase && isUuid(orgId)) {
     try {
       const { data: dbUsers } = await supabase
         .from('users')
@@ -1181,7 +1222,7 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
     let user = null;
     let org = null;
 
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data, error } = await supabase
         .from('users')
         .select('id, name, email, role, department, designation, phone, profile_photo_url, face_enrollment_status, is_active, organization_id, employee_id_number')
@@ -1912,7 +1953,7 @@ app.post('/api/invitations', requireAuth, requireRole(['founder', 'admin']), asy
 app.get('/api/invitations', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
   try {
     let invites = [];
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data, error } = await supabase
         .from('invitations')
         .select('*')
@@ -2193,7 +2234,7 @@ app.patch('/api/org/settings', requireAuth, requireRole(['admin']), async (req, 
     });
     updates.updated_at = new Date().toISOString();
 
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data, error } = await supabase.from('organizations')
         .update(updates)
         .eq('id', req.user.organizationId)
@@ -2215,6 +2256,586 @@ app.patch('/api/org/settings', requireAuth, requireRole(['admin']), async (req, 
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// MULTI-BRANCH MANAGEMENT & BRANCH GEOFENCING ENDPOINTS (PROMPT 2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/branches
+ * List all office branches for the authenticated organization.
+ * Query param: ?active=true (filters to active branches only)
+ */
+app.get('/api/branches', requireAuth, async (req, res) => {
+  try {
+    const orgId = req.user.organizationId;
+    const activeOnly = req.query.active === 'true';
+    let branches = [];
+    let employeeCounts = {};
+
+    if (supabase && isUuid(orgId)) {
+      try {
+        let query = supabase
+          .from('branches')
+          .select('*')
+          .eq('organization_id', orgId);
+
+        if (activeOnly) {
+          query = query.eq('is_active', true);
+        }
+
+        query = query.order('is_headquarters', { ascending: false }).order('created_at', { ascending: true });
+        const { data, error } = await query;
+        if (!error && data) {
+          branches = data;
+        }
+
+        // Fetch employee counts per branch
+        try {
+          const { data: usersWithBranch } = await supabase
+            .from('users')
+            .select('branch_id')
+            .eq('organization_id', orgId)
+            .not('branch_id', 'is', null);
+
+          if (usersWithBranch) {
+            usersWithBranch.forEach(u => {
+              if (u.branch_id) {
+                employeeCounts[u.branch_id] = (employeeCounts[u.branch_id] || 0) + 1;
+              }
+            });
+          }
+        } catch (_) {}
+      } catch (dbErr) {
+        console.warn('[Branches] Supabase fetch error:', dbErr.message);
+      }
+    }
+
+    if (!branches.length) {
+      branches = mem.getBranchesForOrg(orgId, activeOnly);
+      (memDb.users || []).forEach(u => {
+        if (u.organization_id === orgId && u.branch_id) {
+          employeeCounts[u.branch_id] = (employeeCounts[u.branch_id] || 0) + 1;
+        }
+      });
+    }
+
+    const enrichedBranches = branches.map(b => ({
+      ...b,
+      radius_meters: Number(b.radius_meters) || 150,
+      latitude: b.latitude != null ? Number(b.latitude) : null,
+      longitude: b.longitude != null ? Number(b.longitude) : null,
+      assigned_employees_count: employeeCounts[b.id] || 0
+    }));
+
+    res.json({
+      success: true,
+      data: enrichedBranches,
+      count: enrichedBranches.length
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to retrieve branches.' });
+  }
+});
+
+/**
+ * GET /api/branches/my-branch
+ * Retrieve the calling user's assigned active office branch.
+ * For WFH users, returns workMode: 'WFH' and branch: null.
+ * For WFO users with no branch assigned yet, falls back to organization headquarters branch.
+ */
+app.get('/api/branches/my-branch', requireAuth, async (req, res) => {
+  try {
+    const orgId = req.user.organizationId;
+    const userId = req.user.id;
+
+    let user = null;
+    if (supabase && isUuid(userId)) {
+      try {
+        const { data } = await supabase
+          .from('users')
+          .select('id, name, work_mode, branch_id')
+          .eq('id', userId)
+          .maybeSingle();
+        if (data) user = data;
+      } catch (_) {}
+    }
+    if (!user) user = mem.findUserById(userId);
+
+    const userWorkMode = (user?.work_mode || 'WFO').toUpperCase();
+
+    if (userWorkMode === 'WFH') {
+      return res.json({
+        success: true,
+        workMode: 'WFH',
+        branch: null,
+        message: 'You are registered for Work From Home (WFH). Office geofence does not apply.'
+      });
+    }
+
+    let assignedBranch = null;
+
+    // 1. Look up explicitly assigned branch
+    if (user?.branch_id) {
+      if (supabase && isUuid(user.branch_id)) {
+        try {
+          const { data } = await supabase
+            .from('branches')
+            .select('*')
+            .eq('id', user.branch_id)
+            .eq('organization_id', orgId)
+            .maybeSingle();
+          if (data) assignedBranch = data;
+        } catch (_) {}
+      }
+      if (!assignedBranch) {
+        assignedBranch = mem.findBranchById(user.branch_id);
+      }
+    }
+
+    // 2. Compatibility fallback: If no explicit branch assigned yet, use Org Headquarters branch
+    if (!assignedBranch) {
+      if (supabase && isUuid(orgId)) {
+        try {
+          const { data } = await supabase
+            .from('branches')
+            .select('*')
+            .eq('organization_id', orgId)
+            .eq('is_active', true)
+            .order('is_headquarters', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (data) assignedBranch = data;
+        } catch (_) {}
+      }
+      if (!assignedBranch) {
+        const orgBranches = mem.getBranchesForOrg(orgId, true);
+        assignedBranch = orgBranches[0] || null;
+      }
+    }
+
+    // 3. Fallback to organization office_lat/lng if branches table has no rows
+    if (!assignedBranch) {
+      let org = null;
+      if (supabase && isUuid(orgId)) {
+        try {
+          const { data } = await supabase
+            .from('organizations')
+            .select('name, address, office_lat, office_lng, office_radius_meters')
+            .eq('id', orgId)
+            .maybeSingle();
+          if (data) org = data;
+        } catch (_) {}
+      }
+      if (!org) org = mem.findOrgById(orgId);
+
+      if (org && org.office_lat != null && org.office_lng != null) {
+        assignedBranch = {
+          id: 'org-default-branch',
+          organization_id: orgId,
+          name: org.name ? `${org.name} Office` : 'Head Office',
+          address: org.address || null,
+          latitude: Number(org.office_lat),
+          longitude: Number(org.office_lng),
+          radius_meters: Number(org.office_radius_meters) || 150,
+          is_headquarters: true,
+          is_active: true
+        };
+      }
+    }
+
+    if (!assignedBranch) {
+      return res.status(404).json({
+        success: false,
+        error: 'No active office branch found for your organization.',
+        workMode: 'WFO',
+        branch: null
+      });
+    }
+
+    res.json({
+      success: true,
+      workMode: 'WFO',
+      branch: {
+        ...assignedBranch,
+        latitude: Number(assignedBranch.latitude),
+        longitude: Number(assignedBranch.longitude),
+        radius_meters: Number(assignedBranch.radius_meters) || 150
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to retrieve assigned branch.' });
+  }
+});
+
+/**
+ * POST /api/branches
+ * Create a new office branch for the caller's organization.
+ * Founder/Admin only. Enforces case-insensitive unique branch name per organization.
+ */
+app.post('/api/branches', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
+  try {
+    const orgId = req.user.organizationId;
+    const { name, address, latitude, longitude, radiusMeters, radius_meters, isHeadquarters, is_headquarters, isActive, is_active } = req.body;
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'Branch name is required.' });
+    }
+
+    const trimmedName = name.trim();
+    const latNum = parseFloat(latitude);
+    const lngNum = parseFloat(longitude);
+    const radNum = parseInt(radiusMeters !== undefined ? radiusMeters : (radius_meters !== undefined ? radius_meters : 150), 10);
+
+    if (isNaN(latNum) || latNum < -90 || latNum > 90) {
+      return res.status(400).json({ success: false, error: 'Latitude must be a valid number between -90 and 90.' });
+    }
+    if (isNaN(lngNum) || lngNum < -180 || lngNum > 180) {
+      return res.status(400).json({ success: false, error: 'Longitude must be a valid number between -180 and 180.' });
+    }
+    if (isNaN(radNum) || radNum <= 0 || radNum > 5000) {
+      return res.status(400).json({ success: false, error: 'Permitted geofence radius must be between 1 and 5000 meters.' });
+    }
+
+    // Check case-insensitive branch name uniqueness within the same organization
+    if (supabase && isUuid(orgId)) {
+      try {
+        const { data: existingBranches } = await supabase
+          .from('branches')
+          .select('id, name')
+          .eq('organization_id', orgId);
+
+        if (existingBranches) {
+          const duplicate = existingBranches.find(b => b.name && b.name.trim().toLowerCase() === trimmedName.toLowerCase());
+          if (duplicate) {
+            return res.status(409).json({ success: false, error: `A branch named "${trimmedName}" already exists in your organization.` });
+          }
+        }
+      } catch (_) {}
+    }
+
+    const memDuplicate = mem.findBranchByName(orgId, trimmedName);
+    if (memDuplicate) {
+      return res.status(409).json({ success: false, error: `A branch named "${trimmedName}" already exists in your organization.` });
+    }
+
+    const branchId = generateUUID();
+    const now = new Date().toISOString();
+    const newBranch = {
+      id: branchId,
+      organization_id: orgId,
+      name: trimmedName,
+      address: address ? address.trim() : null,
+      latitude: latNum,
+      longitude: lngNum,
+      radius_meters: radNum,
+      is_headquarters: Boolean(isHeadquarters !== undefined ? isHeadquarters : is_headquarters),
+      is_active: isActive !== undefined ? Boolean(isActive) : (is_active !== undefined ? Boolean(is_active) : true),
+      created_at: now,
+      updated_at: now
+    };
+
+    let created = newBranch;
+    if (supabase && isUuid(orgId)) {
+      try {
+        const { data, error } = await supabase
+          .from('branches')
+          .insert([newBranch])
+          .select()
+          .single();
+
+        if (error) {
+          console.error('[Branches] Supabase insert failed:', error.message);
+          if (error.code === '23505') {
+            return res.status(409).json({ success: false, error: `A branch named "${trimmedName}" already exists in your organization.` });
+          }
+          return res.status(500).json({ success: false, error: 'Database branch creation failed: ' + error.message });
+        }
+        if (data) created = data;
+      } catch (dbErr) {
+        return res.status(500).json({ success: false, error: 'Database branch creation error: ' + dbErr.message });
+      }
+    }
+
+    if (!memDb.branches) memDb.branches = [];
+    memDb.branches.push(created);
+
+    // If marked as headquarters, update organization office coordinates for backward compatibility
+    if (created.is_headquarters) {
+      if (supabase && isUuid(orgId)) {
+        try {
+          await supabase.from('organizations').update({
+            office_lat: latNum,
+            office_lng: lngNum,
+            office_radius_meters: radNum,
+            address: created.address
+          }).eq('id', orgId);
+        } catch (_) {}
+      }
+      const orgIdx = memDb.organizations.findIndex(o => o.id === orgId);
+      if (orgIdx !== -1) {
+        memDb.organizations[orgIdx].office_lat = latNum;
+        memDb.organizations[orgIdx].office_lng = lngNum;
+        memDb.organizations[orgIdx].office_radius_meters = radNum;
+        if (created.address) memDb.organizations[orgIdx].address = created.address;
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Office branch created successfully.',
+      data: {
+        ...created,
+        assigned_employees_count: 0
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to create branch.' });
+  }
+});
+
+/**
+ * PATCH /api/branches/:id
+ * Update an existing office branch.
+ * Founder/Admin only. Organization-scoped.
+ */
+app.patch('/api/branches/:id', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
+  try {
+    const orgId = req.user.organizationId;
+    const { id } = req.params;
+    const { name, address, latitude, longitude, radiusMeters, radius_meters, isHeadquarters, is_headquarters, isActive, is_active, force } = req.body;
+
+    // 1. Locate branch
+    let branch = null;
+    if (supabase && isUuid(id) && isUuid(orgId)) {
+      try {
+        const { data } = await supabase
+          .from('branches')
+          .select('*')
+          .eq('id', id)
+          .eq('organization_id', orgId)
+          .maybeSingle();
+        if (data) branch = data;
+      } catch (_) {}
+    }
+    if (!branch) {
+      branch = (memDb.branches || []).find(b => b.id === id && b.organization_id === orgId);
+    }
+
+    if (!branch) {
+      return res.status(404).json({ success: false, error: 'Branch not found in your organization.' });
+    }
+
+    const updates = {};
+    if (name !== undefined) {
+      if (typeof name !== 'string' || !name.trim()) {
+        return res.status(400).json({ success: false, error: 'Branch name cannot be empty.' });
+      }
+      const trimmedName = name.trim();
+      // Check duplicate name
+      if (trimmedName.toLowerCase() !== branch.name.toLowerCase()) {
+        const memDup = mem.findBranchByName(orgId, trimmedName);
+        if (memDup && memDup.id !== id) {
+          return res.status(409).json({ success: false, error: `A branch named "${trimmedName}" already exists in your organization.` });
+        }
+      }
+      updates.name = trimmedName;
+    }
+
+    if (address !== undefined) updates.address = address ? address.trim() : null;
+
+    if (latitude !== undefined) {
+      const latNum = parseFloat(latitude);
+      if (isNaN(latNum) || latNum < -90 || latNum > 90) {
+        return res.status(400).json({ success: false, error: 'Latitude must be between -90 and 90.' });
+      }
+      updates.latitude = latNum;
+    }
+
+    if (longitude !== undefined) {
+      const lngNum = parseFloat(longitude);
+      if (isNaN(lngNum) || lngNum < -180 || lngNum > 180) {
+        return res.status(400).json({ success: false, error: 'Longitude must be between -180 and 180.' });
+      }
+      updates.longitude = lngNum;
+    }
+
+    const radVal = radiusMeters !== undefined ? radiusMeters : radius_meters;
+    if (radVal !== undefined) {
+      const radNum = parseInt(radVal, 10);
+      if (isNaN(radNum) || radNum <= 0 || radNum > 5000) {
+        return res.status(400).json({ success: false, error: 'Radius must be between 1 and 5000 meters.' });
+      }
+      updates.radius_meters = radNum;
+    }
+
+    const hqVal = isHeadquarters !== undefined ? isHeadquarters : is_headquarters;
+    if (hqVal !== undefined) updates.is_headquarters = Boolean(hqVal);
+
+    const activeVal = isActive !== undefined ? isActive : is_active;
+    if (activeVal !== undefined) {
+      const targetActive = Boolean(activeVal);
+      // If deactivating, check if employees are currently assigned to this branch
+      if (!targetActive && branch.is_active !== false) {
+        let assignedCount = 0;
+        if (supabase && isUuid(id)) {
+          try {
+            const { count } = await supabase
+              .from('users')
+              .select('id', { count: 'exact', head: true })
+              .eq('branch_id', id)
+              .eq('organization_id', orgId);
+            if (count) assignedCount = count;
+          } catch (_) {}
+        }
+        if (!assignedCount) {
+          assignedCount = (memDb.users || []).filter(u => u.organization_id === orgId && u.branch_id === id).length;
+        }
+
+        if (assignedCount > 0 && force !== true) {
+          return res.status(400).json({
+            success: false,
+            error: `Cannot deactivate branch: ${assignedCount} employee(s) are currently assigned to this branch. Please reassign them first or confirm forced deactivation.`,
+            assigned_employees_count: assignedCount,
+            requires_reassignment: true
+          });
+        }
+      }
+      updates.is_active = targetActive;
+    }
+
+    updates.updated_at = new Date().toISOString();
+
+    let updated = { ...branch, ...updates };
+    if (supabase && isUuid(id) && isUuid(orgId)) {
+      try {
+        const { data, error } = await supabase
+          .from('branches')
+          .update(updates)
+          .eq('id', id)
+          .eq('organization_id', orgId)
+          .select()
+          .single();
+
+        if (error) {
+          console.error('[Branches] Supabase update failed:', error.message);
+          return res.status(500).json({ success: false, error: 'Database branch update failed: ' + error.message });
+        }
+        if (data) updated = data;
+      } catch (dbErr) {
+        return res.status(500).json({ success: false, error: 'Database branch update error: ' + dbErr.message });
+      }
+    }
+
+    const memIdx = (memDb.branches || []).findIndex(b => b.id === id);
+    if (memIdx !== -1) memDb.branches[memIdx] = updated;
+
+    // If headquarters updated, sync with organization office coords
+    if (updated.is_headquarters && (updated.latitude != null || updated.longitude != null)) {
+      const orgUpdates = {
+        office_lat: updated.latitude,
+        office_lng: updated.longitude,
+        office_radius_meters: updated.radius_meters
+      };
+      if (updated.address) orgUpdates.address = updated.address;
+      if (supabase && isUuid(orgId)) {
+        try {
+          await supabase.from('organizations').update(orgUpdates).eq('id', orgId);
+        } catch (_) {}
+      }
+      const orgIdx = memDb.organizations.findIndex(o => o.id === orgId);
+      if (orgIdx !== -1) {
+        memDb.organizations[orgIdx] = { ...memDb.organizations[orgIdx], ...orgUpdates };
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Office branch updated successfully.',
+      data: updated
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to update branch.' });
+  }
+});
+
+/**
+ * DELETE /api/branches/:id
+ * Soft deactivation of office branch. Preserves historical attendance integrity.
+ */
+app.delete('/api/branches/:id', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
+  try {
+    const orgId = req.user.organizationId;
+    const { id } = req.params;
+
+    let branch = null;
+    if (supabase && isUuid(id) && isUuid(orgId)) {
+      try {
+        const { data } = await supabase
+          .from('branches')
+          .select('*')
+          .eq('id', id)
+          .eq('organization_id', orgId)
+          .maybeSingle();
+        if (data) branch = data;
+      } catch (_) {}
+    }
+    if (!branch) branch = (memDb.branches || []).find(b => b.id === id && b.organization_id === orgId);
+
+    if (!branch) {
+      return res.status(404).json({ success: false, error: 'Branch not found in your organization.' });
+    }
+
+    // Check assigned employees count
+    let assignedCount = 0;
+    if (supabase && isUuid(id)) {
+      try {
+        const { count } = await supabase
+          .from('users')
+          .select('id', { count: 'exact', head: true })
+          .eq('branch_id', id)
+          .eq('organization_id', orgId);
+        if (count) assignedCount = count;
+      } catch (_) {}
+    }
+    if (!assignedCount) {
+      assignedCount = (memDb.users || []).filter(u => u.organization_id === orgId && u.branch_id === id).length;
+    }
+
+    if (assignedCount > 0 && req.query.force !== 'true') {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot deactivate branch: ${assignedCount} employee(s) are currently assigned to this branch. Please reassign them first.`,
+        assigned_employees_count: assignedCount,
+        requires_reassignment: true
+      });
+    }
+
+    const now = new Date().toISOString();
+    if (supabase && isUuid(id) && isUuid(orgId)) {
+      try {
+        await supabase
+          .from('branches')
+          .update({ is_active: false, updated_at: now })
+          .eq('id', id)
+          .eq('organization_id', orgId);
+      } catch (_) {}
+    }
+
+    const memIdx = (memDb.branches || []).findIndex(b => b.id === id);
+    if (memIdx !== -1) {
+      memDb.branches[memIdx].is_active = false;
+      memDb.branches[memIdx].updated_at = now;
+    }
+
+    res.json({
+      success: true,
+      message: `Branch "${branch.name}" deactivated successfully.`
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to deactivate branch.' });
+  }
+});
+
 /**
  * GET /api/users
  * List all users in the caller's organization.
@@ -2226,16 +2847,39 @@ app.get('/api/users', requireAuth, async (req, res) => {
     let users = [];
 
     if (supabase) {
-      let query = supabase.from('users')
-        .select('id, name, email, role, department, designation, phone, profile_photo_url, face_enrollment_status, is_active, team_leader_id, created_at, employee_id_number')
-        .eq('organization_id', req.user.organizationId);
-      if (status && status !== 'all') query = query.eq('is_active', status === 'active');
-      const { data, error } = await query;
-      if (!error && data) users = data;
+      try {
+        let query = supabase.from('users')
+          .select('id, name, email, role, department, designation, phone, profile_photo_url, face_enrollment_status, is_active, team_leader_id, created_at, employee_id_number, branch_id, work_mode')
+          .eq('organization_id', req.user.organizationId);
+        if (status && status !== 'all') query = query.eq('is_active', status === 'active');
+        const { data, error } = await query;
+        if (!error && data) users = data;
+      } catch (_) {
+        // Fallback query if branch_id / work_mode columns don't exist yet
+        try {
+          let query = supabase.from('users')
+            .select('id, name, email, role, department, designation, phone, profile_photo_url, face_enrollment_status, is_active, team_leader_id, created_at, employee_id_number')
+            .eq('organization_id', req.user.organizationId);
+          if (status && status !== 'all') query = query.eq('is_active', status === 'active');
+          const { data, error } = await query;
+          if (!error && data) users = data;
+        } catch (_) {}
+      }
     }
 
     if (!users.length) {
       users = mem.getUsersForOrg(req.user.organizationId);
+    }
+
+    // Resolve branch lookup map for caller's organization
+    const branchMap = {};
+    const orgBranches = mem.getBranchesForOrg(req.user.organizationId, false);
+    orgBranches.forEach(b => { branchMap[b.id] = b; });
+    if (supabase && isUuid(req.user.organizationId)) {
+      try {
+        const { data: dbBranches } = await supabase.from('branches').select('id, name, address').eq('organization_id', req.user.organizationId);
+        if (dbBranches) dbBranches.forEach(b => { branchMap[b.id] = b; });
+      } catch (_) {}
     }
 
     // Team Leaders only see assigned team members + themselves
@@ -2245,21 +2889,32 @@ app.get('/api/users', requireAuth, async (req, res) => {
 
     // Employees cannot see phone numbers of coworkers (privacy)
     const isManagement = ['founder', 'admin', 'team_leader'].includes(req.user.role);
-    users = users.map(u => ({
-      id: u.id,
-      name: u.name,
-      email: isManagement ? u.email : undefined,
-      employeeId: u.employee_id_number || u.employeeId || null,
-      role: u.role,
-      department: u.department,
-      designation: u.designation,
-      phone: isManagement ? u.phone : undefined,
-      profilePhotoUrl: u.profile_photo_url,
-      faceEnrollmentStatus: isManagement ? u.face_enrollment_status : undefined,
-      isActive: u.is_active,
-      teamLeaderId: u.team_leader_id,
-      joinedDate: u.created_at ? u.created_at.slice(0, 10) : null
-    }));
+    users = users.map(u => {
+      const bObj = u.branch_id ? branchMap[u.branch_id] : null;
+      return {
+        id: u.id,
+        name: u.name,
+        email: isManagement ? u.email : undefined,
+        employeeId: u.employee_id_number || u.employeeId || null,
+        role: u.role,
+        department: u.department,
+        designation: u.designation,
+        phone: isManagement ? u.phone : undefined,
+        profilePhotoUrl: u.profile_photo_url,
+        faceEnrollmentStatus: isManagement ? u.face_enrollment_status : undefined,
+        isActive: u.is_active,
+        teamLeaderId: u.team_leader_id,
+        workMode: (u.work_mode || 'WFO').toUpperCase(),
+        work_mode: (u.work_mode || 'WFO').toUpperCase(),
+        branchId: u.branch_id || null,
+        branch_id: u.branch_id || null,
+        branchName: bObj ? bObj.name : null,
+        branch_name: bObj ? bObj.name : null,
+        branchAddress: bObj ? bObj.address : null,
+        branch_address: bObj ? bObj.address : null,
+        joinedDate: u.created_at ? u.created_at.slice(0, 10) : null
+      };
+    });
 
     // Apply search/filter
     if (search) {
@@ -2326,7 +2981,7 @@ app.get('/api/users/:id', requireAuth, async (req, res) => {
 app.post('/api/users', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
   let authUser = null;
   try {
-    const { name, email, role = 'employee', department, designation, phone, teamLeaderId } = req.body;
+    const { name, email, role = 'employee', department, designation, phone, teamLeaderId, workMode, work_mode, branchId, branch_id } = req.body;
     let password = req.body.password;
 
     if (!name || !email) {
@@ -2338,6 +2993,48 @@ app.post('/api/users', requireAuth, requireRole(['founder', 'admin']), async (re
     // Only founder can create admin accounts
     if (role === 'admin' && req.user.role !== 'founder') {
       return res.status(403).json({ success: false, error: 'Only a Founder can create Admin accounts.' });
+    }
+
+    // Work Mode & Branch Assignment validation (Module B)
+    const targetWorkMode = (workMode || work_mode || 'WFO').toUpperCase();
+    if (!['WFO', 'WFH'].includes(targetWorkMode)) {
+      return res.status(400).json({ success: false, error: 'Invalid work mode. Must be either WFO or WFH.' });
+    }
+
+    let assignedBranchId = null;
+    let assignedBranch = null;
+
+    if (targetWorkMode === 'WFO') {
+      const targetBranchId = branchId || branch_id;
+      if (!targetBranchId) {
+        return res.status(400).json({ success: false, error: 'Office branch selection is required for Work From Office (WFO) employees.' });
+      }
+
+      // Verify branch exists, is active, and belongs to caller's organization
+      if (supabase && isUuid(targetBranchId)) {
+        try {
+          const { data } = await supabase
+            .from('branches')
+            .select('id, name, is_active, organization_id')
+            .eq('id', targetBranchId)
+            .maybeSingle();
+          if (data) assignedBranch = data;
+        } catch (_) {}
+      }
+      if (!assignedBranch) {
+        assignedBranch = mem.findBranchById(targetBranchId);
+      }
+
+      if (!assignedBranch) {
+        return res.status(404).json({ success: false, error: 'The specified office branch was not found.' });
+      }
+      if (assignedBranch.organization_id !== req.user.organizationId) {
+        return res.status(403).json({ success: false, error: 'Cannot assign employee to a branch belonging to another organization.' });
+      }
+      if (assignedBranch.is_active === false) {
+        return res.status(400).json({ success: false, error: `Branch "${assignedBranch.name}" is currently inactive and cannot accept new employee assignments.` });
+      }
+      assignedBranchId = assignedBranch.id;
     }
 
     // Auto-generate temporary password if not provided
@@ -2353,7 +3050,7 @@ app.post('/api/users', requireAuth, requireRole(['founder', 'admin']), async (re
     const normalizedEmail = email.trim().toLowerCase();
 
     // Verify email uniqueness in Supabase & memory
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       try {
         const { data: existingUser } = await supabase
           .from('users')
@@ -2378,7 +3075,7 @@ app.post('/api/users', requireAuth, requireRole(['founder', 'admin']), async (re
 
     // 1. Create real Supabase Auth user if Supabase is connected
     let authUserId = null;
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       try {
         const { data: authData, error: authError } = await supabase.auth.admin.createUser({
           email: normalizedEmail,
@@ -2421,6 +3118,8 @@ app.post('/api/users', requireAuth, requireRole(['founder', 'admin']), async (re
       designation: designation ? designation.trim() : null,
       phone: phone ? phone.trim() : null,
       team_leader_id: teamLeaderId || null,
+      work_mode: targetWorkMode,
+      branch_id: assignedBranchId,
       profile_photo_url: null,
       face_enrollment_status: 'not_enrolled',
       is_active: true,
@@ -2429,27 +3128,21 @@ app.post('/api/users', requireAuth, requireRole(['founder', 'admin']), async (re
     };
 
     let createdUser = newUser;
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       try {
         const { data, error } = await supabase.from('users').insert([newUser]).select().single();
         if (error) {
           console.error('[Users] Supabase user insertion failed:', error.message);
-          // Roll back Supabase Auth user if database insertion fails
           if (authUser && authUser.id) {
-            try {
-              await supabase.auth.admin.deleteUser(authUser.id);
-            } catch (delErr) {
-              console.error('[Users] Auth user rollback failed:', delErr.message);
-            }
+            try { await supabase.auth.admin.deleteUser(authUser.id); } catch (_) {}
           }
           return res.status(500).json({ success: false, error: 'Database user creation failed: ' + error.message });
+        } else if (data) {
+          createdUser = data;
         }
-        if (data) createdUser = data;
       } catch (dbErr) {
         if (authUser && authUser.id) {
-          try {
-            await supabase.auth.admin.deleteUser(authUser.id);
-          } catch (delErr) {}
+          try { await supabase.auth.admin.deleteUser(authUser.id); } catch (_) {}
         }
         return res.status(500).json({ success: false, error: 'Database user creation error: ' + dbErr.message });
       }
@@ -2460,7 +3153,7 @@ app.post('/api/users', requireAuth, requireRole(['founder', 'admin']), async (re
 
     // Resolve organization details for the credentials payload
     let org = null;
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       try {
         const { data: orgData } = await supabase.from('organizations').select('*').eq('id', req.user.organizationId).maybeSingle();
         if (orgData) org = orgData;
@@ -2480,14 +3173,13 @@ app.post('/api/users', requireAuth, requireRole(['founder', 'admin']), async (re
         employeeId: employeeId,
         email: normalizedEmail,
         password: password, // Exposed securely in response for Founder to display/copy
-        isAutoGenerated: isAutoGeneratedPassword,
         role: createdUser.role,
         department: createdUser.department,
         designation: createdUser.designation,
         companyId: org ? (org.public_company_id || org.company_code || org.slug) : null,
         companyName: org ? org.name : null
       },
-      source: supabase ? 'supabase' : 'memory'
+      source: (supabase && isUuid(req.user.organizationId)) ? 'supabase' : 'memory'
     });
   } catch (err) {
     // If an unhandled exception occurred and auth user was created, roll back
@@ -2515,9 +3207,9 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
       return res.status(403).json({ success: false, error: 'You can only update your own profile.' });
     }
 
-    // Management can update: name, role, department, designation, phone, teamLeaderId, isActive
+    // Management can update: name, role, department, designation, phone, teamLeaderId, isActive, workMode, branchId
     // Employee can update: name, phone, profile_photo_url
-    const adminFields = ['name', 'role', 'department', 'designation', 'phone', 'team_leader_id', 'is_active'];
+    const adminFields = ['name', 'role', 'department', 'designation', 'phone', 'team_leader_id', 'is_active', 'work_mode', 'branch_id'];
     const employeeFields = ['name', 'phone', 'profile_photo_url'];
     const allowedFields = isManagement ? adminFields : employeeFields;
 
@@ -2535,15 +3227,53 @@ app.patch('/api/users/:id', requireAuth, async (req, res) => {
       return res.status(403).json({ success: false, error: 'Only a Founder can assign the Admin role.' });
     }
 
+    // Work Mode & Branch Assignment validation on update
+    if (updates.work_mode !== undefined) {
+      const normMode = String(updates.work_mode).toUpperCase();
+      if (!['WFO', 'WFH'].includes(normMode)) {
+        return res.status(400).json({ success: false, error: 'Invalid work mode. Must be WFO or WFH.' });
+      }
+      updates.work_mode = normMode;
+      if (normMode === 'WFH') {
+        updates.branch_id = null;
+      }
+    }
+
+    if (updates.branch_id !== undefined && updates.branch_id !== null) {
+      let branchCheck = null;
+      if (supabase && isUuid(updates.branch_id)) {
+        try {
+          const { data } = await supabase
+            .from('branches')
+            .select('id, name, is_active, organization_id')
+            .eq('id', updates.branch_id)
+            .maybeSingle();
+          if (data) branchCheck = data;
+        } catch (_) {}
+      }
+      if (!branchCheck) branchCheck = mem.findBranchById(updates.branch_id);
+
+      if (!branchCheck) {
+        return res.status(404).json({ success: false, error: 'Selected office branch not found.' });
+      }
+      if (branchCheck.organization_id !== req.user.organizationId) {
+        return res.status(403).json({ success: false, error: 'Cannot assign a branch from another organization.' });
+      }
+      if (branchCheck.is_active === false) {
+        return res.status(400).json({ success: false, error: `Branch "${branchCheck.name}" is currently inactive.` });
+      }
+    }
+
     updates.updated_at = new Date().toISOString();
 
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data, error } = await supabase.from('users')
         .update(updates)
         .eq('id', id)
         .eq('organization_id', req.user.organizationId)
         .select()
         .single();
+
       if (error) {
         console.error('[Users] Supabase user update failed:', error.message);
         return res.status(500).json({ success: false, error: 'Database user update failed: ' + error.message });
@@ -2863,6 +3593,21 @@ app.get('/api/attendance/stats', requireAuth, requireRole(['founder', 'admin', '
         console.error('[Attendance Stats Leaves Error]:', leavesErr.message);
       }
 
+      // 5. Pending salary advances from database (management only)
+      let pendingAdvancesCount = 0;
+      if (['founder', 'admin'].includes(req.user.role)) {
+        const { count: advCount, error: advErr } = await supabase
+          .from('salary_advance_requests')
+          .select('*', { count: 'exact', head: true })
+          .eq('organization_id', req.user.organizationId)
+          .ilike('status', '%Pending%');
+        if (advErr) {
+          console.error('[Attendance Stats Advances Error]:', advErr.message);
+        } else {
+          pendingAdvancesCount = advCount || 0;
+        }
+      }
+
       const statsData = {
         totalEmployees: activeUsers.length,
         activeEmployees: activeUsers.length,
@@ -2872,6 +3617,7 @@ app.get('/api/attendance/stats', requireAuth, requireRole(['founder', 'admin', '
         wfoCount,
         wfhCount,
         pendingLeaves: pendingLeavesCount || 0,
+        pendingAdvances: pendingAdvancesCount,
         pendingReports: 0,
         source: 'supabase'
       };
@@ -2926,6 +3672,10 @@ app.get('/api/attendance/stats', requireAuth, requireRole(['founder', 'admin', '
       pendingLeavesList = pendingLeavesList.filter(l => teamIds.has(l.user_id));
     }
 
+    const pendingAdvancesCount = ['founder', 'admin'].includes(req.user.role)
+      ? (memDb.salaryAdvances || []).filter(a => a.organization_id === req.user.organizationId && String(a.status).toLowerCase().includes('pending')).length
+      : 0;
+
     const statsData = {
       totalEmployees: orgUsers.filter(u => u.role !== 'admin' && u.role !== 'founder').length,
       activeEmployees: totalActive,
@@ -2935,6 +3685,7 @@ app.get('/api/attendance/stats', requireAuth, requireRole(['founder', 'admin', '
       wfoCount,
       wfhCount,
       pendingLeaves: pendingLeavesList.length,
+      pendingAdvances: pendingAdvancesCount,
       pendingReports: 0,
       source: 'memory'
     };
@@ -3249,6 +4000,8 @@ app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
 
     let distanceMeters = null;
     let isVerified = false;
+    let targetBranchId = null;
+    let targetBranchName = null;
 
     if (normalizedMode === 'WFH') {
       if (org && org.wfh_allowed === false) {
@@ -3256,17 +4009,114 @@ app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
       }
       isVerified = true;
     } else {
-      // WFO mode
-      if (org && org.office_lat != null && org.office_lng != null) {
-        distanceMeters = Math.round(haversineDistance(
-          lat, lng,
-          Number(org.office_lat), Number(org.office_lng)
-        ));
-        const allowedRadius = Number(org.office_radius_meters) || 100;
-        isVerified = distanceMeters <= allowedRadius;
-      } else {
-        isVerified = true;
+      // WFO mode — Branch-specific geofencing validation (Prompt 2 Module D)
+      // 1. Fetch user to get assigned branch
+      let callingUser = null;
+      if (isDbMode) {
+        try {
+          const { data: uData } = await supabase
+            .from('users')
+            .select('id, name, work_mode, branch_id')
+            .eq('id', req.user.id)
+            .maybeSingle();
+          if (uData) callingUser = uData;
+        } catch (_) {}
       }
+      if (!callingUser) callingUser = mem.findUserById(req.user.id);
+
+      let branch = null;
+      // Look up user's explicitly assigned branch
+      if (callingUser?.branch_id) {
+        if (isDbMode) {
+          try {
+            const { data: bData } = await supabase
+              .from('branches')
+              .select('*')
+              .eq('id', callingUser.branch_id)
+              .eq('organization_id', req.user.organizationId)
+              .maybeSingle();
+            if (bData) branch = bData;
+          } catch (_) {}
+        }
+        if (!branch) branch = mem.findBranchById(callingUser.branch_id);
+      }
+
+      // Compatibility fallback: if user has no assigned branch yet, use Org Headquarters or first active branch
+      if (!branch) {
+        if (isDbMode) {
+          try {
+            const { data: hqData } = await supabase
+              .from('branches')
+              .select('*')
+              .eq('organization_id', req.user.organizationId)
+              .eq('is_active', true)
+              .order('is_headquarters', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            if (hqData) branch = hqData;
+          } catch (_) {}
+        }
+        if (!branch) {
+          const orgBranches = mem.getBranchesForOrg(req.user.organizationId, true);
+          branch = orgBranches[0] || null;
+        }
+      }
+
+      // Fallback to legacy organization office_lat / office_lng if no branches exist
+      if (!branch && org && org.office_lat != null && org.office_lng != null) {
+        branch = {
+          id: null,
+          name: org.name ? `${org.name} Office` : 'Head Office',
+          latitude: Number(org.office_lat),
+          longitude: Number(org.office_lng),
+          radius_meters: Number(org.office_radius_meters) || 100,
+          is_active: true
+        };
+      }
+
+      if (!branch) {
+        return res.status(400).json({
+          success: false,
+          error: 'No office branch is configured for your organization. WFO attendance cannot be verified.'
+        });
+      }
+
+      if (branch.is_active === false) {
+        return res.status(403).json({
+          success: false,
+          error: `Your assigned office branch (${branch.name}) is currently inactive. Contact your administrator.`
+        });
+      }
+
+      if (branch.latitude == null || branch.longitude == null) {
+        return res.status(400).json({
+          success: false,
+          error: `Coordinates are not configured for office branch "${branch.name}". Contact your administrator.`
+        });
+      }
+
+      // Calculate distance between employee GPS and assigned branch coordinates
+      distanceMeters = Math.round(haversineDistance(
+        lat, lng,
+        Number(branch.latitude), Number(branch.longitude)
+      ));
+      const allowedRadius = Number(branch.radius_meters) || 100;
+      isVerified = distanceMeters <= allowedRadius;
+
+      if (!isVerified) {
+        // Enforce geofence boundary on backend: reject punch-in if outside allowed branch radius
+        return res.status(403).json({
+          success: false,
+          error: `Outside office geofence: You are ${distanceMeters}m away from your assigned branch (${branch.name}). Permitted radius is ${allowedRadius}m.`,
+          distanceMeters,
+          allowedRadius,
+          branchName: branch.name,
+          isInside: false
+        });
+      }
+
+      targetBranchId = branch.id || null;
+      targetBranchName = branch.name || null;
     }
 
     const punchInIso = new Date().toISOString();
@@ -3283,6 +4133,8 @@ app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
       punch_in_photo_path: validatedPhotoPath,
       punch_in_verified: isVerified,
       punch_in_distance_meters: distanceMeters,
+      branch_id: targetBranchId,
+      branch_name: targetBranchName,
       punch_out_time: null,
       punch_out_lat: null,
       punch_out_lng: null,
@@ -3294,6 +4146,7 @@ app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
 
     if (isDbMode) {
       const { data, error } = await supabase.from('attendance_records').insert([dbRecord]).select().single();
+
       if (error) {
         console.error('[Punch In] Supabase attendance insert failed:', error.message);
         // Clean up newly uploaded orphaned selfie on database failure
@@ -3306,19 +4159,30 @@ app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
         return res.status(500).json({ success: false, error: 'Database attendance record failed: ' + error.message });
       }
 
-      const enriched = { ...data, punchInTime: data.punch_in_time };
+      const enriched = {
+        ...data,
+        punchInTime: data.punch_in_time,
+        branchId: targetBranchId,
+        branchName: targetBranchName
+      };
       return res.status(201).json({
         success: true,
         data: enriched,
         attendance: enriched,
         geofenceVerified: data.punch_in_verified,
         distanceMeters,
+        branchName: targetBranchName,
         source: 'supabase'
       });
     }
 
     // In-memory fallback ONLY when !supabase
-    const newRecord = { ...dbRecord, punchInTime: punchInIso };
+    const newRecord = {
+      ...dbRecord,
+      punchInTime: punchInIso,
+      branchId: targetBranchId,
+      branchName: targetBranchName
+    };
     memDb.attendance.push(newRecord);
     return res.status(201).json({
       success: true,
@@ -3326,6 +4190,8 @@ app.post('/api/attendance/punch-in', requireAuth, async (req, res) => {
       attendance: newRecord,
       geofenceVerified: isVerified,
       distanceMeters,
+      branchName: targetBranchName,
+      branchId: targetBranchId,
       source: 'memory'
     });
   } catch (err) {
@@ -3435,13 +4301,89 @@ app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
 
     let distanceMeters = null;
     let isVerified = session.mode === 'WFH';
+    let targetBranchId = session.branch_id || null;
+    let targetBranchName = session.branch_name || null;
 
-    if (session.mode === 'WFO' && org && org.office_lat != null && org.office_lng != null) {
-      distanceMeters = Math.round(haversineDistance(lat, lng, Number(org.office_lat), Number(org.office_lng)));
-      const allowedRadius = Number(org.office_radius_meters) || 100;
-      isVerified = distanceMeters <= allowedRadius;
-    } else if (session.mode === 'WFO') {
-      isVerified = true;
+    if (session.mode === 'WFO') {
+      let branch = null;
+      // 1. Check if punch-in already recorded a branch ID
+      if (session.branch_id) {
+        if (isDbMode) {
+          try {
+            const { data } = await supabase.from('branches').select('*').eq('id', session.branch_id).maybeSingle();
+            if (data) branch = data;
+          } catch (_) {}
+        }
+        if (!branch) branch = mem.findBranchById(session.branch_id);
+      }
+
+      // 2. Fall back to user's currently assigned branch
+      if (!branch) {
+        let callingUser = null;
+        if (isDbMode) {
+          try {
+            const { data } = await supabase.from('users').select('branch_id').eq('id', req.user.id).maybeSingle();
+            if (data) callingUser = data;
+          } catch (_) {}
+        }
+        if (!callingUser) callingUser = mem.findUserById(req.user.id);
+        if (callingUser?.branch_id) {
+          if (isDbMode) {
+            try {
+              const { data } = await supabase.from('branches').select('*').eq('id', callingUser.branch_id).maybeSingle();
+              if (data) branch = data;
+            } catch (_) {}
+          }
+          if (!branch) branch = mem.findBranchById(callingUser.branch_id);
+        }
+      }
+
+      // 3. Fall back to organization headquarters or first active branch
+      if (!branch) {
+        if (isDbMode) {
+          try {
+            const { data } = await supabase.from('branches').select('*').eq('organization_id', req.user.organizationId).eq('is_active', true).order('is_headquarters', { ascending: false }).limit(1).maybeSingle();
+            if (data) branch = data;
+          } catch (_) {}
+        }
+        if (!branch) {
+          const orgBranches = mem.getBranchesForOrg(req.user.organizationId, true);
+          branch = orgBranches[0] || null;
+        }
+      }
+
+      // 4. Fallback to org office_lat/lng
+      if (!branch && org && org.office_lat != null && org.office_lng != null) {
+        branch = {
+          id: null,
+          name: org.name ? `${org.name} Office` : 'Head Office',
+          latitude: Number(org.office_lat),
+          longitude: Number(org.office_lng),
+          radius_meters: Number(org.office_radius_meters) || 100,
+          is_active: true
+        };
+      }
+
+      if (branch && branch.latitude != null && branch.longitude != null) {
+        distanceMeters = Math.round(haversineDistance(lat, lng, Number(branch.latitude), Number(branch.longitude)));
+        const allowedRadius = Number(branch.radius_meters) || 100;
+        isVerified = distanceMeters <= allowedRadius;
+
+        if (!isVerified) {
+          return res.status(403).json({
+            success: false,
+            error: `Outside office geofence: You are ${distanceMeters}m away from your assigned branch (${branch.name}). Permitted radius is ${allowedRadius}m.`,
+            distanceMeters,
+            allowedRadius,
+            branchName: branch.name,
+            isInside: false
+          });
+        }
+        targetBranchId = branch.id || targetBranchId;
+        targetBranchName = branch.name || targetBranchName;
+      } else {
+        isVerified = true;
+      }
     }
 
     const punchOutIso = punchOutTime.toISOString();
@@ -3453,6 +4395,8 @@ app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
       punch_out_photo_path: validatedPhotoPath,
       punch_out_verified: isVerified,
       punch_out_distance_meters: distanceMeters,
+      branch_id: targetBranchId,
+      branch_name: targetBranchName,
       total_minutes: totalMinutes,
       attendance_status: attendanceStatus,
       updated_at: punchOutIso
@@ -3476,7 +4420,7 @@ app.post('/api/attendance/punch-out', requireAuth, async (req, res) => {
         return res.status(500).json({ success: false, error: 'Failed to record punch out: ' + error.message });
       }
 
-      const enriched = { ...data, punchOutTime: data.punch_out_time };
+      const enriched = { ...data, punchOutTime: data.punch_out_time, branchId: targetBranchId, branchName: targetBranchName };
       return res.json({
         success: true,
         data: enriched,
@@ -3574,7 +4518,7 @@ app.get('/api/daily-reports/today', requireAuth, async (req, res) => {
     const dayName = getISTDayName(today);
     let existing = null;
 
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data, error } = await supabase.from('daily_reports')
         .select('*')
         .eq('user_id', req.user.id)
@@ -3615,7 +4559,7 @@ app.get('/api/daily-reports/today', requireAuth, async (req, res) => {
 
     // Today's report doesn't exist yet: check previous submitted reports for automatic pending carry-forward
     let prevReport = null;
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data, error } = await supabase.from('daily_reports')
         .select('*')
         .eq('user_id', req.user.id)
@@ -3696,7 +4640,7 @@ app.get('/api/daily-reports/history', requireAuth, async (req, res) => {
     }
 
     let pastReports = [];
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data, error } = await supabase.from('daily_reports')
         .select('*')
         .eq('organization_id', req.user.organizationId)
@@ -3763,7 +4707,7 @@ app.get('/api/daily-reports/date/:date', requireAuth, async (req, res) => {
     const targetUserId = req.query.user_id || req.user.id;
     let report = null;
 
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data, error } = await supabase.from('daily_reports')
         .select('*')
         .eq('organization_id', req.user.organizationId)
@@ -3815,7 +4759,7 @@ app.get('/api/daily-reports/draft', requireAuth, async (req, res) => {
     const today = getISTDate(0);
     let draft = null;
 
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data, error } = await supabase.from('daily_reports')
         .select('*')
         .eq('user_id', req.user.id)
@@ -4051,7 +4995,7 @@ app.post('/api/daily-reports', requireAuth, async (req, res) => {
     let existing = null;
     let existingIndex = -1;
 
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data, error } = await supabase.from('daily_reports')
         .select('*')
         .eq('user_id', req.user.id)
@@ -5246,7 +6190,7 @@ app.get('/api/leaves', requireAuth, async (req, res) => {
     let leaves = [];
     if (supabase && isUuid(req.user.organizationId)) {
       let query = supabase.from('leave_applications')
-        .select('*')
+        .select('*, users:user_id(id, name, email, designation, profile_photo_url)')
         .eq('organization_id', req.user.organizationId);
       if (targetUserId) {
         query = query.eq('user_id', targetUserId);
@@ -5261,12 +6205,23 @@ app.get('/api/leaves', requireAuth, async (req, res) => {
         console.error('[Leaves Get Supabase Error]:', error.message);
         return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
       }
-      leaves = data || [];
+      leaves = (data || []).map(l => ({
+        ...l,
+        user_name: l.users?.name || l.user_name || 'Staff',
+        employeeName: l.users?.name || l.user_name || 'Staff'
+      }));
       return res.json({ success: true, data: leaves, total: leaves.length, source: 'supabase' });
     }
 
     // In-memory fallback ONLY when !supabase
-    leaves = mem.getLeavesForOrg(req.user.organizationId, targetUserId);
+    leaves = mem.getLeavesForOrg(req.user.organizationId, targetUserId).map(l => {
+      const u = mem.findUserById(l.user_id);
+      return {
+        ...l,
+        user_name: u?.name || l.user_name || 'Staff',
+        employeeName: u?.name || l.user_name || 'Staff'
+      };
+    });
     if (isTeamLeader && !targetUserId && allowedTeamIds) {
       leaves = leaves.filter(l => allowedTeamIds.has(l.user_id));
     }
@@ -5337,13 +6292,37 @@ app.get('/api/leaves/:id', requireAuth, async (req, res) => {
   }
 });
 
+// Standard date parsing to ISO YYYY-MM-DD format (supports DD/MM/YYYY, YYYY-MM-DD)
+const parseDateToIso = (dStr) => {
+  if (!dStr || typeof dStr !== 'string') return null;
+  const trimmed = dStr.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const parts = trimmed.split(/[/.-]/);
+  if (parts.length === 3) {
+    if (parts[0].length === 4) {
+      return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+    } else {
+      return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+    }
+  }
+  const d = new Date(trimmed);
+  if (!isNaN(d.getTime())) {
+    return d.toISOString().split('T')[0];
+  }
+  return null;
+};
+
 app.post('/api/leaves', requireAuth, async (req, res) => {
   try {
     const { leaveType, startDate, endDate, durationDays, reason } = req.body;
     if (!leaveType || !startDate || !endDate || !reason) {
       return res.status(400).json({ success: false, error: 'leaveType, startDate, endDate, and reason are required.' });
     }
-    if (new Date(endDate) < new Date(startDate)) {
+
+    const isoStart = parseDateToIso(startDate) || startDate;
+    const isoEnd = parseDateToIso(endDate) || endDate;
+
+    if (new Date(isoEnd) < new Date(isoStart)) {
       return res.status(400).json({ success: false, error: 'End date cannot be before start date.' });
     }
 
@@ -5353,8 +6332,8 @@ app.post('/api/leaves', requireAuth, async (req, res) => {
       user_id: req.user.id,
       user_name: req.user.name,
       leave_type: leaveType,
-      start_date: startDate,
-      end_date: endDate,
+      start_date: isoStart,
+      end_date: isoEnd,
       duration_days: Number(durationDays) || 1,
       reason,
       status: 'pending',
@@ -5384,7 +6363,8 @@ app.post('/api/leaves', requireAuth, async (req, res) => {
         console.error('[Leave Post Supabase Error]:', error.message);
         return res.status(500).json({ success: false, error: 'Failed to submit leave in database: ' + error.message });
       }
-      return res.status(201).json({ success: true, data, source: 'supabase' });
+      const responseData = { ...data, user_name: req.user.name, employeeName: req.user.name };
+      return res.status(201).json({ success: true, data: responseData, source: 'supabase' });
     }
 
     memDb.leaves.push(newLeave);
@@ -5540,53 +6520,97 @@ app.patch('/api/leaves/:id/status', requireAuth, handleLeaveUpdate);
 // ANNOUNCEMENTS (org-scoped)
 // ─────────────────────────────────────────────────────────────────────────────
 
+const VALID_ANNOUNCEMENT_PRIORITIES = ['low', 'medium', 'high', 'normal', 'urgent'];
+const VALID_ANNOUNCEMENT_STATUSES = ['published', 'draft', 'archived'];
+
 app.get('/api/announcements', requireAuth, async (req, res) => {
   try {
     const isAdmin = req.user.role === 'admin' || req.user.role === 'founder';
-    const showAll = req.query.all === 'true' && isAdmin;
+    const showAll = isAdmin && (req.query.all === 'true' || req.query.publishedOnly === 'false');
 
-    if (supabase) {
-      let query = supabase.from('announcements').select('*').eq('organization_id', req.user.organizationId);
+    if (supabase && isUuid(req.user.organizationId)) {
+      let query = supabase
+        .from('announcements')
+        .select('*, users:created_by(name, designation)')
+        .eq('organization_id', req.user.organizationId);
+
       if (!showAll) query = query.eq('status', 'published');
       query = query.order('created_at', { ascending: false });
+
       const { data, error } = await query;
       if (error) {
         console.error('[Announcements Supabase Error]:', error.message);
         return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
       }
-      const list = (data || []).map(a => ({ ...a, content: a.message }));
+      const list = (data || []).map(a => ({
+        ...a,
+        content: a.message,
+        created_by_name: a.users?.name || a.created_by_name || 'Management',
+        priority: a.priority ? a.priority.toLowerCase() : 'medium'
+      }));
       return res.json({ success: true, data: list, total: list.length, source: 'supabase' });
     }
 
     let list = mem.getAnnouncementsForOrg(req.user.organizationId, !showAll);
     res.json({ success: true, data: list, total: list.length, source: 'memory' });
   } catch (err) {
+    console.error('[Announcements Fetch Error]:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch announcements.' });
   }
 });
 
 app.post('/api/announcements', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
   try {
-    const { title, message, content, priority = 'normal', audience = 'all', status = 'published' } = req.body;
-    const msg = message || content;
-    if (!title || !msg) return res.status(400).json({ success: false, error: 'title and message are required.' });
+    const { title, message, content, priority = 'medium', audience = 'all', status = 'published' } = req.body;
+    const cleanTitle = (title || '').trim();
+    const rawMsg = message !== undefined ? message : content;
+    const cleanMsg = typeof rawMsg === 'string' ? rawMsg.trim() : '';
 
+    if (!cleanTitle) {
+      return res.status(400).json({ success: false, error: 'Title is required and cannot be empty.' });
+    }
+    if (!cleanMsg) {
+      return res.status(400).json({ success: false, error: 'Message is required and cannot be empty.' });
+    }
+    if (cleanTitle.length > 255) {
+      return res.status(400).json({ success: false, error: 'Title must not exceed 255 characters.' });
+    }
+    if (cleanMsg.length > 10000) {
+      return res.status(400).json({ success: false, error: 'Message must not exceed 10,000 characters.' });
+    }
+
+    const normPriority = String(priority || 'medium').toLowerCase();
+    if (!VALID_ANNOUNCEMENT_PRIORITIES.includes(normPriority)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid priority "${priority}". Supported values: Low, Medium, High.`
+      });
+    }
+
+    const normStatus = String(status || 'published').toLowerCase();
+    if (!VALID_ANNOUNCEMENT_STATUSES.includes(normStatus)) {
+      return res.status(400).json({ success: false, error: 'Invalid status.' });
+    }
+
+    const now = new Date().toISOString();
     const newAnn = {
       id: generateUUID(),
       organization_id: req.user.organizationId,
-      title,
-      message: msg,
-      content: msg,
-      priority, audience, status,
-      published_at: status === 'published' ? new Date().toISOString() : null,
+      title: cleanTitle,
+      message: cleanMsg,
+      content: cleanMsg,
+      priority: normPriority,
+      audience: audience || 'all',
+      status: normStatus,
+      published_at: normStatus === 'published' ? now : null,
       expires_at: null,
       created_by: req.user.id,
-      created_by_name: req.user.name,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      created_by_name: req.user.name || 'Management',
+      created_at: now,
+      updated_at: now
     };
 
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const dbAnn = {
         id: newAnn.id,
         organization_id: newAnn.organization_id,
@@ -5601,18 +6625,57 @@ app.post('/api/announcements', requireAuth, requireRole(['founder', 'admin']), a
         created_at: newAnn.created_at,
         updated_at: newAnn.updated_at
       };
-      const { data, error } = await supabase.from('announcements').insert(dbAnn).select().single();
+
+      let { data, error } = await supabase.from('announcements').insert(dbAnn).select().single();
+
+      // Defensive fallback for legacy pre-012 databases having strict CHECK (priority IN ('normal', 'high', 'urgent'))
+      if (error && error.message && error.message.includes('announcements_priority_check')) {
+        const legacyPriorityMap = {
+          low: 'normal',
+          medium: 'normal',
+          high: 'high',
+          urgent: 'urgent'
+        };
+        const legacyDbAnn = { ...dbAnn, priority: legacyPriorityMap[normPriority] || 'normal' };
+        const retryResult = await supabase.from('announcements').insert(legacyDbAnn).select().single();
+        if (!retryResult.error) {
+          data = retryResult.data;
+          error = null;
+        } else {
+          error = retryResult.error;
+        }
+      }
+
       if (error) {
         console.error('[Create Announcement Supabase Error]:', error.message);
         return res.status(500).json({ success: false, error: 'Database insert failed: ' + error.message });
       }
-      const responseData = { ...data, content: data.message, created_by_name: req.user.name };
-      return res.status(201).json({ success: true, data: responseData, announcement: responseData, source: 'supabase' });
+
+      const responseData = {
+        ...data,
+        content: data.message,
+        priority: normPriority,
+        created_by_name: req.user.name || 'Management'
+      };
+      return res.status(201).json({
+        success: true,
+        message: 'Announcement broadcast successfully.',
+        data: responseData,
+        announcement: responseData,
+        source: 'supabase'
+      });
     }
 
     memDb.announcements.push(newAnn);
-    res.status(201).json({ success: true, data: newAnn, announcement: newAnn, source: 'memory' });
+    res.status(201).json({
+      success: true,
+      message: 'Announcement broadcast successfully.',
+      data: newAnn,
+      announcement: newAnn,
+      source: 'memory'
+    });
   } catch (err) {
+    console.error('[Create Announcement Error]:', err);
     res.status(500).json({ success: false, error: 'Failed to create announcement.' });
   }
 });
@@ -5633,7 +6696,7 @@ app.put('/api/announcements/:id', requireAuth, requireRole(['founder', 'admin'])
       }
     }
 
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data, error } = await supabase
         .from('announcements')
         .update(updates)
@@ -5665,7 +6728,7 @@ app.delete('/api/announcements/:id', requireAuth, requireRole(['founder', 'admin
   try {
     const { id } = req.params;
 
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { error } = await supabase
         .from('announcements')
         .delete()
@@ -5689,62 +6752,178 @@ app.delete('/api/announcements/:id', requireAuth, requireRole(['founder', 'admin
 // COMPANY RULES (org-scoped)
 // ─────────────────────────────────────────────────────────────────────────────
 
+const VALID_RULE_CATEGORIES = [
+  'General', 'Attendance', 'Geofence', 'Remote Work', 'Ethics',
+  'Attendance & Work', 'Leave Policy', 'Code of Conduct', 'Security & Devices', 'Benefits & Perks'
+];
+const VALID_RULE_STATUSES = ['published', 'draft', 'archived'];
+
 app.get('/api/rules', requireAuth, async (req, res) => {
   try {
     const isAdmin = req.user.role === 'admin' || req.user.role === 'founder';
-    const showAll = req.query.all === 'true' && isAdmin;
+    const showAll = isAdmin && (req.query.all === 'true' || req.query.publishedOnly === 'false');
 
-    if (supabase) {
-      let query = supabase.from('company_rules').select('*').eq('organization_id', req.user.organizationId);
+    if (supabase && isUuid(req.user.organizationId)) {
+      let query = supabase
+        .from('company_rules')
+        .select('*, users:created_by(name, designation)')
+        .eq('organization_id', req.user.organizationId);
+
       if (!showAll) query = query.eq('status', 'published');
-      if (req.query.category && req.query.category !== 'all') {
-        query = query.eq('category', req.query.category);
+      if (req.query.category && req.query.category !== 'all' && req.query.category !== 'All') {
+        query = query.ilike('category', `%${req.query.category}%`);
       }
       query = query.order('created_at', { ascending: false });
+
       const { data, error } = await query;
       if (error) {
         console.error('[Rules Supabase Error]:', error.message);
         return res.status(500).json({ success: false, error: 'Database query failed: ' + error.message });
       }
-      return res.json({ success: true, data: data || [], total: (data || []).length, source: 'supabase' });
+
+      const categoryDisplayMap = {
+        'Attendance & Work': 'Attendance',
+        'Code of Conduct': 'Ethics'
+      };
+
+      const list = (data || []).map(r => ({
+        ...r,
+        category: categoryDisplayMap[r.category] || r.category,
+        summary: r.body || r.summary || r.description,
+        created_by_name: r.users?.name || 'Management'
+      }));
+      return res.json({ success: true, data: list, total: list.length, source: 'supabase' });
     }
 
     let list = mem.getRulesForOrg(req.user.organizationId, !showAll);
-    if (req.query.category && req.query.category !== 'all') {
-      list = list.filter(r => r.category === req.query.category);
+    if (req.query.category && req.query.category !== 'all' && req.query.category !== 'All') {
+      const catLower = req.query.category.toLowerCase();
+      list = list.filter(r => (r.category || '').toLowerCase().includes(catLower));
     }
-    res.json({ success: true, data: list, total: list.length, source: 'memory' });
+    const mappedList = list.map(r => ({
+      ...r,
+      body: r.body || r.summary || r.description,
+      summary: r.body || r.summary || r.description
+    }));
+    res.json({ success: true, data: mappedList, total: mappedList.length, source: 'memory' });
   } catch (err) {
+    console.error('[Rules Fetch Error]:', err);
     res.status(500).json({ success: false, error: 'Failed to fetch rules.' });
   }
 });
 
 app.post('/api/rules', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
   try {
-    const { title, category = 'General', body, version = '1.0', status = 'published' } = req.body;
-    if (!title || !body) return res.status(400).json({ success: false, error: 'title and body are required.' });
+    const { title, category = 'General', body, content, description, version = '1.0', status = 'published' } = req.body;
+    const cleanTitle = (title || '').trim();
+    const rawBody = body !== undefined ? body : (content !== undefined ? content : description);
+    const cleanBody = typeof rawBody === 'string' ? rawBody.trim() : '';
 
+    if (!cleanTitle) {
+      return res.status(400).json({ success: false, error: 'Policy title is required and cannot be empty.' });
+    }
+    if (!cleanBody) {
+      return res.status(400).json({ success: false, error: 'Policy content is required and cannot be empty.' });
+    }
+    if (cleanTitle.length > 255) {
+      return res.status(400).json({ success: false, error: 'Policy title must not exceed 255 characters.' });
+    }
+    if (cleanBody.length > 20000) {
+      return res.status(400).json({ success: false, error: 'Policy content must not exceed 20,000 characters.' });
+    }
+
+    const matchedCategory = VALID_RULE_CATEGORIES.find(c => c.toLowerCase() === String(category || 'General').trim().toLowerCase());
+    if (!matchedCategory) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid category "${category}". Supported categories: General, Attendance, Geofence, Remote Work, Ethics.`
+      });
+    }
+
+    const normStatus = String(status || 'published').toLowerCase();
+    if (!VALID_RULE_STATUSES.includes(normStatus)) {
+      return res.status(400).json({ success: false, error: 'Invalid status.' });
+    }
+
+    const now = new Date().toISOString();
     const newRule = {
       id: generateUUID(),
       organization_id: req.user.organizationId,
-      title, category, body, version, status,
+      title: cleanTitle,
+      category: matchedCategory,
+      body: cleanBody,
+      version: version || '1.0',
+      status: normStatus,
       created_by: req.user.id,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      created_by_name: req.user.name || 'Management',
+      created_at: now,
+      updated_at: now
     };
 
-    if (supabase) {
-      const { data, error } = await supabase.from('company_rules').insert(newRule).select().single();
+    if (supabase && isUuid(req.user.organizationId)) {
+      // Strictly map only columns that exist in the PostgreSQL company_rules table (do NOT include created_by_name)
+      const dbRule = {
+        id: newRule.id,
+        organization_id: newRule.organization_id,
+        title: newRule.title,
+        category: newRule.category,
+        body: newRule.body,
+        version: newRule.version,
+        status: newRule.status,
+        created_by: newRule.created_by,
+        created_at: newRule.created_at,
+        updated_at: newRule.updated_at
+      };
+
+      let { data, error } = await supabase.from('company_rules').insert(dbRule).select().single();
+
+      // Defensive fallback for legacy pre-012 databases having strict CHECK constraint on legacy categories
+      if (error && (error.code === '23514' || (error.message && (error.message.includes('check constraint') || error.message.includes('category'))))) {
+        const legacyCatMap = {
+          'attendance': 'Attendance & Work',
+          'geofence': 'Attendance & Work',
+          'remote work': 'General',
+          'ethics': 'Code of Conduct'
+        };
+        const fallbackCat = legacyCatMap[matchedCategory.toLowerCase()] || 'General';
+        const fallbackDbRule = { ...dbRule, category: fallbackCat };
+        const retryResult = await supabase.from('company_rules').insert(fallbackDbRule).select().single();
+        if (!retryResult.error) {
+          data = retryResult.data;
+          error = null;
+        } else {
+          error = retryResult.error;
+        }
+      }
+
       if (error) {
         console.error('[Create Rule Supabase Error]:', error.message);
         return res.status(500).json({ success: false, error: 'Database insert failed: ' + error.message });
       }
-      return res.status(201).json({ success: true, data, source: 'supabase' });
+
+      const responseData = {
+        ...data,
+        category: matchedCategory,
+        summary: data.body,
+        created_by_name: req.user.name || 'Management'
+      };
+      return res.status(201).json({
+        success: true,
+        message: 'Company policy published successfully.',
+        data: responseData,
+        source: 'supabase'
+      });
     }
 
     memDb.rules.push(newRule);
-    res.status(201).json({ success: true, data: newRule, source: 'memory' });
+    res.status(201).json({
+      success: true,
+      message: 'Company policy published successfully.',
+      data: newRule,
+      source: 'memory'
+    });
   } catch (err) {
+    console.error('[Create Rule Error]:', err);
     res.status(500).json({ success: false, error: 'Failed to create rule.' });
   }
 });
@@ -5754,25 +6933,53 @@ app.put('/api/rules/:id', requireAuth, requireRole(['founder', 'admin']), async 
     const { id } = req.params;
     const { title, category, body, version, status } = req.body;
     const updates = { updated_at: new Date().toISOString() };
-    if (title) updates.title = title;
-    if (category) updates.category = category;
-    if (body) updates.body = body;
+    if (title && title.trim()) updates.title = title.trim();
+    if (category) {
+      const matched = VALID_RULE_CATEGORIES.find(c => c.toLowerCase() === category.toLowerCase());
+      if (matched) updates.category = matched;
+    }
+    if (body && body.trim()) updates.body = body.trim();
     if (version) updates.version = version;
     if (status) updates.status = status;
 
-    if (supabase) {
-      const { data, error } = await supabase
+    if (supabase && isUuid(req.user.organizationId)) {
+      let { data, error } = await supabase
         .from('company_rules')
         .update(updates)
         .eq('id', id)
         .eq('organization_id', req.user.organizationId)
         .select()
         .maybeSingle();
+
+      if (error && (error.code === '23514' || (error.message && (error.message.includes('check constraint') || error.message.includes('category'))))) {
+        const legacyCatMap = {
+          'attendance': 'Attendance & Work',
+          'geofence': 'Attendance & Work',
+          'remote work': 'General',
+          'ethics': 'Code of Conduct'
+        };
+        const fallbackCat = legacyCatMap[(updates.category || '').toLowerCase()] || 'General';
+        const fallbackUpdates = { ...updates, category: fallbackCat };
+        const retryResult = await supabase
+          .from('company_rules')
+          .update(fallbackUpdates)
+          .eq('id', id)
+          .eq('organization_id', req.user.organizationId)
+          .select()
+          .maybeSingle();
+        if (!retryResult.error) {
+          data = retryResult.data;
+          error = null;
+        } else {
+          error = retryResult.error;
+        }
+      }
+
       if (error) {
         return res.status(500).json({ success: false, error: 'Database update failed: ' + error.message });
       }
       if (!data) return res.status(404).json({ success: false, error: 'Rule not found.' });
-      return res.json({ success: true, data, source: 'supabase' });
+      return res.json({ success: true, data: { ...data, summary: data.body }, source: 'supabase' });
     }
 
     const idx = memDb.rules.findIndex(r => r.id === id && r.organization_id === req.user.organizationId);
@@ -5789,7 +6996,7 @@ app.delete('/api/rules/:id', requireAuth, requireRole(['founder', 'admin']), asy
   try {
     const { id } = req.params;
 
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { error } = await supabase
         .from('company_rules')
         .delete()
@@ -5810,12 +7017,94 @@ app.delete('/api/rules/:id', requireAuth, requireRole(['founder', 'admin']), asy
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CELEBRATIONS (Birthdays & Work Anniversaries, org-scoped)
+// ─────────────────────────────────────────────────────────────────────────────
+
+app.get('/api/celebrations', requireAuth, async (req, res) => {
+  try {
+    let users = [];
+    if (supabase && isUuid(req.user.organizationId)) {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('organization_id', req.user.organizationId)
+        .eq('is_active', true);
+      if (!error && data) users = data;
+    } else {
+      users = mem.getUsersForOrg(req.user.organizationId).filter(u => u.is_active);
+    }
+
+    const today = new Date();
+    const currentMonth = today.getMonth(); // 0-11
+    const currentYear = today.getFullYear();
+    const celebrations = [];
+
+    for (const u of users) {
+      const avatar = u.profile_photo_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name || 'Staff')}&background=84764B&color=fff`;
+
+      // 1. Work Anniversary (using created_at or joining_date)
+      const joinRaw = u.joining_date || u.created_at;
+      if (joinRaw) {
+        const joinDate = new Date(joinRaw);
+        if (!isNaN(joinDate.getTime())) {
+          const joinYear = joinDate.getFullYear();
+          const years = currentYear - joinYear;
+          if (years >= 1) {
+            const annMonth = joinDate.getMonth();
+            const monthDiff = Math.abs(annMonth - currentMonth);
+            if (monthDiff === 0 || monthDiff === 1 || monthDiff === 11) {
+              const dateStr = joinDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              celebrations.push({
+                id: `anniv-${u.id}`,
+                userId: u.id,
+                name: u.name,
+                type: 'Work Anniversary',
+                date: dateStr,
+                avatar,
+                note: `${years} Year${years > 1 ? 's' : ''} with Company`
+              });
+            }
+          }
+        }
+      }
+
+      // 2. Birthday (using date_of_birth or dob)
+      const dobRaw = u.date_of_birth || u.dob;
+      if (dobRaw) {
+        const bDate = new Date(dobRaw);
+        if (!isNaN(bDate.getTime())) {
+          const bMonth = bDate.getMonth();
+          const monthDiff = Math.abs(bMonth - currentMonth);
+          if (monthDiff === 0 || monthDiff === 1 || monthDiff === 11) {
+            const age = currentYear - bDate.getFullYear();
+            const dateStr = bDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            celebrations.push({
+              id: `bday-${u.id}`,
+              userId: u.id,
+              name: u.name,
+              type: 'Birthday',
+              date: dateStr,
+              avatar,
+              note: age > 0 ? `Turns ${age}!` : 'Birthday milestone'
+            });
+          }
+        }
+      }
+    }
+
+    res.json({ success: true, data: celebrations, total: celebrations.length });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Failed to fetch celebrations.' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // HOLIDAYS
 // ─────────────────────────────────────────────────────────────────────────────
 
 app.get('/api/holidays', requireAuth, async (req, res) => {
   try {
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data, error } = await supabase
         .from('holidays')
         .select('*')
@@ -5847,7 +7136,7 @@ app.post('/api/holidays', requireAuth, requireRole(['founder', 'admin']), async 
       created_at: new Date().toISOString()
     };
 
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data, error } = await supabase.from('holidays').insert(newHoliday).select().single();
       if (error) {
         console.error('[Create Holiday Supabase Error]:', error.message);
@@ -5869,7 +7158,7 @@ app.post('/api/holidays', requireAuth, requireRole(['founder', 'admin']), async 
 
 app.get('/api/notifications', requireAuth, async (req, res) => {
   try {
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data, error } = await supabase
         .from('notifications')
         .select('*')
@@ -5991,7 +7280,7 @@ app.patch('/api/profile', requireAuth, async (req, res) => {
     });
     updates.updated_at = new Date().toISOString();
 
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data, error } = await supabase
         .from('users')
         .update(updates)
@@ -6774,7 +8063,7 @@ app.patch('/api/admin/bank-details/:id/verify', requireAuth, requireRole(['found
 // Employee: View my submitted profile update requests
 app.get('/api/profile/update-requests/me', requireAuth, async (req, res) => {
   try {
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data, error } = await supabase
         .from('profile_update_requests')
         .select('*')
@@ -6837,7 +8126,7 @@ app.post('/api/profile/update-request', requireAuth, async (req, res) => {
       updated_at: new Date().toISOString()
     };
 
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data, error } = await supabase.from('profile_update_requests').insert(reqRecord).select().single();
       if (error) {
         console.error('[Profile Update Request Supabase Error]:', error.message);
@@ -7050,7 +8339,7 @@ const VALID_ADVANCE_REASONS = [
 // Employee: View my advance requests
 app.get('/api/advances/me', requireAuth, async (req, res) => {
   try {
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data: advances, error } = await supabase
         .from('salary_advance_requests')
         .select('*')
@@ -7178,7 +8467,7 @@ app.post('/api/advances', requireAuth, async (req, res) => {
       updated_at: now
     };
 
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data, error } = await supabase.from('salary_advance_requests').insert(newAdvance).select().single();
       if (error) {
         console.error('[Create Advance Supabase Error]:', error.message);
@@ -7219,7 +8508,7 @@ app.post('/api/advances', requireAuth, async (req, res) => {
 // Management: List all advance requests for org
 app.get('/api/admin/advances', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
   try {
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data: advances, error: aErr } = await supabase
         .from('salary_advance_requests')
         .select('*')
@@ -7269,15 +8558,24 @@ app.get('/api/admin/advances', requireAuth, requireRole(['founder', 'admin']), a
 // Management: Approve or reject advance request
 app.patch('/api/admin/advances/:id/approve', requireAuth, requireRole(['founder', 'admin']), async (req, res) => {
   try {
-    const { approvedAmount, remarks } = req.body;
-    const action = (req.body.action || (req.body.status?.toLowerCase().includes('reject') ? 'reject' : 'approve')).toLowerCase();
+    const rawAction = typeof req.body.action === 'string'
+      ? req.body.action
+      : (req.body.action?.action || req.body.action?.status || req.body.status || 'approve');
+    const approvedAmount = req.body.approvedAmount !== undefined
+      ? req.body.approvedAmount
+      : req.body.action?.approvedAmount;
+    const remarks = req.body.remarks !== undefined
+      ? req.body.remarks
+      : (req.body.action?.remarks || req.body.approvalRemarks);
+
+    const action = String(rawAction).toLowerCase().includes('reject') ? 'reject' : 'approve';
     if (!['approve', 'reject'].includes(action)) {
       return res.status(400).json({ success: false, error: 'Action must be approve or reject.' });
     }
 
     const now = new Date().toISOString();
 
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data: advance, error: fErr } = await supabase
         .from('salary_advance_requests')
         .select('*')
@@ -7387,7 +8685,7 @@ app.post('/api/admin/advances/:id/payment', requireAuth, requireRole(['founder',
 
     const now = new Date().toISOString();
 
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data: advance, error: fErr } = await supabase
         .from('salary_advance_requests')
         .select('*')
@@ -7506,7 +8804,7 @@ app.post('/api/admin/advances/:id/repayment', requireAuth, requireRole(['founder
 
     const now = new Date().toISOString();
 
-    if (supabase) {
+    if (supabase && isUuid(req.user.organizationId)) {
       const { data: advance, error: fErr } = await supabase
         .from('salary_advance_requests')
         .select('*')

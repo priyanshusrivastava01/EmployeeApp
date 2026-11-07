@@ -226,24 +226,56 @@ export function AdvancePaymentScreen({ onBack, currentUser }) {
     }
   };
 
-  const getStatusBadgeStyle = (status) => {
-    switch (status) {
-      case 'Approved — Payment Pending':
-      case 'Payment Pending':
-        return { bg: isDark ? '#581c87' : '#f3e8ff', text: isDark ? '#c084fc' : '#7e22ce' };
+  const getApprovalStatus = (req) => {
+    const rawStatus = (req.status || '').toLowerCase();
+    if (rawStatus.includes('reject')) return 'Rejected';
+    if (
+      rawStatus.includes('approved') ||
+      rawStatus.includes('paid') ||
+      rawStatus.includes('settled') ||
+      Number(req.approvedAmount || req.approved_amount) > 0
+    ) {
+      return 'Approved';
+    }
+    return 'Pending Approval';
+  };
+
+  const getStatusBadgeStyle = (approvalStatus) => {
+    switch (approvalStatus) {
       case 'Approved':
         return { bg: isDark ? '#14532d' : '#dcfce7', text: isDark ? '#4ade80' : '#15803d' };
-      case 'Paid':
-        return { bg: isDark ? '#064e3b' : '#ccfbf1', text: isDark ? '#2dd4bf' : '#0f766e' };
-      case 'Partially Paid':
-        return { bg: isDark ? '#7c2d12' : '#ffedd5', text: isDark ? '#fb923c' : '#c2410c' };
       case 'Rejected':
         return { bg: isDark ? '#7f1d1d' : '#fee2e2', text: isDark ? '#f87171' : '#b91c1c' };
-      case 'Settled':
-        return { bg: isDark ? '#1e3a8a' : '#dbeafe', text: isDark ? '#60a5fa' : '#1d4ed8' };
       case 'Pending Approval':
       default:
         return { bg: isDark ? '#78350f' : '#fef3c7', text: isDark ? '#fcd34d' : '#b45309' };
+    }
+  };
+
+  const getPaymentDisbursementInfo = (req, approvalStatus) => {
+    if (approvalStatus !== 'Approved') return null;
+
+    const approvedVal = Number(req.approvedAmount || req.approved_amount || req.amount || req.requested_amount) || 0;
+    const paidVal = Number(req.paidAmount || req.amount_paid) || 0;
+
+    if (paidVal <= 0) {
+      return {
+        label: 'Payment not yet disbursed',
+        color: isDark ? '#fbbf24' : '#d97706',
+        icon: 'time-outline'
+      };
+    } else if (paidVal < approvedVal) {
+      return {
+        label: `Partially Paid (₹${paidVal.toLocaleString('en-IN')} of ₹${approvedVal.toLocaleString('en-IN')} disbursed)`,
+        color: isDark ? '#fb923c' : '#ea580c',
+        icon: 'pie-chart-outline'
+      };
+    } else {
+      return {
+        label: `Payment Completed (₹${paidVal.toLocaleString('en-IN')} disbursed)`,
+        color: isDark ? '#4ade80' : '#15803d',
+        icon: 'checkmark-done-circle-outline'
+      };
     }
   };
 
@@ -543,37 +575,90 @@ export function AdvancePaymentScreen({ onBack, currentUser }) {
           </View>
         ) : (
           requests.map(req => {
-            const badge = getStatusBadgeStyle(req.status);
+            const approvalStatus = getApprovalStatus(req);
+            const badge = getStatusBadgeStyle(approvalStatus);
+            const paymentInfo = getPaymentDisbursementInfo(req, approvalStatus);
+
             const formattedAmount = typeof req.amount === 'number'
               ? `₹${req.amount.toLocaleString('en-IN')}`
-              : req.amount;
+              : (req.amount || (req.requested_amount ? `₹${Number(req.requested_amount).toLocaleString('en-IN')}` : '₹0'));
             const formattedApproved = req.approvedAmount
               ? `₹${Number(req.approvedAmount).toLocaleString('en-IN')}`
-              : null;
+              : (req.approved_amount ? `₹${Number(req.approved_amount).toLocaleString('en-IN')}` : null);
             const formattedPaid = req.paidAmount
               ? `₹${Number(req.paidAmount).toLocaleString('en-IN')}`
-              : null;
+              : (req.amount_paid ? `₹${Number(req.amount_paid).toLocaleString('en-IN')}` : null);
+
+            const formattedDate = (() => {
+              const raw = req.requestedDate || req.created_at;
+              if (!raw) return 'Recent';
+              try {
+                const d = new Date(raw);
+                if (!isNaN(d.getTime())) {
+                  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+                }
+              } catch (e) {}
+              return String(raw).slice(0, 10);
+            })();
 
             return (
               <View key={req.id} style={[styles.itemCard, { flexDirection: 'column', alignItems: 'stretch' }]}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <View>
-                    <Text style={[styles.cardMainText, { fontSize: 17 }]}>{formattedAmount}</Text>
-                    <Text style={{ fontSize: 12, color: colors.textSecondary, marginTop: 2 }}>
-                      Requested: {req.requestedDate || req.created_at || 'Recent'}
+                <View style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  gap: 8
+                }}>
+                  <View style={{ flex: 1, minWidth: 0, paddingRight: 4 }}>
+                    <Text style={[styles.cardMainText, { fontSize: 16 }]} numberOfLines={1}>
+                      {formattedAmount}
+                    </Text>
+                    <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }} numberOfLines={1}>
+                      Requested: {formattedDate}
                     </Text>
                   </View>
                   <View style={{
                     backgroundColor: badge.bg,
-                    paddingHorizontal: 10,
+                    paddingHorizontal: 8,
                     paddingVertical: 4,
-                    borderRadius: 12
+                    borderRadius: 8,
+                    alignSelf: 'flex-start',
+                    maxWidth: '48%',
+                    flexShrink: 0
                   }}>
-                    <Text style={{ fontSize: 11, fontWeight: '700', color: badge.text }}>
-                      {req.status === 'Approved' ? 'Approved — Payment Pending' : req.status}
+                    <Text
+                      style={{
+                        fontSize: 10.5,
+                        fontWeight: '700',
+                        color: badge.text,
+                        textAlign: 'center'
+                      }}
+                      numberOfLines={1}
+                    >
+                      {approvalStatus}
                     </Text>
                   </View>
                 </View>
+
+                {/* Separate Secondary Line for Payment Disbursement Information */}
+                {paymentInfo && (
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 5,
+                    marginTop: 6,
+                    paddingVertical: 3,
+                    paddingHorizontal: 8,
+                    borderRadius: 6,
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#f8fafc',
+                    alignSelf: 'flex-start'
+                  }}>
+                    <Ionicons name={paymentInfo.icon} size={13} color={paymentInfo.color} />
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: paymentInfo.color }}>
+                      {paymentInfo.label}
+                    </Text>
+                  </View>
+                )}
 
                 {/* Reason & Category */}
                 <View style={{ marginTop: 8, padding: 8, borderRadius: 6, backgroundColor: isDark ? '#1f2937' : '#f8fafc' }}>
@@ -744,7 +829,31 @@ export function CoworkersScreen({ onBack }) {
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('All');
   const [userProfilePhoto, setUserProfilePhoto] = useState(null);
-  const [coworkers, setCoworkers] = useState(mockCoworkers);
+  const [coworkers, setCoworkers] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const loadCoworkers = async () => {
+    try {
+      setIsLoading(true);
+      const res = await api.getUsers();
+      if (res && res.success && Array.isArray(res.data)) {
+        const mapped = res.data.map(u => ({
+          id: u.id,
+          name: u.name,
+          designation: u.designation || (u.role === 'founder' ? 'Founder' : u.role === 'admin' ? 'Admin' : u.role === 'team_leader' ? 'Team Lead' : 'Staff Member'),
+          department: u.department || 'Operations',
+          email: u.email,
+          status: u.is_active ? 'Active' : 'Pending',
+          avatar: u.profile_photo_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name || 'Staff')}&background=84764B&color=fff`
+        }));
+        setCoworkers(mapped);
+      }
+    } catch (e) {
+      console.warn('[Coworkers] Error:', e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
     (async () => {
@@ -753,28 +862,9 @@ export function CoworkersScreen({ onBack }) {
         if (photo?.uri) {
           setUserProfilePhoto(photo.uri);
         }
-      } catch (e) {
-        // non-fatal
-      }
-
-      try {
-        const res = await api.getUsers();
-        if (res.success && res.data && res.data.length > 0) {
-          const mapped = res.data.map(u => ({
-            id: u.id,
-            name: u.name,
-            designation: u.designation || (u.role === 'founder' ? 'Founder' : u.role === 'admin' ? 'Admin' : u.role === 'team_leader' ? 'Team Lead' : 'Staff Member'),
-            department: u.department || 'Operations',
-            email: u.email,
-            status: u.is_active ? 'Active' : 'Pending',
-            avatar: u.profile_photo_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=84764B&color=fff`
-          }));
-          setCoworkers(mapped);
-        }
-      } catch (e) {
-        // non-fatal fallback
-      }
+      } catch (e) {}
     })();
+    loadCoworkers();
   }, []);
 
   const filtered = coworkers.filter(c => {
@@ -814,8 +904,26 @@ export function CoworkersScreen({ onBack }) {
           ))}
         </ScrollView>
 
-        <Text style={styles.sectionHeading}>Team Members ({filtered.length})</Text>
-        {filtered.map(emp => {
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <Text style={styles.sectionHeading}>Team Members ({filtered.length})</Text>
+          <TouchableOpacity onPress={loadCoworkers} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Ionicons name="refresh" size={14} color={colors.primary} />
+            <Text style={{ fontSize: 12, color: colors.primary, fontWeight: '600' }}>Refresh</Text>
+          </TouchableOpacity>
+        </View>
+
+        {isLoading ? (
+          <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 20 }} />
+        ) : filtered.length === 0 ? (
+          <View style={[styles.itemCard, { alignItems: 'center', paddingVertical: 24 }]}>
+            <Ionicons name="people-outline" size={36} color={colors.textSecondary} />
+            <Text style={[styles.cardMainText, { marginTop: 8 }]}>No Co-workers Found</Text>
+            <Text style={[styles.cardSubText, { textAlign: 'center', marginTop: 4 }]}>
+              No colleagues match the selected search or department filter.
+            </Text>
+          </View>
+        ) : (
+          filtered.map(emp => {
           const isCurrentUser = emp.name === mockProfile.name || emp.id === 'emp-1';
           const avatarUri = isCurrentUser && userProfilePhoto ? userProfilePhoto : emp.avatar;
 
@@ -841,7 +949,7 @@ export function CoworkersScreen({ onBack }) {
               </View>
             </View>
           );
-        })}
+        }))}
       </ScrollView>
     </View>
   );
@@ -856,7 +964,8 @@ export function LeaveApplicationScreen({ onBack }) {
   const [daysCount, setDaysCount] = useState('1');
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
-  const [requests, setRequests] = useState(mockLeaveRequests);
+  const [requests, setRequests] = useState([]);
+  const [isLoadingLeaves, setIsLoadingLeaves] = useState(true);
   const [successMsg, setSuccessMsg] = useState(null);
   const [validationError, setValidationError] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -869,26 +978,34 @@ export function LeaveApplicationScreen({ onBack }) {
 
   const loadLeaves = async () => {
     try {
+      setIsLoadingLeaves(true);
       const res = await api.getLeaves();
-      if (res.success && Array.isArray(res.data)) {
-        const mapped = res.data.map(l => ({
-          id: l.id,
-          type: l.leave_type || 'Casual Leave',
-          dates: l.start_date === l.end_date ? l.start_date : `${l.start_date} — ${l.end_date}`,
-          days: l.duration_days || 1,
-          reason: l.reason,
-          notes: l.review_remarks || 'None',
-          status: l.status?.toLowerCase() === 'approved'
+      if (res && res.success && Array.isArray(res.data)) {
+        const mapped = res.data.map(l => {
+          const statusLower = (l.status || '').toLowerCase();
+          const displayStatus = statusLower === 'approved'
             ? 'Approved'
-            : l.status?.toLowerCase() === 'rejected'
+            : statusLower === 'rejected'
             ? 'Rejected'
-            : 'Pending TL Approval',
-          appliedOn: l.created_at ? new Date(l.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Today'
-        }));
+            : 'Pending Approval';
+          return {
+            id: l.id,
+            type: l.leave_type || 'Casual Leave',
+            dates: l.start_date === l.end_date ? l.start_date : `${l.start_date} — ${l.end_date}`,
+            days: l.duration_days || 1,
+            reason: l.reason,
+            notes: l.review_remarks || l.decision_comment || 'None',
+            rejectionReason: statusLower === 'rejected' ? (l.review_remarks || l.decision_comment || null) : null,
+            status: displayStatus,
+            appliedOn: l.created_at ? new Date(l.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Today'
+          };
+        });
         setRequests(mapped);
       }
     } catch (e) {
-      // non-fatal fallback
+      console.warn('[LeaveApp] Error loading:', e);
+    } finally {
+      setIsLoadingLeaves(false);
     }
   };
 
@@ -1044,12 +1161,15 @@ export function LeaveApplicationScreen({ onBack }) {
       ? `${startDate.trim()} — ${finalEndDateStr}`
       : startDate.trim();
 
+    const isoStart = `${parsedStart.getFullYear()}-${String(parsedStart.getMonth() + 1).padStart(2, '0')}-${String(parsedStart.getDate()).padStart(2, '0')}`;
+    const isoEnd = `${parsedEnd.getFullYear()}-${String(parsedEnd.getMonth() + 1).padStart(2, '0')}-${String(parsedEnd.getDate()).padStart(2, '0')}`;
+
     try {
       setIsSubmitting(true);
       const res = await api.submitLeave({
         leaveType,
-        startDate: startDate.trim(),
-        endDate: finalEndDateStr,
+        startDate: isoStart,
+        endDate: isoEnd,
         durationDays: calculatedDays,
         reason: reason.trim()
       });
@@ -1063,13 +1183,14 @@ export function LeaveApplicationScreen({ onBack }) {
           days: calculatedDays,
           reason: reason.trim(),
           notes: 'None',
-          status: 'Pending TL Approval',
+          status: 'Pending Approval',
           appliedOn: 'Today'
         };
-        setRequests(prev => [newLeave, ...prev]);
+        setRequests(prev => [newLeave, ...prev.filter(item => item.id !== l.id)]);
         handleReset();
         setSuccessMsg(`Leave application for ${calculatedDays} day(s) submitted for management review.`);
         setTimeout(() => setSuccessMsg(null), 4000);
+        loadLeaves();
       } else {
         Alert.alert('Error', res.error || 'Failed to submit leave.');
       }
@@ -1081,7 +1202,7 @@ export function LeaveApplicationScreen({ onBack }) {
         days: calculatedDays,
         reason: reason.trim(),
         notes: notes.trim() || 'None',
-        status: 'Pending TL Approval',
+        status: 'Pending Approval',
         appliedOn: 'Today'
       };
       setRequests(prev => [newLeave, ...prev]);
@@ -1266,29 +1387,48 @@ export function LeaveApplicationScreen({ onBack }) {
           </View>
         </View>
 
-        <Text style={styles.sectionHeading}>My Leave Requests</Text>
-        {requests.map(lv => (
-          <View key={lv.id} style={styles.itemCard}>
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                <Text style={styles.cardMainText}>{lv.type}</Text>
-                <Text style={[
-                  styles.statusTag,
-                  lv.status === 'Approved'
-                    ? styles.tagSuccess
-                    : (lv.status === 'Rejected' ? styles.tagDanger : styles.tagPending)
-                ]}>
-                  {lv.status}
-                </Text>
-              </View>
-              <Text style={styles.cardSubText}>{lv.dates} ({lv.days} day{lv.days > 1 ? 's' : ''})</Text>
-              <Text style={styles.metaText}>Reason: {lv.reason} • Applied: {lv.appliedOn}</Text>
-              {lv.rejectionReason && (
-                <Text style={{ fontSize: 11, color: colors.danger, marginTop: 2 }}>Note: {lv.rejectionReason}</Text>
-              )}
-            </View>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, marginBottom: 8 }}>
+          <Text style={styles.sectionHeading}>My Leave Requests</Text>
+          <TouchableOpacity onPress={loadLeaves} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Ionicons name="refresh" size={14} color={colors.primary} />
+            <Text style={{ fontSize: 12, color: colors.primary, fontWeight: '600' }}>Refresh</Text>
+          </TouchableOpacity>
+        </View>
+
+        {isLoadingLeaves ? (
+          <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 20 }} />
+        ) : requests.length === 0 ? (
+          <View style={[styles.itemCard, { alignItems: 'center', paddingVertical: 24 }]}>
+            <Ionicons name="calendar-outline" size={36} color={colors.textSecondary} />
+            <Text style={[styles.cardMainText, { marginTop: 8 }]}>No Leave Requests</Text>
+            <Text style={[styles.cardSubText, { textAlign: 'center', marginTop: 4 }]}>
+              You have not submitted any leave applications yet.
+            </Text>
           </View>
-        ))}
+        ) : (
+          requests.map(lv => (
+            <View key={lv.id} style={styles.itemCard}>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                  <Text style={styles.cardMainText}>{lv.type}</Text>
+                  <Text style={[
+                    styles.statusTag,
+                    lv.status === 'Approved'
+                      ? styles.tagSuccess
+                      : (lv.status === 'Rejected' ? styles.tagDanger : styles.tagPending)
+                  ]}>
+                    {lv.status}
+                  </Text>
+                </View>
+                <Text style={styles.cardSubText}>{lv.dates} ({lv.days} day{lv.days > 1 ? 's' : ''})</Text>
+                <Text style={styles.metaText}>Reason: {lv.reason} • Applied: {lv.appliedOn}</Text>
+                {lv.rejectionReason && (
+                  <Text style={{ fontSize: 11, color: colors.danger, marginTop: 2 }}>Reason for Rejection: {lv.rejectionReason}</Text>
+                )}
+              </View>
+            </View>
+          ))
+        )}
       </ScrollView>
 
       {/* ── CALENDAR DATE PICKER MODAL ── */}
@@ -1601,27 +1741,33 @@ export function AnnouncementsScreen({ onBack }) {
   const { colors, isDark, styles } = useScreenStyles();
   const [selectedAnnouncement, setSelectedAnnouncement] = useState(null);
   const [readMap, setReadMap] = useState({});
-  const [announcements, setAnnouncements] = useState(mockAnnouncements);
+  const [announcements, setAnnouncements] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const loadAnnouncements = async () => {
+    try {
+      setIsLoading(true);
+      const res = await api.getAnnouncements(true);
+      if (res && res.success && Array.isArray(res.data)) {
+        const mapped = res.data.map(a => ({
+          id: a.id,
+          title: a.title,
+          priority: (a.priority || 'Medium').charAt(0).toUpperCase() + (a.priority || 'medium').slice(1),
+          date: a.created_at ? new Date(a.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent',
+          content: a.message || a.content,
+          author: a.created_by_name || a.author_name || 'Founder & Operations'
+        }));
+        setAnnouncements(mapped);
+      }
+    } catch (e) {
+      console.warn('[Announcements] Error:', e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await api.getAnnouncements(true);
-        if (res.success && res.data && res.data.length > 0) {
-          const mapped = res.data.map(a => ({
-            id: a.id,
-            title: a.title,
-            priority: (a.priority || 'Medium').charAt(0).toUpperCase() + (a.priority || 'medium').slice(1),
-            date: new Date(a.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-            content: a.message || a.content,
-            author: a.author_name || 'Founder & Operations'
-          }));
-          setAnnouncements(mapped);
-        }
-      } catch (e) {
-        // non-fatal fallback
-      }
-    })();
+    loadAnnouncements();
   }, []);
 
   const toggleRead = (id) => {
@@ -1632,52 +1778,70 @@ export function AnnouncementsScreen({ onBack }) {
     <View style={styles.container}>
       <SubScreenHeader title="Announcements" subtitle="Official company broadcasts" onBack={onBack} />
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <DemoBanner text="Official broadcasts published by Founder & Operations. Tap an announcement to view full details." />
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <Text style={styles.sectionHeading}>Official Broadcasts ({announcements.length})</Text>
+          <TouchableOpacity onPress={loadAnnouncements} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Ionicons name="refresh" size={14} color={colors.primary} />
+            <Text style={{ fontSize: 12, color: colors.primary, fontWeight: '600' }}>Refresh</Text>
+          </TouchableOpacity>
+        </View>
 
-        {announcements.map(ann => {
-          const isRead = !!readMap[ann.id];
-          return (
-            <TouchableOpacity
-              key={ann.id}
-              style={[
-                styles.announcementCard,
-                isRead && { opacity: 0.75, backgroundColor: isDark ? colors.cardSubtle : '#FAFAFA' }
-              ]}
-              onPress={() => setSelectedAnnouncement(ann)}
-              activeOpacity={0.85}
-            >
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Text style={[styles.priorityTag, ann.priority === 'High' ? styles.tagDanger : styles.tagInfo]}>
-                    {ann.priority.toUpperCase()} PRIORITY
-                  </Text>
-                  {!isRead && (
-                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primary }} />
-                  )}
+        {isLoading ? (
+          <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 20 }} />
+        ) : announcements.length === 0 ? (
+          <View style={[styles.itemCard, { alignItems: 'center', paddingVertical: 28 }]}>
+            <Ionicons name="megaphone-outline" size={36} color={colors.textSecondary} />
+            <Text style={[styles.cardMainText, { marginTop: 8 }]}>No announcements available.</Text>
+            <Text style={[styles.cardSubText, { textAlign: 'center', marginTop: 4 }]}>
+              There are currently no official announcements published for your organization.
+            </Text>
+          </View>
+        ) : (
+          announcements.map(ann => {
+            const isRead = !!readMap[ann.id];
+            return (
+              <TouchableOpacity
+                key={ann.id}
+                style={[
+                  styles.announcementCard,
+                  isRead && { opacity: 0.75, backgroundColor: isDark ? colors.cardSubtle : '#FAFAFA' }
+                ]}
+                onPress={() => setSelectedAnnouncement(ann)}
+                activeOpacity={0.85}
+              >
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={[styles.priorityTag, ann.priority === 'High' ? styles.tagDanger : styles.tagInfo]}>
+                      {ann.priority.toUpperCase()} PRIORITY
+                    </Text>
+                    {!isRead && (
+                      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primary }} />
+                    )}
+                  </View>
+                  <Text style={styles.metaText}>{ann.date}</Text>
                 </View>
-                <Text style={styles.metaText}>{ann.date}</Text>
-              </View>
 
-              <Text style={styles.announcementTitle}>{ann.title}</Text>
-              <Text style={styles.announcementBody} numberOfLines={2}>{ann.content}</Text>
+                <Text style={styles.announcementTitle}>{ann.title}</Text>
+                <Text style={styles.announcementBody} numberOfLines={2}>{ann.content}</Text>
 
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-                <Text style={styles.announcementAuthor}>Broadcast by: {ann.author}</Text>
-                <TouchableOpacity
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    toggleRead(ann.id);
-                  }}
-                  style={{ padding: 4 }}
-                >
-                  <Text style={{ fontSize: 11, color: colors.primary, fontWeight: '700' }}>
-                    {isRead ? 'Mark Unread' : 'Mark Read'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                  <Text style={styles.announcementAuthor}>Broadcast by: {ann.author}</Text>
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      toggleRead(ann.id);
+                    }}
+                    style={{ padding: 4 }}
+                  >
+                    <Text style={{ fontSize: 11, color: colors.primary, fontWeight: '700' }}>
+                      {isRead ? 'Mark Unread' : 'Mark Read'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
+            );
+          })
+        )}
       </ScrollView>
 
       {/* Announcement Detail Modal */}
@@ -1738,27 +1902,41 @@ export function AnnouncementsScreen({ onBack }) {
 export function CompanyRulesScreen({ onBack }) {
   const { colors, isDark, styles } = useScreenStyles();
   const [selectedCategory, setSelectedCategory] = useState('All');
-  const [rules, setRules] = useState(mockCompanyRules);
+  const [selectedRule, setSelectedRule] = useState(null);
+  const [rules, setRules] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const loadRules = async () => {
+    try {
+      setIsLoading(true);
+      const res = await api.getRules(true);
+      if (res && res.success && Array.isArray(res.data)) {
+        const mapped = res.data.map(r => ({
+          id: r.id,
+          category: r.category || 'General',
+          title: r.title || 'Policy Guideline',
+          summary: r.body || r.summary || r.description,
+          created_at: r.created_at,
+          author: r.created_by_name || 'Management',
+          icon: r.category?.toLowerCase().includes('geofence') ? 'navigate-outline' :
+                r.category?.toLowerCase().includes('remote') ? 'home-outline' :
+                r.category?.toLowerCase().includes('ethic') ? 'shield-outline' :
+                r.category?.toLowerCase().includes('attendance') ? 'time-outline' : 'book-outline'
+        }));
+        setRules(mapped);
+      } else {
+        setRules([]);
+      }
+    } catch (e) {
+      console.warn('[CompanyRules] Error:', e);
+      setRules([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await api.getRules(true);
-        if (res.success && res.data && res.data.length > 0) {
-          const mapped = res.data.map(r => ({
-            id: r.id,
-            category: r.category || 'General',
-            summary: r.title ? `${r.title}: ${r.summary || r.description || ''}` : (r.summary || r.description),
-            icon: r.category?.toLowerCase().includes('geofence') ? 'navigate-outline' :
-                  r.category?.toLowerCase().includes('remote') ? 'home-outline' :
-                  r.category?.toLowerCase().includes('ethic') ? 'shield-outline' : 'book-outline'
-          }));
-          setRules(mapped);
-        }
-      } catch (e) {
-        // non-fatal fallback
-      }
-    })();
+    loadRules();
   }, []);
 
   const categories = ['All', 'Attendance', 'Geofence', 'Remote Work', 'Ethics'];
@@ -1776,7 +1954,13 @@ export function CompanyRulesScreen({ onBack }) {
     <View style={styles.container}>
       <SubScreenHeader title="Notes & Rules" subtitle="Company policies & guidelines" onBack={onBack} />
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <DemoBanner text="Official EMS guidelines published by Founder & Management. All employees are required to adhere to these operating principles." />
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <Text style={styles.sectionHeading}>Official Policies ({filteredRules.length})</Text>
+          <TouchableOpacity onPress={loadRules} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Ionicons name="refresh" size={14} color={colors.primary} />
+            <Text style={{ fontSize: 12, color: colors.primary, fontWeight: '600' }}>Refresh</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Category Filter Chips */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
@@ -1793,24 +1977,94 @@ export function CompanyRulesScreen({ onBack }) {
           ))}
         </ScrollView>
 
-        <Text style={styles.sectionHeading}>Official Policies ({filteredRules.length})</Text>
-        {filteredRules.map(rule => (
-          <View key={rule.id} style={styles.ruleCard}>
-            <View style={styles.iconCircle}>
-              <Ionicons name={rule.icon || 'book-outline'} size={22} color={colors.darkOlive} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                <Text style={styles.ruleCategory}>{rule.category}</Text>
-                <View style={{ backgroundColor: colors.lightOlive, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
-                  <Text style={{ fontSize: 9, fontWeight: '700', color: colors.darkOlive }}>EFFECTIVE 2026</Text>
-                </View>
-              </View>
-              <Text style={styles.ruleSummary}>{rule.summary}</Text>
-            </View>
+        {isLoading ? (
+          <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 20 }} />
+        ) : filteredRules.length === 0 ? (
+          <View style={[styles.itemCard, { alignItems: 'center', paddingVertical: 28 }]}>
+            <Ionicons name="shield-checkmark-outline" size={36} color={colors.textSecondary} />
+            <Text style={[styles.cardMainText, { marginTop: 8 }]}>No company policies available.</Text>
+            <Text style={[styles.cardSubText, { textAlign: 'center', marginTop: 4 }]}>
+              No official policies currently match the selected filter.
+            </Text>
           </View>
-        ))}
+        ) : (
+          filteredRules.map(rule => (
+            <TouchableOpacity
+              key={rule.id}
+              style={styles.ruleCard}
+              onPress={() => setSelectedRule(rule)}
+              activeOpacity={0.85}
+            >
+              <View style={styles.iconCircle}>
+                <Ionicons name={rule.icon || 'book-outline'} size={22} color={colors.darkOlive} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                  <Text style={styles.ruleCategory}>{rule.category}</Text>
+                  <View style={{ backgroundColor: colors.lightOlive, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                    <Text style={{ fontSize: 9, fontWeight: '700', color: colors.darkOlive }}>ACTIVE POLICY</Text>
+                  </View>
+                </View>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: colors.text, marginTop: 2, marginBottom: 4 }}>
+                  {rule.title}
+                </Text>
+                <Text style={styles.ruleSummary} numberOfLines={3}>{rule.summary}</Text>
+                <Text style={{ fontSize: 11, color: colors.primary, fontWeight: '600', marginTop: 4 }}>
+                  Tap to read full policy →
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))
+        )}
       </ScrollView>
+
+      {/* Policy Detail Modal */}
+      <Modal
+        visible={!!selectedRule}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedRule(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            {selectedRule && (
+              <>
+                <View style={styles.modalHeaderRow}>
+                  <View style={{ backgroundColor: colors.lightOlive, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: colors.darkOlive }}>
+                      {selectedRule.category.toUpperCase()}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setSelectedRule(null)} style={styles.modalCloseBtn}>
+                    <Ionicons name="close" size={20} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={[styles.cardMainText, { fontSize: 17, marginTop: 8 }]}>
+                  {selectedRule.title}
+                </Text>
+                <Text style={styles.metaText}>
+                  Published by: {selectedRule.author}
+                </Text>
+
+                <ScrollView style={{ maxHeight: 300, marginVertical: 14, padding: 12, backgroundColor: colors.beige, borderRadius: 10 }}>
+                  <Text style={[styles.cardSubText, { fontSize: 13, lineHeight: 20, color: colors.textPrimary }]}>
+                    {selectedRule.summary}
+                  </Text>
+                </ScrollView>
+
+                <TouchableOpacity
+                  style={styles.modalDoneBtn}
+                  onPress={() => setSelectedRule(null)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.modalDoneBtnText}>Close Policy</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1818,7 +2072,27 @@ export function CompanyRulesScreen({ onBack }) {
 // 8. CELEBRATIONS SCREEN
 export function CelebrationsScreen({ onBack }) {
   const { colors, isDark, styles } = useScreenStyles();
+  const [celebrations, setCelebrations] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [wished, setWished] = useState({});
+
+  const loadCelebrations = async () => {
+    try {
+      setIsLoading(true);
+      const res = await api.getCelebrations();
+      if (res && res.success && Array.isArray(res.data)) {
+        setCelebrations(res.data);
+      }
+    } catch (e) {
+      console.warn('[Celebrations] Error loading:', e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadCelebrations();
+  }, []);
 
   const handleSendWish = (id, name) => {
     setWished(prev => ({ ...prev, [id]: true }));
@@ -1829,29 +2103,51 @@ export function CelebrationsScreen({ onBack }) {
     <View style={styles.container}>
       <SubScreenHeader title="Celebrations" subtitle="Birthdays & work anniversaries" onBack={onBack} />
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        <DemoBanner text="Monthly milestones for team members in October and November." />
-        {mockCelebrations.map(cel => (
-          <View key={cel.id} style={styles.coworkerCard}>
-            <Image source={{ uri: cel.avatar }} style={styles.coworkerAvatar} />
-            <View style={{ flex: 1 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={styles.cardMainText}>{cel.name}</Text>
-                <Text style={[styles.statusTag, cel.type === 'Birthday' ? styles.tagPink : styles.tagPurple]}>
-                  {cel.type}
-                </Text>
-              </View>
-              <Text style={styles.cardSubText}>{cel.note} • {cel.date}</Text>
-            </View>
-            <TouchableOpacity
-              style={[styles.wishBtn, wished[cel.id] && styles.wishBtnDone]}
-              onPress={() => handleSendWish(cel.id, cel.name)}
-              disabled={wished[cel.id]}
-            >
-              <Ionicons name={wished[cel.id] ? 'checkmark' : 'gift-outline'} size={15} color="#ffffff" />
-              <Text style={styles.wishBtnText}>{wished[cel.id] ? 'Wished' : 'Wish'}</Text>
-            </TouchableOpacity>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <Text style={styles.sectionHeading}>Team Celebrations ({celebrations.length})</Text>
+          <TouchableOpacity onPress={loadCelebrations} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <Ionicons name="refresh" size={14} color={colors.primary} />
+            <Text style={{ fontSize: 12, color: colors.primary, fontWeight: '600' }}>Refresh</Text>
+          </TouchableOpacity>
+        </View>
+
+        {isLoading ? (
+          <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 20 }} />
+        ) : celebrations.length === 0 ? (
+          <View style={[styles.itemCard, { alignItems: 'center', paddingVertical: 28 }]}>
+            <Ionicons name="gift-outline" size={36} color={colors.textSecondary} />
+            <Text style={[styles.cardMainText, { marginTop: 8 }]}>No Celebrations This Month</Text>
+            <Text style={[styles.cardSubText, { textAlign: 'center', marginTop: 4 }]}>
+              There are no employee birthdays or work anniversaries this month for your organization.
+            </Text>
           </View>
-        ))}
+        ) : (
+          celebrations.map(cel => {
+            const avatarUri = cel.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(cel.name || 'Staff')}&background=84764B&color=fff`;
+            return (
+              <View key={cel.id} style={styles.coworkerCard}>
+                <Image source={{ uri: avatarUri }} style={styles.coworkerAvatar} />
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={styles.cardMainText}>{cel.name}</Text>
+                    <Text style={[styles.statusTag, cel.type === 'Birthday' ? styles.tagPink : styles.tagPurple]}>
+                      {cel.type}
+                    </Text>
+                  </View>
+                  <Text style={styles.cardSubText}>{cel.note} • {cel.date}</Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.wishBtn, wished[cel.id] && styles.wishBtnDone]}
+                  onPress={() => handleSendWish(cel.id, cel.name)}
+                  disabled={wished[cel.id]}
+                >
+                  <Ionicons name={wished[cel.id] ? 'checkmark' : 'gift-outline'} size={15} color="#ffffff" />
+                  <Text style={styles.wishBtnText}>{wished[cel.id] ? 'Wished' : 'Wish'}</Text>
+                </TouchableOpacity>
+              </View>
+            );
+          })
+        )}
       </ScrollView>
     </View>
   );

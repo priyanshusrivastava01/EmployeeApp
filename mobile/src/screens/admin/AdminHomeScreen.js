@@ -207,7 +207,7 @@ export default function AdminHomeScreen({ onNavigate, user, organization }) {
           <Text style={[styles.kpiValue, { color: '#b45309' }]}>
             {stats?.pendingLeaves ?? 0}
           </Text>
-          <TouchableOpacity onPress={() => onNavigate('leaves')}>
+          <TouchableOpacity onPress={() => onNavigate('leaves', { tab: 'leaves' })}>
             <Text style={styles.kpiAction}>Review Requests &rarr;</Text>
           </TouchableOpacity>
         </View>
@@ -222,7 +222,7 @@ export default function AdminHomeScreen({ onNavigate, user, organization }) {
           <Text style={[styles.kpiValue, { color: '#7c3aed' }]}>
             {stats?.pendingAdvances ?? 0}
           </Text>
-          <TouchableOpacity onPress={() => onNavigate('leaves')}>
+          <TouchableOpacity onPress={() => onNavigate('leaves', { tab: 'advances' })}>
             <Text style={styles.kpiAction}>Review Advances &rarr;</Text>
           </TouchableOpacity>
         </View>
@@ -247,20 +247,31 @@ export default function AdminHomeScreen({ onNavigate, user, organization }) {
       <Text style={styles.sectionHeading}>MANAGEMENT MODULES</Text>
       <View style={styles.actionGrid}>
         {[
+          // Group 1: Employee-Aligned Modules (Exact Employee Order 1 to 6)
+          { key: 'advances', label: 'Advance Requests', icon: 'cash', color: '#7c3aed', allowed: user?.role === 'founder' || user?.role === 'admin' },
+          { key: 'holidays', label: 'Leave Calendar', icon: 'calendar', color: '#f59e0b', allowed: true },
+          { key: 'leaves', label: 'Leave Desk', icon: 'airplane', color: '#0284c7', allowed: true },
+          { key: 'announcements', label: 'Announcements', icon: 'megaphone', color: '#06b6d4', allowed: true },
+          { key: 'rules', label: 'Company Rules', icon: 'shield-checkmark', color: '#14b8a6', allowed: true },
+          { key: 'celebrations', label: 'Celebrations', icon: 'gift', color: '#ec4899', allowed: true },
+
+          // Group 2: Founder / Management Modules
           { key: 'employees', label: user?.role === 'team_leader' ? 'My Team' : 'Employees', icon: 'people', color: '#10b981', allowed: true },
           { key: 'attendance', label: 'Attendance', icon: 'time', color: '#3b82f6', allowed: true },
-          { key: 'leaves', label: 'Leave Desk', icon: 'calendar', color: '#f59e0b', allowed: true },
-          { key: 'reports', label: 'Task Reports', icon: 'document-text', color: '#8b5cf6', allowed: true },
-          { key: 'audits', label: 'TL Audits', icon: 'star', color: '#ec4899', allowed: true },
-          { key: 'announcements', label: 'Notices', icon: 'megaphone', color: '#06b6d4', allowed: true },
-          { key: 'rules', label: 'Company Rules', icon: 'book', color: '#14b8a6', allowed: true },
+          { key: 'audits', label: 'TL Audits', icon: 'star', color: '#d97706', allowed: true },
+          { key: 'bank', label: 'Bank Verification', icon: 'card', color: '#0f766e', allowed: user?.role === 'founder' || user?.role === 'admin' },
           { key: 'geofence', label: 'Geofencing', icon: 'location', color: '#6366f1', allowed: user?.role === 'founder' || user?.role === 'admin' },
           { key: 'settings', label: 'Org Settings', icon: 'settings', color: '#64748b', allowed: user?.role === 'founder' || user?.role === 'admin' }
         ].filter(m => m.allowed).map((item) => (
           <TouchableOpacity
             key={item.key}
             style={styles.actionCard}
-            onPress={() => onNavigate(item.key)}
+            onPress={() => {
+              if (item.key === 'advances') onNavigate('advances', { tab: 'advances' });
+              else if (item.key === 'bank') onNavigate('bank', { tab: 'bank' });
+              else if (item.key === 'leaves') onNavigate('leaves', { tab: 'leaves' });
+              else onNavigate(item.key);
+            }}
             activeOpacity={0.75}
           >
             <View style={[styles.actionIconBadge, { backgroundColor: item.color }]}>
