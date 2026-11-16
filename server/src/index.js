@@ -20,10 +20,13 @@ const { supabase } = require('./config/supabase');
 const { requireAuth, requireRole, generateToken, setUserValidator } = require('./middleware/auth');
 const { BUCKETS, isBase64DataUri, parseBase64DataUri, uploadPrivateFile, getSignedDownloadUrl } = require('./services/storage');
 
-dotenv.config();
+if (process.env.NODE_ENV !== 'test') {
+  dotenv.config();
+}
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const HOST = process.env.HOST || '0.0.0.0';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MIDDLEWARE
@@ -122,7 +125,7 @@ const memDb = {
     }
   ],
 
-  // Demo users (password is admin123 for all demo accounts)
+  // Synthetic demo users for development fallback only (password is admin123 for all demo accounts)
   users: [
     {
       id: 'user-admin-001',
@@ -527,7 +530,14 @@ const mem = {
   findUserById: (id) => memDb.users.find(u => u.id === id),
   findOrgBySlug: (slug) => memDb.organizations.find(o => o.slug.toLowerCase() === slug.toLowerCase()),
   findOrgById: (id) => memDb.organizations.find(o => o.id === id),
-  findOrgByCompanyId: (companyId) => memDb.organizations.find(o => o.public_company_id && o.public_company_id.toUpperCase() === companyId.toUpperCase()),
+  findOrgByCompanyId: (companyId) => {
+    if (!companyId) return null;
+    const clean = String(companyId).trim().toUpperCase();
+    return memDb.organizations.find(o =>
+      (o.public_company_id && o.public_company_id.toUpperCase() === clean) ||
+      (o.company_code && o.company_code.toUpperCase() === clean)
+    );
+  },
   findUserByMemberId: (orgId, memberId) => memDb.users.find(u => u.organization_id === orgId && u.employee_id_number && u.employee_id_number.toUpperCase() === memberId.toUpperCase()),
   findInvitationByTokenHash: (orgId, tokenHash) => (memDb.invitations || []).find(i => (!orgId || i.organization_id === orgId) && i.token_hash === tokenHash),
   getInvitationsForOrg: (orgId) => (memDb.invitations || []).filter(i => i.organization_id === orgId).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
@@ -838,26 +848,30 @@ app.get('/', (req, res) => {
 app.post('/api/companies/verify-code', authLimiter, async (req, res) => {
   try {
     const { companyCode } = req.body;
-    if (!companyCode || !companyCode.trim()) {
+    if (!companyCode || !String(companyCode).trim()) {
       return res.status(400).json({ success: false, error: 'Company code is required.' });
     }
 
-    const code = companyCode.trim().toUpperCase();
+    const code = String(companyCode).trim().toUpperCase();
     let org = null;
 
     if (supabase) {
-      // Check both company_code and public_company_id
-      const { data } = await supabase
-        .from('organizations')
-        .select('id, name, slug, public_company_id, company_code, is_active')
-        .or(`company_code.ilike.${code},public_company_id.eq.${code}`)
-        .limit(1)
-        .maybeSingle();
-      if (data) org = data;
+      try {
+        // Check both company_code and public_company_id (case-insensitive)
+        const { data, error } = await supabase
+          .from('organizations')
+          .select('id, name, slug, public_company_id, company_code, is_active, industry, address')
+          .or(`company_code.ilike.${code},public_company_id.ilike.${code}`)
+          .limit(1)
+          .maybeSingle();
+        if (!error && data) org = data;
+      } catch (dbErr) {
+        console.warn('[Verify Code] Supabase query warning:', dbErr.message);
+      }
     }
 
     if (!org) {
-      // Fallback to in-memory
+      // Fallback to in-memory store
       org = memDb.organizations.find(o =>
         (o.company_code && o.company_code.toUpperCase() === code) ||
         (o.public_company_id && o.public_company_id.toUpperCase() === code)
@@ -867,14 +881,14 @@ app.post('/api/companies/verify-code', authLimiter, async (req, res) => {
     if (!org) {
       return res.status(404).json({
         success: false,
-        error: 'No company found with this code. Please check the code and try again.'
+        error: 'Company code not found. Please check the code and try again.'
       });
     }
 
     if (!org.is_active) {
       return res.status(403).json({
         success: false,
-        error: 'This company account is currently inactive. Please contact the company administrator.'
+        error: 'This company account is currently inactive. Please contact your company administrator.'
       });
     }
 
@@ -883,8 +897,15 @@ app.post('/api/companies/verify-code', authLimiter, async (req, res) => {
       company: {
         id: org.id,
         companyCode: org.company_code || org.public_company_id,
+        public_company_id: org.public_company_id,
+        company_code: org.company_code,
         name: org.name,
-        status: 'active'
+        companyName: org.name,
+        slug: org.slug,
+        status: org.is_active ? 'active' : 'inactive',
+        is_active: org.is_active,
+        industry: org.industry,
+        office_address: org.address || org.office_address
       }
     });
   } catch (err) {
@@ -9098,9 +9119,9 @@ app.use((err, req, res, next) => {
 // START SERVER
 // ─────────────────────────────────────────────────────────────────────────────
 let server = null;
-if (process.env.NODE_ENV !== 'test') {
-  server = app.listen(PORT, () => {
-    console.log(`\n[EMS Server v3] Multi-Organization API running on http://localhost:${PORT}`);
+if (require.main === module || process.env.START_SERVER === 'true') {
+  server = app.listen(PORT, HOST, () => {
+    console.log(`\n[EMS Server v3] Multi-Organization API running on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT} (bound to ${HOST}:${PORT})`);
     if (supabase) {
       console.log(`[EMS Server v3] Database: SUPABASE CONNECTED (Real PostgreSQL Persistence Active)`);
     } else {

@@ -8,8 +8,16 @@ const BASE_URL = 'http://localhost:5000';
 class WebApiService {
   constructor() {
     this.token = localStorage.getItem('ems_web_token') || null;
-    this.user = JSON.parse(localStorage.getItem('ems_web_user') || 'null');
-    this.org = JSON.parse(localStorage.getItem('ems_web_org') || 'null');
+    try {
+      this.user = JSON.parse(localStorage.getItem('ems_web_user') || 'null');
+    } catch (_) {
+      this.user = null;
+    }
+    try {
+      this.org = JSON.parse(localStorage.getItem('ems_web_org') || 'null');
+    } catch (_) {
+      this.org = null;
+    }
   }
 
   async request(endpoint, options = {}) {

@@ -6,7 +6,15 @@
   "scripts": {
     "start": "npm --prefix server start",
     "build": "npm --prefix server install",
-    "test": "npm --prefix server test"
+    "test": "npm --prefix server test",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:report": "playwright show-report",
+    "test:integration": "node scripts/run-integration-tests.js",
+    "test:cleanup": "node scripts/cleanup-test-data.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@types/node": "^26.6.6"
   }
 }
-

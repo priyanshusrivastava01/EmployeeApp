@@ -26,35 +26,126 @@ const STORAGE_KEYS = {
 /**
  * Intelligent server URL resolver:
  * 1. Explicit EXPO_PUBLIC_API_URL environment variable
- * 2. Auto-detected LAN IP from Expo packager (hostUri) for physical phones on Wi-Fi
- * 3. LAN IP fallback for Android device/emulator (192.168.31.113:5000)
- * 4. Localhost for Web / iOS simulator
+ * 2. Explicit EXPO_PUBLIC_DEV_LAN_IP environment variable
+ * 3. Auto-detected LAN IP from Expo packager (hostUri) for physical phones on Wi-Fi
+ * 4. Android Emulator loopback (10.0.2.2:5000)
+ * 5. Wi-Fi LAN IP fallback for Android device (192.168.31.114:5000)
+ * 6. Localhost for Web / iOS simulator
+ * 7. Production Render backend
+ */
+const PRODUCTION_BACKEND_URL = 'https://employeeapp-5u4l.onrender.com';
+const LOCAL_BACKEND_PORT = 5000;
+const DEFAULT_LAN_IP = '192.168.31.114';
+
+/**
+ * Detects whether the app is executing in a production environment:
+ * - process.env.NODE_ENV === 'production'
+ * - React Native __DEV__ global is false
+ */
+function isProductionEnvironment() {
+  if (process.env.NODE_ENV === 'production') return true;
+  if (typeof __DEV__ !== 'undefined' && !__DEV__) return true;
+  return false;
+}
+
+/**
+ * Extracts developer packager host IP from Expo Constants when running in Expo Go.
+ * Metro packager broadcasts hostUri (e.g. "192.168.31.114:8081").
+ */
+function getDevHostIp() {
+  try {
+    const hostUri = Constants.expoConfig?.hostUri || Constants.manifest2?.extra?.expoGo?.debuggerHost;
+    if (hostUri && typeof hostUri === 'string') {
+      const ip = hostUri.split(':')[0];
+      if (ip && ip !== 'localhost' && ip !== '127.0.0.1') {
+        return ip;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+/**
+ * Detects whether running on an Android Studio emulator.
+ */
+function isAndroidEmulator() {
+  if (Platform.OS !== 'android') return false;
+  if (process.env.EXPO_PUBLIC_DEV_TARGET === 'emulator') return true;
+  try {
+    const brand = Platform.constants?.Brand;
+    const model = Platform.constants?.Model;
+    const fingerprint = Platform.constants?.Fingerprint;
+    if (
+      (brand === 'google' && (model?.includes('sdk') || model?.includes('Emulator'))) ||
+      (fingerprint && (fingerprint.startsWith('generic') || fingerprint.includes('vbox')))
+    ) {
+      return true;
+    }
+  } catch (e) {}
+  return false;
+}
+
+/**
+ * Server URL resolver adhering to strict environment separation:
+ * 1. Production builds connect exclusively to the deployed production Render backend.
+ * 2. Explicit emulator target or detected Android Studio emulator uses 10.0.2.2.
+ * 3. Explicit EXPO_PUBLIC_DEV_LAN_IP variable (e.g. 192.168.31.114).
+ * 4. Explicit EXPO_PUBLIC_API_URL environment variable (with Android localhost protection).
+ * 5. Dynamic Expo packager hostUri resolution for physical Android on Wi-Fi.
+ * 6. Configured LAN IP fallback for Android.
+ * 7. Web & local development desktop fallback.
  */
 function resolveDefaultServerUrl() {
-  // If running on web in browser on localhost / 127.0.0.1, always default to the local backend
-  if (typeof window !== 'undefined' && window.location && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-    return 'http://localhost:5000';
-  }
-
-  if (process.env.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL.replace(/\/$/, '');
-  }
-
-  // When running inside Expo Go on physical device, hostUri is "192.168.x.x:8081"
-  const hostUri = Constants.expoConfig?.hostUri || Constants.manifest2?.extra?.expoGo?.debuggerHost;
-  if (hostUri) {
-    const ip = hostUri.split(':')[0];
-    if (ip && ip !== 'localhost' && ip !== '127.0.0.1') {
-      return `http://${ip}:5000`;
+  // 1. Production builds connect exclusively to the deployed production Render backend
+  if (isProductionEnvironment()) {
+    if (process.env.EXPO_PUBLIC_API_URL && process.env.EXPO_PUBLIC_API_URL.startsWith('https://')) {
+      return process.env.EXPO_PUBLIC_API_URL.replace(/\/$/, '');
     }
+    return PRODUCTION_BACKEND_URL;
   }
 
-  // Developer host Wi-Fi LAN IP (reachable by physical phones and emulators)
+  // 2. Explicit emulator target or detected Android Studio emulator
+  if (process.env.EXPO_PUBLIC_DEV_TARGET === 'emulator' || isAndroidEmulator()) {
+    return `http://10.0.2.2:${LOCAL_BACKEND_PORT}`;
+  }
+
+  // 3. Explicit EXPO_PUBLIC_DEV_LAN_IP variable
+  if (process.env.EXPO_PUBLIC_DEV_LAN_IP) {
+    const cleanIp = process.env.EXPO_PUBLIC_DEV_LAN_IP.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+    return `http://${cleanIp}:${LOCAL_BACKEND_PORT}`;
+  }
+
+  // 4. Explicit EXPO_PUBLIC_API_URL environment variable
+  if (process.env.EXPO_PUBLIC_API_URL) {
+    const rawUrl = process.env.EXPO_PUBLIC_API_URL.trim().replace(/\/$/, '');
+    const isLocalhost = rawUrl.includes('localhost') || rawUrl.includes('127.0.0.1');
+
+    // On Android devices, 'localhost' refers to the phone itself. Auto-correct to developer host IP.
+    if (Platform.OS === 'android' && isLocalhost) {
+      const packagerIp = getDevHostIp();
+      const resolvedIp = packagerIp || DEFAULT_LAN_IP;
+      if (typeof __DEV__ !== 'undefined' && __DEV__) {
+        console.warn(`[API] EXPO_PUBLIC_API_URL was set to "${rawUrl}", but on Android 'localhost' refers to the device itself. Automatically re-routing to development laptop: http://${resolvedIp}:${LOCAL_BACKEND_PORT}`);
+      }
+      return `http://${resolvedIp}:${LOCAL_BACKEND_PORT}`;
+    }
+
+    return rawUrl;
+  }
+
+  // 5. Dynamic resolution via Expo packager hostUri (Expo Go on physical device)
+  const packagerIp = getDevHostIp();
+  if (packagerIp) {
+    return `http://${packagerIp}:${LOCAL_BACKEND_PORT}`;
+  }
+
+  // 6. Default LAN IP for physical Android device testing
   if (Platform.OS === 'android') {
-    return 'http://192.168.31.113:5000';
+    return `http://${DEFAULT_LAN_IP}:${LOCAL_BACKEND_PORT}`;
   }
 
-  return 'http://localhost:5000';
+  // 7. Web & local development desktop fallback
+  return `http://localhost:${LOCAL_BACKEND_PORT}`;
 }
 
 const DEFAULT_URL = resolveDefaultServerUrl();
@@ -83,16 +174,16 @@ class ApiService {
         storage.getItem(STORAGE_KEYS.SERVER_URL)
       ]);
 
-      const isLocalhostWeb = typeof window !== 'undefined' && window.location && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
       if (customUrl) {
-        if (isLocalhostWeb && customUrl.includes('onrender.com')) {
-          this.baseUrl = 'http://localhost:5000';
-          await storage.removeItem(STORAGE_KEYS.SERVER_URL).catch(() => {});
+        // Discard stale 'localhost' cached on an Android device from previous runs
+        if (Platform.OS === 'android' && (customUrl.includes('localhost') || customUrl.includes('127.0.0.1'))) {
+          this.baseUrl = DEFAULT_URL;
+          storage.removeItem(STORAGE_KEYS.SERVER_URL).catch(() => {});
         } else {
           this.baseUrl = customUrl;
         }
-      } else if (isLocalhostWeb) {
-        this.baseUrl = 'http://localhost:5000';
+      } else {
+        this.baseUrl = DEFAULT_URL;
       }
       if (savedToken) this.token = savedToken;
       if (savedUser) this.user = JSON.parse(savedUser);
@@ -118,6 +209,10 @@ class ApiService {
       ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
       ...(options.headers || {})
     };
+
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log(`[API ${options.method || 'GET'}] ${endpoint} -> ${url} (Platform: ${Platform.OS})`);
+    }
 
     const controller = new AbortController();
     const defaultTimeout = (this.baseUrl && this.baseUrl.includes('onrender.com')) ? 35000 : 12000;
@@ -148,12 +243,43 @@ class ApiService {
       return data;
     } catch (err) {
       clearTimeout(timeoutId);
-      if (err.name === 'AbortError') {
-        throw new Error(`Connection timed out after ${timeoutMs / 1000}s. Cannot reach EMS backend at ${this.baseUrl}.`);
+
+      const isTimeout = err.name === 'AbortError';
+      const isNetFail = isTimeout || (err.message && (
+        err.message.includes('Network request failed') ||
+        err.message.includes('Failed to fetch') ||
+        err.message.includes('ECONNREFUSED') ||
+        err.message.includes('ENOTFOUND')
+      ));
+
+      if (typeof __DEV__ !== 'undefined' && __DEV__ && isNetFail) {
+        console.warn(`[API Network Failure] ${options.method || 'GET'} ${endpoint} failed against ${this.baseUrl}:`, {
+          platform: Platform.OS,
+          isTimeout,
+          originalError: err.message
+        });
       }
-      if (err.message && (err.message.includes('Network request failed') || err.message.includes('Failed to fetch') || err.message.includes('ECONNREFUSED'))) {
-        throw new Error(`Cannot reach EMS backend at ${this.baseUrl}. Verify that your device and computer are on the same Wi-Fi and backend is running.`);
+
+      if (isTimeout) {
+        const timeoutSec = Math.round(timeoutMs / 1000);
+        const timeoutErr = new Error(`Connection timed out after ${timeoutSec}s. Cannot reach EMS backend at ${this.baseUrl}. Please verify the server is running and both devices are on the same Wi-Fi.`);
+        timeoutErr.isNetworkError = true;
+        timeoutErr.isTimeout = true;
+        throw timeoutErr;
       }
+
+      if (isNetFail) {
+        let msg = `Cannot reach EMS backend at ${this.baseUrl}.`;
+        if (Platform.OS === 'android' && (this.baseUrl.includes('localhost') || this.baseUrl.includes('127.0.0.1'))) {
+          msg += " On Android devices, 'localhost' refers to the phone itself. Please configure your laptop's Wi-Fi IPv4 address (e.g. EXPO_PUBLIC_API_URL=http://192.168.31.114:5000).";
+        } else {
+          msg += " Please check your network connection, ensure both devices are on the same Wi-Fi network, and verify the backend server is running.";
+        }
+        const netErr = new Error(msg);
+        netErr.isNetworkError = true;
+        throw netErr;
+      }
+
       throw err;
     }
   }
@@ -383,16 +509,30 @@ class ApiService {
   }
 
   async verifyCompanyCode(companyCode) {
+    const clean = String(companyCode || '').trim().toUpperCase();
+    if (!clean) {
+      return { success: false, error: 'Please enter your company code.' };
+    }
+
     try {
-      return await this.request('/api/companies/verify-code', {
+      const data = await this.request('/api/companies/verify-code', {
         method: 'POST',
-        body: JSON.stringify({ companyCode })
+        body: JSON.stringify({ companyCode: clean })
       });
+      return data;
     } catch (err) {
+      // If server explicitly responded with an HTTP status (400, 403, 404, 500), return server error message directly
+      if (err.isServerError || err.status) {
+        return {
+          success: false,
+          error: err.data?.error || err.message || 'Company code not found. Please check the code and try again.'
+        };
+      }
+
+      // Offline / network failure: fallback to offline store
       await this.store.init();
-      const clean = (companyCode || '').trim().toUpperCase();
-      const org = this.store.state.organizations.find(
-        (o) => o.company_code.toUpperCase() === clean
+      const org = this.store.state.organizations.find((o) =>
+        (o.company_code || o.public_company_id || '').toUpperCase() === clean
       );
       if (org) {
         return {
@@ -400,27 +540,41 @@ class ApiService {
           company: {
             id: org.id,
             companyName: org.name,
-            companyCode: org.company_code,
+            name: org.name,
+            companyCode: org.company_code || org.public_company_id,
+            public_company_id: org.public_company_id || org.company_code,
             industry: org.industry,
-            officeAddress: org.office_address
-          }
+            officeAddress: org.office_address || org.address
+          },
+          isOfflineCached: true
         };
       }
-      return { success: false, error: 'Company code not found.' };
+
+      return {
+        success: false,
+        error: err.message || `Cannot reach EMS backend at ${this.baseUrl}. Please check your network connection or verify the backend server is running.`
+      };
     }
   }
 
   async checkCompanyCodeAvailability(companyCode) {
+    const clean = String(companyCode || '').trim().toUpperCase();
+    if (!clean) {
+      return { success: true, available: false };
+    }
+
     try {
       return await this.request('/api/companies/check-code-availability', {
         method: 'POST',
-        body: JSON.stringify({ companyCode })
+        body: JSON.stringify({ companyCode: clean })
       });
     } catch (err) {
+      if (err.isServerError || err.status) {
+        return { success: false, error: err.data?.error || err.message };
+      }
       await this.store.init();
-      const clean = (companyCode || '').trim().toUpperCase();
-      const exists = this.store.state.organizations.some(
-        (o) => o.company_code.toUpperCase() === clean
+      const exists = this.store.state.organizations.some((o) =>
+        (o.company_code || o.public_company_id || '').toUpperCase() === clean
       );
       return { success: true, available: !exists };
     }

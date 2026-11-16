@@ -1,15 +1,52 @@
 /**
  * Supabase Client Configuration
  * Initializes connection to Supabase PostgreSQL and Storage using service-role credentials.
+ * Includes strict environment isolation guards to prevent integration tests from ever
+ * running against or modifying the live production database.
  */
 
 const { createClient } = require('@supabase/supabase-js');
 const dotenv = require('dotenv');
 const path = require('path');
+const fs = require('fs');
 
-// Ensure server/.env is loaded even when launched from repository root or subdirectories
-dotenv.config();
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+// Known production Supabase hosts that must NEVER be accessed by tests
+const KNOWN_PRODUCTION_HOSTS = [
+  'ixxueouqbnkpcakeiekb.supabase.co'
+];
+
+const isTestEnv = process.env.NODE_ENV === 'test' || process.env.PLAYWRIGHT_TEST === 'true';
+
+if (isTestEnv) {
+  // STRICT GUARD 1: In test mode, ONLY load server/.env.test. NEVER load server/.env!
+  const testEnvPath = path.resolve(__dirname, '../../.env.test');
+  
+  if (!fs.existsSync(testEnvPath)) {
+    throw new Error(
+      '\n===============================================================================\n' +
+      '[FATAL TEST SAFETY ERROR] Missing staging configuration: server/.env.test\n' +
+      'Integration tests must run ONLY against a separate staging/test Supabase project.\n' +
+      'Tests are strictly blocked from connecting to or falling back to production.\n\n' +
+      'SETUP ACTION REQUIRED:\n' +
+      '  1. Copy server/.env.test.example to server/.env.test\n' +
+      '  2. Enter your dedicated staging Supabase URL & Service Role Key in server/.env.test\n' +
+      '===============================================================================\n'
+    );
+  }
+
+  // Clear any existing database env vars before loading test env
+  delete process.env.SUPABASE_URL;
+  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  const testConfig = dotenv.parse(fs.readFileSync(testEnvPath));
+  for (const k in testConfig) {
+    process.env[k] = testConfig[k];
+  }
+} else {
+  // Normal development & production environment loading
+  dotenv.config();
+  dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+}
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -19,9 +56,39 @@ const isPlaceholder = (val) => {
   const lower = val.toLowerCase();
   return lower.includes('your-project-id') ||
     lower.includes('your_project_url') ||
+    lower.includes('your-staging-project-id') ||
     lower.includes('your-supabase-service-role') ||
+    lower.includes('your-staging-service-role-key') ||
     lower.includes('example');
 };
+
+// STRICT GUARD 2: Reject if test environment points to production Supabase URL
+if (isTestEnv) {
+  const isProductionTarget = KNOWN_PRODUCTION_HOSTS.some(host => 
+    supabaseUrl && supabaseUrl.toLowerCase().includes(host)
+  );
+
+  if (isProductionTarget) {
+    throw new Error(
+      '\n===============================================================================\n' +
+      '[CRITICAL TEST SAFETY VIOLATION] Test environment attempted to connect to PRODUCTION!\n' +
+      `Detected production Supabase host: ${supabaseUrl}\n` +
+      'Tests are STRICTLY FORBIDDEN from running against the live production database.\n' +
+      'Please update server/.env.test with your separate staging project credentials.\n' +
+      '===============================================================================\n'
+    );
+  }
+
+  if (!supabaseUrl || !supabaseKey || isPlaceholder(supabaseUrl) || isPlaceholder(supabaseKey)) {
+    throw new Error(
+      '\n===============================================================================\n' +
+      '[FATAL TEST SAFETY ERROR] Incomplete staging configuration in server/.env.test!\n' +
+      'SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be configured with a real staging project.\n' +
+      'Tests cannot run with placeholder credentials.\n' +
+      '===============================================================================\n'
+    );
+  }
+}
 
 const hasValidCredentials = Boolean(
   supabaseUrl &&
@@ -64,5 +131,7 @@ function getSupabaseClient() {
 
 module.exports = {
   supabase,
-  getSupabaseClient
+  getSupabaseClient,
+  KNOWN_PRODUCTION_HOSTS,
+  isTestEnv
 };

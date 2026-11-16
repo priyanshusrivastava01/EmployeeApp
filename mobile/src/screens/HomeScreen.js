@@ -12,6 +12,7 @@ import { useTheme } from '../theme/ThemeContext';
 import { mockProfile, mockOfficeGeofence } from '../data/mockEmployeeData';
 import { getProfilePhoto } from '../services/profilePhotoService';
 import { useResponsiveLayout, getGridCardWidth, getFeatureCardColumns } from '../utils/responsive';
+import api from '../services/api';
 
 export default function HomeScreen({
   attendanceState,

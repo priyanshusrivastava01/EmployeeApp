@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
 
+import api from '../services/api';
 import { evaluateGeofence } from '../utils/geofence';
 import { useTheme } from '../theme/ThemeContext';
 import { useResponsiveLayout } from '../utils/responsive';
@@ -29,7 +30,13 @@ function formatDuration(totalMins) {
   return `${h}h ${String(m).padStart(2, '0')}m`;
 }
 
-export default function PunchScreen({ attendanceState = {}, onPunchSuccess, currentOrg, onNavigate }) {
+export default function PunchScreen({
+  attendanceState = {},
+  onPunchSuccess,
+  currentOrg,
+  currentUser,
+  onNavigate
+}) {
   const { colors, isDark } = useTheme();
   const layout = useResponsiveLayout();
   const styles = getStyles(colors, isDark, layout);
@@ -87,9 +94,10 @@ export default function PunchScreen({ attendanceState = {}, onPunchSuccess, curr
     ? 'time'
     : 'close-circle';
 
-  // Selected work mode (defaults to existing mode if shift active, else WFO)
+  // Selected work mode (defaults to existing mode if shift active, else employee's configured mode or WFO)
+  const defaultMode = (currentUser?.work_mode || currentUser?.workMode || 'WFO').toUpperCase();
   const [selectedMode, setSelectedMode] = useState(
-    isPunchedIn ? (attendanceState.mode || 'WFO') : 'WFO'
+    isPunchedIn ? (attendanceState.mode || 'WFO') : defaultMode
   );
 
   // Branch-specific geofencing (Prompt 2 Module D)
@@ -97,13 +105,22 @@ export default function PunchScreen({ attendanceState = {}, onPunchSuccess, curr
 
   useEffect(() => {
     let isMounted = true;
+    if (!isPunchedIn && currentUser) {
+      const mode = (currentUser.work_mode || currentUser.workMode || 'WFO').toUpperCase();
+      setSelectedMode(mode);
+    }
     api.getMyBranch().then(res => {
-      if (isMounted && res && res.success && res.branch) {
-        setAssignedBranch(res.branch);
+      if (isMounted && res && res.success) {
+        if (res.branch) {
+          setAssignedBranch(res.branch);
+        }
+        if (res.workMode && !isPunchedIn) {
+          setSelectedMode(res.workMode.toUpperCase());
+        }
       }
     }).catch(() => {});
     return () => { isMounted = false; };
-  }, [currentUser?.id]);
+  }, [currentUser?.id, isPunchedIn]);
 
   // Derive effective geofence from assigned office branch with fallback to org headquarters
   const officeGeofence = useMemo(() => {

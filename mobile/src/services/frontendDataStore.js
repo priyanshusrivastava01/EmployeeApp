@@ -73,7 +73,7 @@ export const SEED_ORGANIZATIONS = [
   }
 ];
 
-// Seed Users
+// Seed Users (Synthetic Demo Users for Offline Development Only)
 export const SEED_USERS = [
   // Org 1: Acme Technologies
   {

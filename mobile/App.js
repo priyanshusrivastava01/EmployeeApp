@@ -573,6 +573,7 @@ function MainApp() {
               attendanceState={attendanceState}
               onPunchSuccess={handlePunchSuccess}
               currentOrg={currentOrg}
+              currentUser={currentUser}
               onNavigate={handleNavigate}
             />
           </View>

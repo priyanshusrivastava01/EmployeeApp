@@ -84,11 +84,29 @@ export default function App() {
     department: 'Engineering',
     designation: '',
     phone: '',
-    password: ''
+    password: '',
+    workMode: 'WFO',
+    branchId: ''
   });
   const [createdEmpResult, setCreatedEmpResult] = useState(null);
   const [isSubmittingEmp, setIsSubmittingEmp] = useState(false);
   const [copiedCredentials, setCopiedCredentials] = useState(false);
+
+  // Edit Employee Modal State (Task 2: Multi-Branch & Work Mode Management)
+  const [showEditEmpModal, setShowEditEmpModal] = useState(false);
+  const [editingEmp, setEditingEmp] = useState(null);
+  const [editEmpForm, setEditEmpForm] = useState({
+    name: '',
+    role: 'employee',
+    department: 'Engineering',
+    designation: '',
+    phone: '',
+    status: 'Active',
+    workMode: 'WFO',
+    branchId: ''
+  });
+  const [isSubmittingEditEmp, setIsSubmittingEditEmp] = useState(false);
+  const [branchFilter, setBranchFilter] = useState('all');
 
   const [notification, setNotification] = useState(null);
 
@@ -183,13 +201,18 @@ export default function App() {
           id: u.id,
           name: u.name,
           role: u.role === 'admin' ? 'Founder & CEO' : u.designation || 'Staff',
+          rawRole: u.role || 'employee',
           department: u.department || 'Operations',
+          designation: u.designation || (u.role === 'team_leader' ? 'Team Leader' : 'Staff Member'),
           email: u.email || `${u.name?.toLowerCase().replace(' ', '.')}@company.com`,
           phone: u.phone || '+91 98000 00000',
           status: u.isActive !== false ? 'Active' : 'Inactive',
           joined: u.joinedDate || '2026-01-15',
           avatar: u.profilePhotoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
-          faceEnrolled: u.faceEnrollmentStatus === 'verified'
+          faceEnrolled: u.faceEnrollmentStatus === 'verified',
+          workMode: (u.workMode || u.work_mode || 'WFO').toUpperCase(),
+          branchId: u.branchId || u.branch_id || null,
+          branchName: u.branchName || u.branch_name || null
         })));
       }
 
@@ -294,10 +317,31 @@ export default function App() {
     });
   };
 
+  const handleOpenAddEmpModal = async () => {
+    try {
+      const bRes = await webApi.getBranches(true);
+      if (bRes && bRes.success && Array.isArray(bRes.data)) {
+        setBranchesList(bRes.data);
+        const activeList = bRes.data.filter(b => b.is_active !== false);
+        const hq = activeList.find(b => b.is_headquarters) || activeList[0];
+        setNewEmpForm(prev => ({
+          ...prev,
+          branchId: prev.branchId || (hq ? hq.id : '')
+        }));
+      }
+    } catch (_) {}
+    setShowAddEmpModal(true);
+  };
+
   const handleCreateEmployee = async (e) => {
     e.preventDefault();
     if (!newEmpForm.name.trim() || !newEmpForm.email.trim()) {
       showToast('Name and email are required.');
+      return;
+    }
+
+    if (newEmpForm.workMode === 'WFO' && !newEmpForm.branchId) {
+      showToast('Please select an office branch for Work From Office (WFO) employees.');
       return;
     }
 
@@ -313,15 +357,19 @@ export default function App() {
         targetPassword = autoPass;
       }
 
-      const res = await webApi.createUser({
+      const payload = {
         name: newEmpForm.name.trim(),
         email: newEmpForm.email.trim().toLowerCase(),
         role: newEmpForm.role,
         department: newEmpForm.department.trim() || 'Engineering',
         designation: newEmpForm.designation.trim() || 'Staff Member',
         phone: newEmpForm.phone.trim() || null,
-        password: targetPassword
-      });
+        password: targetPassword,
+        workMode: newEmpForm.workMode,
+        branchId: newEmpForm.workMode === 'WFO' ? newEmpForm.branchId : null
+      };
+
+      const res = await webApi.createUser(payload);
 
       if (res.success) {
         showToast('Employee account created successfully!');
@@ -332,9 +380,14 @@ export default function App() {
           email: newEmpForm.email.trim().toLowerCase(),
           password: targetPassword,
           companyId: currentOrg?.public_company_id || 'VAR001',
-          companyName: currentOrg?.name || 'Company'
+          companyName: currentOrg?.name || 'Company',
+          workMode: newEmpForm.workMode,
+          branchName: branchesList.find(b => b.id === newEmpForm.branchId)?.name || (newEmpForm.workMode === 'WFH' ? 'Remote (WFH)' : 'Head Office')
         };
         setCreatedEmpResult(creds);
+        
+        const activeBranches = branchesList.filter(b => b.is_active !== false);
+        const defaultBId = (activeBranches.find(b => b.is_headquarters) || activeBranches[0])?.id || '';
         setNewEmpForm({
           name: '',
           email: '',
@@ -342,12 +395,39 @@ export default function App() {
           department: 'Engineering',
           designation: '',
           phone: '',
-          password: ''
+          password: '',
+          workMode: 'WFO',
+          branchId: defaultBId
         });
-        // Refresh employees list
+
+        // Refresh employees and branches
         try {
-          const updated = await webApi.getUsers();
-          if (updated && updated.data) setEmployeesList(updated.data);
+          const [uRes, bRes] = await Promise.all([
+            webApi.getUsers(),
+            webApi.getBranches(false)
+          ]);
+          if (uRes && uRes.data) {
+            setEmployeesList(uRes.data.map(u => ({
+              id: u.id,
+              name: u.name,
+              role: u.role === 'admin' ? 'Founder & CEO' : u.designation || 'Staff',
+              rawRole: u.role || 'employee',
+              department: u.department || 'Operations',
+              designation: u.designation || (u.role === 'team_leader' ? 'Team Leader' : 'Staff Member'),
+              email: u.email || `${u.name?.toLowerCase().replace(' ', '.')}@company.com`,
+              phone: u.phone || '+91 98000 00000',
+              status: u.isActive !== false ? 'Active' : 'Inactive',
+              joined: u.joinedDate || '2026-01-15',
+              avatar: u.profilePhotoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
+              faceEnrolled: u.faceEnrollmentStatus === 'verified',
+              workMode: (u.workMode || u.work_mode || 'WFO').toUpperCase(),
+              branchId: u.branchId || u.branch_id || null,
+              branchName: u.branchName || u.branch_name || null
+            })));
+          }
+          if (bRes && bRes.data) {
+            setBranchesList(bRes.data);
+          }
         } catch (_) {}
       } else {
         showToast(res.error || 'Failed to create employee.');
@@ -356,6 +436,77 @@ export default function App() {
       showToast(err.message || 'Error creating employee.');
     } finally {
       setIsSubmittingEmp(false);
+    }
+  };
+
+  const handleOpenEditEmp = async (emp) => {
+    setEditingEmp(emp);
+    let currentBId = emp.branchId || '';
+    if (emp.workMode === 'WFO' && !currentBId) {
+      const matchByName = branchesList.find(b => b.name === emp.branchName && b.is_active !== false);
+      const hq = branchesList.find(b => b.is_headquarters && b.is_active !== false) || branchesList.find(b => b.is_active !== false);
+      currentBId = matchByName ? matchByName.id : (hq ? hq.id : '');
+    }
+
+    setEditEmpForm({
+      name: emp.name || '',
+      role: emp.rawRole || (emp.role === 'Founder & CEO' ? 'admin' : (emp.role === 'Team Leader' ? 'team_leader' : 'employee')),
+      department: emp.department || 'Operations',
+      designation: emp.designation || '',
+      phone: emp.phone || '',
+      status: emp.status === 'Active' || emp.status === 'active' ? 'Active' : 'Inactive',
+      workMode: (emp.workMode || 'WFO').toUpperCase(),
+      branchId: currentBId
+    });
+
+    try {
+      const bRes = await webApi.getBranches(false);
+      if (bRes && bRes.success && Array.isArray(bRes.data)) {
+        setBranchesList(bRes.data);
+      }
+    } catch (_) {}
+
+    setShowEditEmpModal(true);
+  };
+
+  const handleUpdateEmployee = async (e) => {
+    e.preventDefault();
+    if (!editingEmp) return;
+    if (!editEmpForm.name.trim()) {
+      showToast('Name is required.');
+      return;
+    }
+    if (editEmpForm.workMode === 'WFO' && !editEmpForm.branchId) {
+      showToast('Please select an assigned office branch for WFO employees.');
+      return;
+    }
+
+    try {
+      setIsSubmittingEditEmp(true);
+      const payload = {
+        name: editEmpForm.name.trim(),
+        role: editEmpForm.role,
+        department: editEmpForm.department.trim() || 'Operations',
+        designation: editEmpForm.designation.trim() || 'Staff Member',
+        phone: editEmpForm.phone.trim() || null,
+        is_active: editEmpForm.status === 'Active' || editEmpForm.status === 'active',
+        work_mode: editEmpForm.workMode,
+        branch_id: editEmpForm.workMode === 'WFO' ? editEmpForm.branchId : null
+      };
+
+      const res = await webApi.updateUser(editingEmp.id, payload);
+      if (res && res.success) {
+        showToast(`Employee "${editEmpForm.name}" updated successfully.`);
+        setShowEditEmpModal(false);
+        setEditingEmp(null);
+        await loadBackendData();
+      } else {
+        showToast(res?.error || 'Failed to update employee.');
+      }
+    } catch (err) {
+      showToast(err.message || 'Error updating employee.');
+    } finally {
+      setIsSubmittingEditEmp(false);
     }
   };
 
@@ -550,7 +701,9 @@ export default function App() {
                           emp.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           (emp.designation || emp.role)?.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesDept = departmentFilter === 'all' || emp.department === departmentFilter;
-    return matchesSearch && matchesDept;
+    const matchesBranch = branchFilter === 'all' ||
+                          (branchFilter === 'WFH' ? (emp.workMode === 'WFH') : (emp.branchId === branchFilter));
+    return matchesSearch && matchesDept && matchesBranch;
   });
 
   // Filtered task reports for spreadsheet
@@ -1417,6 +1570,89 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Work Mode & Branch Assignment (Task 1: Multi-Branch & Geofencing) */}
+              <div style={{
+                padding: '14px',
+                borderRadius: '10px',
+                background: 'var(--bg-card-subtle)',
+                border: '1px solid var(--border)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px'
+              }}>
+                <div style={{ display: 'grid', gridTemplateColumns: newEmpForm.workMode === 'WFO' ? '1fr 1fr' : '1fr', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                      Work Mode *
+                    </label>
+                    <select
+                      value={newEmpForm.workMode}
+                      onChange={e => {
+                        const mode = e.target.value;
+                        const activeBranches = branchesList.filter(b => b.is_active !== false);
+                        const defaultBId = (activeBranches.find(b => b.is_headquarters) || activeBranches[0])?.id || '';
+                        setNewEmpForm({
+                          ...newEmpForm,
+                          workMode: mode,
+                          branchId: mode === 'WFO' ? (newEmpForm.branchId || defaultBId) : ''
+                        });
+                      }}
+                      style={{ width: '100%', background: 'var(--input-bg)' }}
+                    >
+                      <option value="WFO">🏢 Work From Office (WFO)</option>
+                      <option value="WFH">🏠 Work From Home (WFH)</option>
+                    </select>
+                  </div>
+
+                  {newEmpForm.workMode === 'WFO' && (
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                        Assigned Office Branch *
+                      </label>
+                      <select
+                        required
+                        value={newEmpForm.branchId}
+                        onChange={e => setNewEmpForm({ ...newEmpForm, branchId: e.target.value })}
+                        style={{ width: '100%', background: 'var(--input-bg)' }}
+                      >
+                        <option value="">-- Select Office Branch * --</option>
+                        {branchesList.filter(b => b.is_active !== false).map(b => (
+                          <option key={b.id} value={b.id}>
+                            {b.name}{b.is_headquarters ? ' (Headquarters)' : ''} — {b.radius_meters || 150}m geofence
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {newEmpForm.workMode === 'WFO' ? (
+                  <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <MapPin size={13} color="var(--primary)" />
+                    <span>Attendance punches will be validated against this branch's geofence coordinates and radius.</span>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Home size={13} color="#2563EB" />
+                    <span>Remote employee. Branch geofencing is bypassed; selfie and timestamp will be logged.</span>
+                  </div>
+                )}
+
+                {newEmpForm.workMode === 'WFO' && branchesList.filter(b => b.is_active !== false).length === 0 && (
+                  <div style={{
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    background: 'rgba(239, 68, 68, 0.1)',
+                    border: '1px solid rgba(239, 68, 68, 0.25)',
+                    color: '#DC2626',
+                    fontSize: '0.76rem',
+                    fontWeight: 600
+                  }}>
+                    ⚠️ No active office branches found for your organization. Please create an active branch in the Branches tab first before adding WFO staff.
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
                   Account Password (Optional)
@@ -1464,6 +1700,238 @@ export default function App() {
                   }}
                 >
                   {isSubmittingEmp ? 'Creating Account...' : 'Create Employee Account'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Employee Modal (Task 2: Work Mode & Branch Reassignment) ── */}
+      {showEditEmpModal && editingEmp && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0, 0, 0, 0.6)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          padding: '20px'
+        }}>
+          <div style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border)',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '540px',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            padding: '28px',
+            boxShadow: 'var(--shadow-xl)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <div>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+                  Edit Staff: {editingEmp.name}
+                </h3>
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
+                  Update role, department, work mode, and assigned office branch.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setShowEditEmpModal(false); setEditingEmp(null); }}
+                style={{ padding: '6px', borderRadius: '8px', color: 'var(--text-secondary)', cursor: 'pointer' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateEmployee} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                  Full Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editEmpForm.name}
+                  onChange={e => setEditEmpForm({ ...editEmpForm, name: e.target.value })}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                    Role Assignment
+                  </label>
+                  <select
+                    value={editEmpForm.role}
+                    onChange={e => setEditEmpForm({ ...editEmpForm, role: e.target.value })}
+                    style={{ width: '100%', background: 'var(--input-bg)' }}
+                  >
+                    <option value="employee">Employee</option>
+                    <option value="team_leader">Team Leader</option>
+                    {currentUser?.role === 'founder' && <option value="admin">Administrator</option>}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                    Account Status
+                  </label>
+                  <select
+                    value={editEmpForm.status}
+                    onChange={e => setEditEmpForm({ ...editEmpForm, status: e.target.value })}
+                    style={{ width: '100%', background: 'var(--input-bg)' }}
+                  >
+                    <option value="Active">Active</option>
+                    <option value="Inactive">Inactive (Suspended)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                    Department
+                  </label>
+                  <input
+                    type="text"
+                    value={editEmpForm.department}
+                    onChange={e => setEditEmpForm({ ...editEmpForm, department: e.target.value })}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                    Designation
+                  </label>
+                  <input
+                    type="text"
+                    value={editEmpForm.designation}
+                    onChange={e => setEditEmpForm({ ...editEmpForm, designation: e.target.value })}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                  Phone Number
+                </label>
+                <input
+                  type="tel"
+                  placeholder="+91 98765 43210"
+                  value={editEmpForm.phone}
+                  onChange={e => setEditEmpForm({ ...editEmpForm, phone: e.target.value })}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              {/* Work Mode & Branch Assignment */}
+              <div style={{
+                padding: '14px',
+                borderRadius: '10px',
+                background: 'var(--bg-card-subtle)',
+                border: '1px solid var(--border)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px'
+              }}>
+                <div style={{ display: 'grid', gridTemplateColumns: editEmpForm.workMode === 'WFO' ? '1fr 1fr' : '1fr', gap: '12px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                      Work Mode *
+                    </label>
+                    <select
+                      value={editEmpForm.workMode}
+                      onChange={e => {
+                        const mode = e.target.value;
+                        const activeBranches = branchesList.filter(b => b.is_active !== false);
+                        const defaultBId = (activeBranches.find(b => b.is_headquarters) || activeBranches[0])?.id || '';
+                        setEditEmpForm({
+                          ...editEmpForm,
+                          workMode: mode,
+                          branchId: mode === 'WFO' ? (editEmpForm.branchId || defaultBId) : ''
+                        });
+                      }}
+                      style={{ width: '100%', background: 'var(--input-bg)' }}
+                    >
+                      <option value="WFO">🏢 Work From Office (WFO)</option>
+                      <option value="WFH">🏠 Work From Home (WFH)</option>
+                    </select>
+                  </div>
+
+                  {editEmpForm.workMode === 'WFO' && (
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '6px' }}>
+                        Assigned Office Branch *
+                      </label>
+                      <select
+                        required
+                        value={editEmpForm.branchId}
+                        onChange={e => setEditEmpForm({ ...editEmpForm, branchId: e.target.value })}
+                        style={{ width: '100%', background: 'var(--input-bg)' }}
+                      >
+                        <option value="">-- Select Office Branch * --</option>
+                        {branchesList.filter(b => b.is_active !== false).map(b => (
+                          <option key={b.id} value={b.id}>
+                            {b.name}{b.is_headquarters ? ' (Headquarters)' : ''} — {b.radius_meters || 150}m geofence
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {editEmpForm.workMode === 'WFO' ? (
+                  <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <MapPin size={13} color="var(--primary)" />
+                    <span>Future attendance punches will be validated against this branch's geofence coordinates and radius.</span>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Home size={13} color="#2563EB" />
+                    <span>Remote employee. Branch assignment will be cleared (null) and geofencing will not apply.</span>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '12px' }}>
+                <button
+                  type="button"
+                  onClick={() => { setShowEditEmpModal(false); setEditingEmp(null); }}
+                  style={{
+                    padding: '10px 16px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border)',
+                    background: 'var(--bg-card-subtle)',
+                    color: 'var(--text-primary)',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingEditEmp}
+                  style={{
+                    padding: '10px 20px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    background: 'var(--primary)',
+                    color: '#fff',
+                    fontWeight: 700,
+                    cursor: isSubmittingEditEmp ? 'not-allowed' : 'pointer',
+                    opacity: isSubmittingEditEmp ? 0.7 : 1
+                  }}
+                >
+                  {isSubmittingEditEmp ? 'Saving Changes...' : 'Save Changes'}
                 </button>
               </div>
             </form>
@@ -1863,7 +2331,7 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => setShowAddEmpModal(true)}
+              onClick={handleOpenAddEmpModal}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -2092,6 +2560,21 @@ export default function App() {
                     <option value="Marketing">Marketing</option>
                   </select>
                 </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Building2 size={16} color="var(--text-secondary)" />
+                  <select
+                    value={branchFilter}
+                    onChange={e => setBranchFilter(e.target.value)}
+                    style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)', background: '#fff', fontWeight: 600, color: 'var(--text-primary)' }}
+                  >
+                    <option value="all">All Branches & Remote</option>
+                    <option value="WFH">🏠 Remote (WFH)</option>
+                    {branchesList.map(b => (
+                      <option key={b.id} value={b.id}>🏢 {b.name}{b.is_headquarters ? ' (HQ)' : ''}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               {/* Employees Table */}
@@ -2102,7 +2585,7 @@ export default function App() {
                       <th style={{ padding: '14px 20px', fontWeight: 700 }}>Employee</th>
                       <th style={{ padding: '14px 20px', fontWeight: 700 }}>Role</th>
                       <th style={{ padding: '14px 20px', fontWeight: 700 }}>Department</th>
-                      <th style={{ padding: '14px 20px', fontWeight: 700 }}>Reporting To</th>
+                      <th style={{ padding: '14px 20px', fontWeight: 700 }}>Work Mode & Branch</th>
                       <th style={{ padding: '14px 20px', fontWeight: 700 }}>Phone</th>
                       <th style={{ padding: '14px 20px', fontWeight: 700 }}>Status</th>
                       <th style={{ padding: '14px 20px', fontWeight: 700 }}>Actions</th>
@@ -2138,14 +2621,35 @@ export default function App() {
                             background: emp.role === 'team_leader' ? 'var(--bg-light-olive)' : 'var(--bg-beige)',
                             color: emp.role === 'team_leader' ? 'var(--primary)' : 'var(--primary-hover)'
                           }}>
-                            {emp.role === 'team_leader' ? 'Team Leader' : 'Employee'}
+                            {emp.role === 'team_leader' ? 'Team Leader' : (emp.role === 'Founder & CEO' ? 'Founder & CEO' : 'Employee')}
                           </span>
                         </td>
                         <td style={{ padding: '16px 20px', fontWeight: 600 }}>
                           <div>{emp.department}</div>
                           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{emp.designation}</div>
                         </td>
-                        <td style={{ padding: '16px 20px', color: 'var(--text-secondary)' }}>{emp.teamLeader}</td>
+                        <td style={{ padding: '16px 20px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{
+                                padding: '2px 8px',
+                                borderRadius: '12px',
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                background: emp.workMode === 'WFH' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                                color: emp.workMode === 'WFH' ? '#2563EB' : '#059669',
+                                border: `1px solid ${emp.workMode === 'WFH' ? 'rgba(59, 130, 246, 0.25)' : 'rgba(16, 185, 129, 0.25)'}`
+                              }}>
+                                {emp.workMode === 'WFH' ? '🏠 WFH' : '🏢 WFO'}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                              {emp.workMode === 'WFH'
+                                ? 'Remote'
+                                : (emp.branchName || branchesList.find(b => b.id === emp.branchId)?.name || 'Head Office')}
+                            </div>
+                          </div>
+                        </td>
                         <td style={{ padding: '16px 20px', fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{emp.phone}</td>
                         <td style={{ padding: '16px 20px' }}>
                           <span style={{
@@ -2153,15 +2657,15 @@ export default function App() {
                             borderRadius: '20px',
                             fontSize: '0.75rem',
                             fontWeight: 700,
-                            background: emp.status === 'active' ? 'var(--bg-light-olive)' : '#FAF0EE',
-                            color: emp.status === 'active' ? 'var(--primary)' : '#C0392B'
+                            background: emp.status === 'Active' || emp.status === 'active' ? 'var(--bg-light-olive)' : '#FAF0EE',
+                            color: emp.status === 'Active' || emp.status === 'active' ? 'var(--primary)' : '#C0392B'
                           }}>
-                            {emp.status === 'active' ? 'Active' : 'Inactive'}
+                            {emp.status === 'Active' || emp.status === 'active' ? 'Active' : 'Inactive'}
                           </span>
                         </td>
                         <td style={{ padding: '16px 20px' }}>
                           <button
-                            onClick={() => showToast(`Edit profile opened for ${emp.name}`)}
+                            onClick={() => handleOpenEditEmp(emp)}
                             style={{
                               padding: '6px 12px',
                               borderRadius: '6px',
@@ -2169,9 +2673,14 @@ export default function App() {
                               background: '#fff',
                               fontSize: '0.78rem',
                               fontWeight: 600,
-                              cursor: 'pointer'
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              color: 'var(--text-primary)'
                             }}
                           >
+                            <Edit3 size={12} />
                             Edit
                           </button>
                         </td>

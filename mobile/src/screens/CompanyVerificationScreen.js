@@ -72,7 +72,7 @@ export default function CompanyVerificationScreen({
   }, []);
 
   const handleVerify = async () => {
-    const code = companyCode.trim();
+    const code = companyCode.trim().toUpperCase();
     if (!code) {
       setErrorMessage('Please enter your company code.');
       return;
@@ -88,10 +88,10 @@ export default function CompanyVerificationScreen({
           onVerified(result.company);
         }
       } else {
-        setErrorMessage(result.error || 'Company not found. Please check the code and try again.');
+        setErrorMessage(result.error || 'Company code not found. Please check the code and try again.');
       }
     } catch (err) {
-      setErrorMessage(err.message || 'Unable to verify. Please check your network connection.');
+      setErrorMessage(err.message || 'Unable to reach EMS backend. Please check your connection.');
     } finally {
       setIsVerifying(false);
     }
@@ -117,16 +117,17 @@ export default function CompanyVerificationScreen({
       return;
     }
 
-    setCompanyCode(code.toUpperCase());
+    const cleanCode = code.toUpperCase();
+    setCompanyCode(cleanCode);
     // Auto-verify
     setIsVerifying(true);
     setErrorMessage('');
     try {
-      const result = await api.verifyCompanyCode(code);
+      const result = await api.verifyCompanyCode(cleanCode);
       if (result.success && result.company) {
         if (onVerified) onVerified(result.company);
       } else {
-        setErrorMessage(result.error || 'Company not found for the scanned QR code.');
+        setErrorMessage(result.error || 'Company code not found for the scanned QR code.');
       }
     } catch (err) {
       setErrorMessage(err.message || 'Verification failed. Please try again.');
