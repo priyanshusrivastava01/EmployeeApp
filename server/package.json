@@ -6,7 +6,9 @@
   "type": "commonjs",
   "scripts": {
     "start": "node src/index.js",
+    "start:staging": "node start-staging.js",
     "dev": "node --watch src/index.js",
+    "dev:staging": "node --watch start-staging.js",
     "test": "node test-health.js",
     "test:e2e": "node test-master-e2e.js",
     "test:phase1": "node test-phase1-verification.js",

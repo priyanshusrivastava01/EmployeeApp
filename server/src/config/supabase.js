@@ -15,18 +15,21 @@ const KNOWN_PRODUCTION_HOSTS = [
   'ixxueouqbnkpcakeiekb.supabase.co'
 ];
 
-const isTestEnv = process.env.NODE_ENV === 'test' || process.env.PLAYWRIGHT_TEST === 'true';
+const isTestOrStagingEnv = process.env.NODE_ENV === 'test' ||
+  process.env.NODE_ENV === 'staging' ||
+  process.env.APP_ENV === 'staging' ||
+  process.env.PLAYWRIGHT_TEST === 'true';
 
-if (isTestEnv) {
-  // STRICT GUARD 1: In test mode, ONLY load server/.env.test. NEVER load server/.env!
+if (isTestOrStagingEnv) {
+  // STRICT GUARD 1: In test/staging mode, ONLY load server/.env.test. NEVER load server/.env!
   const testEnvPath = path.resolve(__dirname, '../../.env.test');
   
   if (!fs.existsSync(testEnvPath)) {
     throw new Error(
       '\n===============================================================================\n' +
-      '[FATAL TEST SAFETY ERROR] Missing staging configuration: server/.env.test\n' +
-      'Integration tests must run ONLY against a separate staging/test Supabase project.\n' +
-      'Tests are strictly blocked from connecting to or falling back to production.\n\n' +
+      '[FATAL STAGING/TEST SAFETY ERROR] Missing staging configuration: server/.env.test\n' +
+      'Staging and test runs must run ONLY against a separate staging Supabase project.\n' +
+      'Backend is strictly blocked from connecting to or falling back to production.\n\n' +
       'SETUP ACTION REQUIRED:\n' +
       '  1. Copy server/.env.test.example to server/.env.test\n' +
       '  2. Enter your dedicated staging Supabase URL & Service Role Key in server/.env.test\n' +
@@ -62,8 +65,8 @@ const isPlaceholder = (val) => {
     lower.includes('example');
 };
 
-// STRICT GUARD 2: Reject if test environment points to production Supabase URL
-if (isTestEnv) {
+// STRICT GUARD 2: Reject if test or staging environment points to production Supabase URL
+if (isTestOrStagingEnv) {
   const isProductionTarget = KNOWN_PRODUCTION_HOSTS.some(host => 
     supabaseUrl && supabaseUrl.toLowerCase().includes(host)
   );
@@ -71,9 +74,9 @@ if (isTestEnv) {
   if (isProductionTarget) {
     throw new Error(
       '\n===============================================================================\n' +
-      '[CRITICAL TEST SAFETY VIOLATION] Test environment attempted to connect to PRODUCTION!\n' +
+      '[CRITICAL SAFETY VIOLATION] Staging/Test environment attempted to connect to PRODUCTION!\n' +
       `Detected production Supabase host: ${supabaseUrl}\n` +
-      'Tests are STRICTLY FORBIDDEN from running against the live production database.\n' +
+      'Staging and tests are STRICTLY FORBIDDEN from running against the live production database.\n' +
       'Please update server/.env.test with your separate staging project credentials.\n' +
       '===============================================================================\n'
     );
@@ -82,9 +85,9 @@ if (isTestEnv) {
   if (!supabaseUrl || !supabaseKey || isPlaceholder(supabaseUrl) || isPlaceholder(supabaseKey)) {
     throw new Error(
       '\n===============================================================================\n' +
-      '[FATAL TEST SAFETY ERROR] Incomplete staging configuration in server/.env.test!\n' +
+      '[FATAL STAGING/TEST SAFETY ERROR] Incomplete staging configuration in server/.env.test!\n' +
       'SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be configured with a real staging project.\n' +
-      'Tests cannot run with placeholder credentials.\n' +
+      'Staging and tests cannot run with placeholder credentials.\n' +
       '===============================================================================\n'
     );
   }
@@ -133,5 +136,5 @@ module.exports = {
   supabase,
   getSupabaseClient,
   KNOWN_PRODUCTION_HOSTS,
-  isTestEnv
+  isTestEnv: isTestOrStagingEnv
 };

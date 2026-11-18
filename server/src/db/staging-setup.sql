@@ -22,6 +22,17 @@ CREATE TABLE IF NOT EXISTS organizations (
     plan VARCHAR(50) DEFAULT 'free' CHECK (plan IN ('free', 'starter', 'pro', 'enterprise')),
     phone VARCHAR(50),
     address TEXT,
+    city VARCHAR(100),
+    country VARCHAR(100) DEFAULT 'India',
+    industry VARCHAR(100),
+    employee_size_range VARCHAR(50),
+    logo_url TEXT,
+    contact_email VARCHAR(255),
+    contact_phone VARCHAR(50),
+    working_days VARCHAR(100) DEFAULT 'Mon,Tue,Wed,Thu,Fri',
+    late_threshold_minutes INTEGER DEFAULT 15,
+    wfh_allowed BOOLEAN DEFAULT true,
+    min_hours_action VARCHAR(50) DEFAULT 'half_day',
     office_lat NUMERIC(10, 7),
     office_lng NUMERIC(10, 7),
     office_radius_meters INT DEFAULT 150,
@@ -34,6 +45,19 @@ CREATE TABLE IF NOT EXISTS organizations (
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Ensure profile and policy columns exist even if table was previously created without them
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS city VARCHAR(100);
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS country VARCHAR(100) DEFAULT 'India';
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS industry VARCHAR(100);
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS employee_size_range VARCHAR(50);
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS logo_url TEXT;
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS contact_email VARCHAR(255);
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS contact_phone VARCHAR(50);
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS working_days VARCHAR(100) DEFAULT 'Mon,Tue,Wed,Thu,Fri';
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS late_threshold_minutes INTEGER DEFAULT 15;
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS wfh_allowed BOOLEAN DEFAULT true;
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS min_hours_action VARCHAR(50) DEFAULT 'half_day';
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orgs_company_code_upper 
     ON organizations (UPPER(company_code)) WHERE company_code IS NOT NULL;

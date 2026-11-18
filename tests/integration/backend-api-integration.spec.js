@@ -21,7 +21,9 @@ test.describe('EMS Deep Backend Integration & Multi-Tenant Isolation Suite', () 
     email: `founder.alpha.${timestamp}@stagingisolation.internal`,
     password: 'Password123!',
     industry: 'Technology',
-    city: 'Bengaluru'
+    city: 'Bengaluru',
+    employee_size_range: '51-200',
+    logo_url: 'https://cdn.example.com/branding/tenant-alpha-logo.png'
   };
 
   const tenantBData = {
@@ -31,7 +33,9 @@ test.describe('EMS Deep Backend Integration & Multi-Tenant Isolation Suite', () 
     email: `founder.beta.${timestamp}@stagingisolation.internal`,
     password: 'Password123!',
     industry: 'Logistics',
-    city: 'Mumbai'
+    city: 'Mumbai',
+    employee_size_range: '10-50',
+    logo_url: 'https://cdn.example.com/branding/tenant-beta-logo.png'
   };
 
   let seedOrgId = null;
@@ -163,6 +167,8 @@ test.describe('EMS Deep Backend Integration & Multi-Tenant Isolation Suite', () 
       expect(data.token).toBeTruthy();
       expect(data.user.role).toBe('founder');
       expect(data.organization.company_code).toBe(tenantACode);
+      expect(data.organization.logo_url).toBe(tenantAData.logo_url);
+      expect(data.organization.employee_size_range).toBe(tenantAData.employee_size_range);
 
       tenantAOrgId = data.organization.id;
       tenantAFounderToken = data.token;

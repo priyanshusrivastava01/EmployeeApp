@@ -20,7 +20,7 @@ const { supabase } = require('./config/supabase');
 const { requireAuth, requireRole, generateToken, setUserValidator } = require('./middleware/auth');
 const { BUCKETS, isBase64DataUri, parseBase64DataUri, uploadPrivateFile, getSignedDownloadUrl } = require('./services/storage');
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test' && process.env.NODE_ENV !== 'staging' && process.env.APP_ENV !== 'staging') {
   dotenv.config();
 }
 
@@ -1289,7 +1289,9 @@ app.post('/api/auth/register-company', authLimiter, async (req, res) => {
       password, confirmPassword, founderPassword,
       companyName, name,
       companySlug, slug,
-      industry, country, city, timezone, employeeSize
+      industry, country, city, timezone, employeeSize,
+      employee_size_range, employeeSizeRange,
+      logo_url, logoUrl
     } = req.body;
 
     const fName = (fullName || founderName || '').trim();
@@ -1410,8 +1412,8 @@ app.post('/api/auth/register-company', authLimiter, async (req, res) => {
       industry: industry || null,
       country: country || 'India',
       city: city || null,
-      employee_size_range: employeeSize || null,
-      logo_url: null,
+      employee_size_range: employee_size_range || employeeSizeRange || employeeSize || null,
+      logo_url: logo_url || logoUrl || null,
       contact_email: fEmail,
       contact_phone: phone || null,
       company_code: validatedCompanyCode || null,
@@ -1425,6 +1427,7 @@ app.post('/api/auth/register-company', authLimiter, async (req, res) => {
       office_lng: null,
       office_radius_meters: 100,
       wfh_allowed: true,
+      min_hours_action: 'half_day',
       is_active: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -1449,7 +1452,24 @@ app.post('/api/auth/register-company', authLimiter, async (req, res) => {
     };
 
     if (supabase) {
-      const { error: orgErr } = await supabase.from('organizations').insert([newOrg]);
+      let { error: orgErr } = await supabase.from('organizations').insert([newOrg]);
+      if (orgErr && orgErr.message && orgErr.message.includes("column of 'organizations' in the schema cache")) {
+        // PostgREST schema cache mismatch fallback:
+        // Strip unmigrated/extended columns not yet present in the schema cache and retry
+        const knownBaseFields = [
+          'id', 'name', 'slug', 'company_code', 'public_company_id', 'plan', 'phone',
+          'address', 'office_lat', 'office_lng', 'office_radius_meters',
+          'work_start_time', 'work_end_time', 'timezone',
+          'full_day_minutes', 'half_day_minutes', 'is_active', 'created_at', 'updated_at'
+        ];
+        const sanitizedOrg = {};
+        for (const key of knownBaseFields) {
+          if (newOrg[key] !== undefined) sanitizedOrg[key] = newOrg[key];
+        }
+        console.warn(`[Register Company] Organizations schema mismatch detected (${orgErr.message}). Retrying insert with baseline schema fields.`);
+        const retryRes = await supabase.from('organizations').insert([sanitizedOrg]);
+        orgErr = retryRes.error;
+      }
       if (orgErr) {
         return res.status(500).json({ success: false, error: `Organization creation failed: ${orgErr.message}` });
       }
@@ -1519,6 +1539,8 @@ app.post('/api/auth/register-company', authLimiter, async (req, res) => {
         industry: newOrg.industry,
         country: newOrg.country,
         city: newOrg.city,
+        employee_size_range: newOrg.employee_size_range,
+        logo_url: newOrg.logo_url,
         timezone: newOrg.timezone,
         office_lat: newOrg.office_lat != null ? Number(newOrg.office_lat) : null,
         office_lng: newOrg.office_lng != null ? Number(newOrg.office_lng) : null,
@@ -2084,11 +2106,15 @@ app.post('/api/auth/register-org', authLimiter, async (req, res) => {
       public_company_id: generateCompanyId(),
       name: orgName,
       slug: orgSlug,
-      logo_url: null,
+      industry: req.body.industry || null,
+      country: req.body.country || 'India',
+      city: req.body.city || null,
+      employee_size_range: req.body.employee_size_range || req.body.employeeSizeRange || req.body.employeeSize || null,
+      logo_url: req.body.logo_url || req.body.logoUrl || null,
       contact_email: adminEmail,
-      contact_phone: null,
-      address: null,
-      timezone: 'Asia/Kolkata',
+      contact_phone: req.body.contact_phone || req.body.contactPhone || req.body.phone || null,
+      address: req.body.address || null,
+      timezone: req.body.timezone || 'Asia/Kolkata',
       working_days: 'Mon,Tue,Wed,Thu,Fri',
       work_start_time: '09:30',
       work_end_time: '18:30',
@@ -2097,6 +2123,7 @@ app.post('/api/auth/register-org', authLimiter, async (req, res) => {
       office_lng: null,
       office_radius_meters: 100,
       wfh_allowed: true,
+      min_hours_action: 'half_day',
       is_active: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
@@ -2124,8 +2151,30 @@ app.post('/api/auth/register-org', authLimiter, async (req, res) => {
     memDb.users.push(newUser);
 
     if (supabase) {
-      await supabase.from('organizations').insert([newOrg]);
-      await supabase.from('users').insert([{ ...newUser }]);
+      let { error: orgErr } = await supabase.from('organizations').insert([newOrg]);
+      if (orgErr && orgErr.message && orgErr.message.includes("column of 'organizations' in the schema cache")) {
+        const knownBaseFields = [
+          'id', 'name', 'slug', 'company_code', 'public_company_id', 'plan', 'phone',
+          'address', 'office_lat', 'office_lng', 'office_radius_meters',
+          'work_start_time', 'work_end_time', 'timezone',
+          'full_day_minutes', 'half_day_minutes', 'is_active', 'created_at', 'updated_at'
+        ];
+        const sanitizedOrg = {};
+        for (const key of knownBaseFields) {
+          if (newOrg[key] !== undefined) sanitizedOrg[key] = newOrg[key];
+        }
+        console.warn(`[Register Admin] Organizations schema mismatch detected (${orgErr.message}). Retrying insert with baseline schema fields.`);
+        const retryRes = await supabase.from('organizations').insert([sanitizedOrg]);
+        orgErr = retryRes.error;
+      }
+      if (orgErr) {
+        return res.status(500).json({ success: false, error: `Organization registration failed: ${orgErr.message}` });
+      }
+      const { error: userErr } = await supabase.from('users').insert([{ ...newUser }]);
+      if (userErr) {
+        await supabase.from('organizations').delete().eq('id', orgId);
+        return res.status(500).json({ success: false, error: `Admin user creation failed: ${userErr.message}` });
+      }
     }
 
     const token = generateToken(newUser, orgId, orgSlug);

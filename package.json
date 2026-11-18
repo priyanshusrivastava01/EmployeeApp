@@ -5,6 +5,8 @@
   "description": "EmployeeApp Monorepo Root",
   "scripts": {
     "start": "npm --prefix server start",
+    "start:staging": "npm --prefix server run start:staging",
+    "mobile": "npm --prefix mobile start",
     "build": "npm --prefix server install",
     "test": "npm --prefix server test",
     "test:e2e": "playwright test",

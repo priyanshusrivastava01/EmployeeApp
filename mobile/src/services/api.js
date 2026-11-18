@@ -35,7 +35,7 @@ const STORAGE_KEYS = {
  */
 const PRODUCTION_BACKEND_URL = 'https://employeeapp-5u4l.onrender.com';
 const LOCAL_BACKEND_PORT = 5000;
-const DEFAULT_LAN_IP = '192.168.31.114';
+const DEFAULT_LAN_IP = '192.168.31.113';
 
 /**
  * Detects whether the app is executing in a production environment:
